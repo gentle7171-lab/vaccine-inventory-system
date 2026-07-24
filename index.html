@@ -154,6 +154,7 @@ tr:hover td{background:#fafaf8}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:14px;color:#888" id="topbar-name"></span>
+      <button class="btn btn-sm" onclick="openMyPwModal()">🔑 修改密碼</button>
       <button class="btn-out" onclick="logout()">登出</button>
     </div>
   </div>
@@ -889,6 +890,21 @@ tr:hover td{background:#fafaf8}
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-reset-pw')">取消</button>
       <button class="btn btn-primary" onclick="confirmResetPw()">確定重設</button>
+    </div>
+  </div>
+</div>
+
+<!-- 使用者自行修改密碼 modal -->
+<div class="modal-bg" id="modal-my-pw">
+  <div class="modal">
+    <h3>修改密碼</h3>
+    <div class="fg"><label>目前密碼</label><input type="password" id="mypw-current" class="inp" autocomplete="current-password"></div>
+    <div class="fg"><label>新密碼</label><input type="password" id="mypw-new" class="inp" autocomplete="new-password"></div>
+    <div class="fg"><label>再輸入一次新密碼</label><input type="password" id="mypw-confirm" class="inp" autocomplete="new-password"></div>
+    <div id="mypw-msg" style="display:none" class="notice n-warn"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-my-pw')">取消</button>
+      <button class="btn btn-primary" onclick="submitMyPwChange()">確定修改</button>
     </div>
   </div>
 </div>
@@ -2941,6 +2957,36 @@ async function confirmResetPw(){
   closeModal('modal-reset-pw');
   resetPwTarget = null;
   alert('✓ 密碼已重設為員編');
+}
+
+/* ── 使用者自行修改密碼（不需要管理員操作） ── */
+function openMyPwModal(){
+  document.getElementById('mypw-current').value = '';
+  document.getElementById('mypw-new').value = '';
+  document.getElementById('mypw-confirm').value = '';
+  document.getElementById('mypw-msg').style.display = 'none';
+  document.getElementById('modal-my-pw').classList.add('open');
+}
+
+async function submitMyPwChange(){
+  const cur = document.getElementById('mypw-current').value;
+  const nw = document.getElementById('mypw-new').value;
+  const confirmPw = document.getElementById('mypw-confirm').value;
+  const msgBox = document.getElementById('mypw-msg');
+  const showMsg = t => { msgBox.style.display=''; msgBox.textContent = t; };
+
+  if(!cur || !nw || !confirmPw){ showMsg('請完整填寫三個欄位'); return; }
+  if(cur.toLowerCase() !== String(me.password).toLowerCase()){ showMsg('目前密碼不正確'); return; }
+  if(nw.length < 4){ showMsg('新密碼至少需要4個字元'); return; }
+  if(nw !== confirmPw){ showMsg('兩次輸入的新密碼不一致'); return; }
+  if(nw.toLowerCase() === cur.toLowerCase()){ showMsg('新密碼不能跟目前密碼一樣'); return; }
+
+  const { error } = await sb.from('users').update({password:nw}).eq('emp_id', me.emp_id);
+  if(error){ showMsg('修改失敗：'+error.message); return; }
+
+  me.password = nw;
+  closeModal('modal-my-pw');
+  alert('✓ 密碼已修改完成，下次登入請用新密碼');
 }
 
 
