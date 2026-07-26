@@ -5168,8 +5168,8 @@ async function exportPcvReportExcel(){
     xml += xNum('F'+rn,9,r.inVials);
     xml += xNum('G'+rn,9,r.outVials);
     xml += xNum('H'+rn,9,r.consumedVials);
-    xml += xFormula('I'+rn,10,'H'+rn);
-    xml += xFormula('J'+rn,10,`E${rn}+F${rn}-G${rn}-H${rn}`);
+    xml += xNum('I'+rn,10,r.vaccinated);
+    xml += xNum('J'+rn,10, r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : 0));
     xml += xStr('K'+rn,11,r.note||'');
     xml += '</row>';
     rn++;
@@ -5242,7 +5242,7 @@ async function exportBcgReportExcel(){
     xml += rw.hasBaseline ? xNum('C'+r,7,rw.startVials) : xEmpty('C'+r,7);
     xml += xNum('D'+r,7,rw.inVials);
     xml += xNum('E'+r,7,rw.consumedVials);
-    xml += xFormula('F'+r,8, `C${r}+D${r}-E${r}`);
+    xml += xNum('F'+r,8, rw.endVials!=null ? rw.endVials : (rw.tallySuggested!=null ? rw.tallySuggested : 0));
     xml += xNum('G'+r,7,rw.vaccinated);
     xml += xStr('H'+r,9,noteFull);
     xml += '</row>';
@@ -5461,14 +5461,15 @@ async function exportHbigReportExcel(){
   hbigXmlSetCell(doc, 'D6', Number(manual.s_antigen_positive)||0);
   hbigXmlSetCell(doc, 'E6', Number(manual.e_antigen_positive)||0);
 
-  // 免疫球蛋白(H.B.I.G)：F上月結存 G入 H出 I注射人次 J核銷賠償(手動) — K本月結存是範本內建公式，不動它
+  // 免疫球蛋白(H.B.I.G)：F上月結存 G入 H出 I注射人次 J核銷賠償(手動) K本月結存 — K本月結存改成直接抓報表①的數字，不用範本公式現場算
   hbigXmlSetCell(doc, 'F6', sum(igRows,'startVials'));
   hbigXmlSetCell(doc, 'G6', sum(igRows,'inVials'));
   hbigXmlSetCell(doc, 'H6', sum(igRows,'outVials'));
   hbigXmlSetCell(doc, 'I6', sum(igRows,'vaccinated'));
   hbigXmlSetCell(doc, 'J6', Number(manual.ig_writeoff)||0);
+  hbigXmlSetCell(doc, 'K6', igRows.reduce((a,r)=>a+endOf(r),0));
 
-  // 遺傳工程疫苗：L上月結存 M入 N出 O~R第一~四劑 T核銷賠償(手動) — S合計、U本月結存是範本內建公式，不動它們
+  // 遺傳工程疫苗：L上月結存 M入 N出 O~R第一~四劑 S合計 T核銷賠償(手動) U本月結存 — S、U都改成直接抓報表①/實際劑數，不用範本公式現場算
   hbigXmlSetCell(doc, 'L6', sum(vacRows,'startVials'));
   hbigXmlSetCell(doc, 'M6', sum(vacRows,'inVials'));
   hbigXmlSetCell(doc, 'N6', sum(vacRows,'outVials'));
@@ -5476,7 +5477,9 @@ async function exportHbigReportExcel(){
   hbigXmlSetCell(doc, 'P6', dose[2]||0);
   hbigXmlSetCell(doc, 'Q6', dose[3]||0);
   hbigXmlSetCell(doc, 'R6', dose[4]||0);
+  hbigXmlSetCell(doc, 'S6', (dose[1]||0)+(dose[2]||0)+(dose[3]||0)+(dose[4]||0));
   hbigXmlSetCell(doc, 'T6', Number(manual.vaccine_writeoff)||0);
+  hbigXmlSetCell(doc, 'U6', vacRows.reduce((a,r)=>a+endOf(r),0));
 
   // 結存情況：逐批號列出（最多3個），批號欄/有效期限欄/本月結存量欄
   const igCells = [['D8','H8','J8'], ['D9','H9','J9'], ['D10','H10','J10']];
@@ -5634,8 +5637,8 @@ async function exportMonthlyReportExcel(){
     xml += xNum('F'+rn,13,r.inVials);
     xml += xNum('G'+rn,13,r.outVials);
     xml += xNum('H'+rn,13,r.consumedVials);
-    xml += xFormula('I'+rn,14,'H'+rn);
-    xml += xFormula('J'+rn,14,`E${rn}+F${rn}-G${rn}-H${rn}`);
+    xml += xNum('I'+rn,14,r.vaccinated);
+    xml += xNum('J'+rn,14, r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : 0));
     xml += xStr('K'+rn,15,noteOut);
     xml += '</row>';
     rn++;
