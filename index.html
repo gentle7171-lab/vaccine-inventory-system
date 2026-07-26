@@ -8,6 +8,8 @@
 <script>if (typeof supabase === 'undefined') { document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>'); }</script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>if (typeof XLSX === 'undefined') { document.write('<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>'); }</script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>if (typeof JSZip === 'undefined') { document.write('<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"><\/script>'); }</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Microsoft JhengHei','PingFang TC',system-ui,-apple-system,sans-serif;font-size:18px;color:#1a1a1a;background:#f5f5f3}
@@ -300,13 +302,7 @@ tr:hover td{background:#fafaf8}
     </div>
 
     <!-- ══ 報表（報表上傳／NIIS申報輔助／月報表）══ -->
-    <div class="sec" id="sec-reports">
-      <div class="subtabs" style="margin-bottom:14px">
-        <div class="subtab active" id="rpt-main-sub-upload" onclick="switchReportMain('upload')">📤 報表上傳</div>
-        <div class="subtab" id="rpt-main-sub-niis" onclick="switchReportMain('niis')">🧾 NIIS申報輔助</div>
-        <div class="subtab" id="rpt-main-sub-monthly" onclick="switchReportMain('monthly')">📊 月報表</div>
-      </div>
-
+    <div class="sec" id="sec-upload">
       <div id="rpt-main-panel-upload">
         <div class="subtabs" style="margin-bottom:14px">
           <div class="subtab active" id="rpt-sub-usage" onclick="switchReportSub('usage')">💊 耗用報表上傳</div>
@@ -407,8 +403,10 @@ tr:hover td{background:#fafaf8}
         </div>
 
       </div>
+    </div>
 
-      <div id="rpt-main-panel-niis" style="display:none">
+    <div class="sec" id="sec-niisrep">
+      <div id="rpt-main-panel-niis">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
           <input type="date" id="niis-date" class="inp" style="width:160px">
           <button class="btn btn-primary btn-sm" onclick="renderNiisList()">🔍 查詢</button>
@@ -417,7 +415,10 @@ tr:hover td{background:#fafaf8}
           <button class="btn btn-sm" onclick="openNiisLogModal()">📜 結存紀錄查詢</button>
         </div>
 
-        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 8px">NIIS申報總表（參考鏡像，僅供對照操作，無法直接送出至政府系統）<span style="font-size:13px;font-weight:400;color:#888;margin-left:8px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動）</span></div>
+        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 8px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <span>NIIS申報總表（參考鏡像，僅供對照操作，無法直接送出至政府系統）<span style="font-size:13px;font-weight:400;color:#888;margin-left:8px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動）</span></span>
+          <span id="niis-hide-zero-count" style="font-size:12px;color:#aaa"></span>
+        </div>
         <div class="tbl-wrap" style="margin-bottom:20px">
           <table>
             <thead><tr>
@@ -465,8 +466,16 @@ tr:hover td{background:#fafaf8}
           </table>
         </div>
       </div>
+    </div>
 
-      <div id="rpt-main-panel-monthly" style="display:none">
+    <div class="sec" id="sec-monthlyrep">
+      <div id="rpt-main-panel-monthly">
+        <div class="subtabs" style="margin-bottom:10px">
+          <div class="subtab active" id="mr-rep-tab-1" onclick="switchMrReport('1')">① 疫苗消耗結存報表</div>
+          <div class="subtab" id="mr-rep-tab-2" onclick="switchMrReport('2')">② 肺炎鏈球菌報表</div>
+          <div class="subtab" id="mr-rep-tab-3" onclick="switchMrReport('3')">③ B肝報表</div>
+          <div class="subtab" id="mr-rep-tab-4" onclick="switchMrReport('4')">④ 卡介苗報表</div>
+        </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
           <select id="mr-year" class="inp" style="width:100px" onchange="renderMonthlyReport()"></select>
           <select id="mr-month" class="inp" style="width:90px" onchange="renderMonthlyReport()">
@@ -476,16 +485,20 @@ tr:hover td{background:#fafaf8}
             <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
           </select>
           <button class="btn btn-primary btn-sm" onclick="renderMonthlyReport()">📊 產生報表</button>
-          <button class="btn btn-sm" onclick="copyMonthlyReport()">📋 複製表格</button>
-          <button class="btn btn-sm" onclick="exportMonthlyReportExcel()">📥 匯出Excel</button>
-          <button class="btn btn-sm" style="background:#2E7D32;color:#fff" onclick="saveMonthlyClosing()">✅ 確認並儲存本月結存</button>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;font-size:13px;color:#888">
           <span>自動帶入哪一天的NIIS結存當基準：</span>
           <input type="date" id="mr-niis-source-date" class="inp" style="width:150px;font-size:13px" onchange="renderMonthlyReport()">
           <span style="color:#bbb">（預設為當月最後一天；如果那天有些批號還沒結存，可以先改選前一天，等之後結存補上再改回來重新產生）</span>
         </div>
-        <div id="mr-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:10px"></div>
+
+        <div id="mr-report-1">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="exportMonthlyReportExcel()">📥 匯出Excel</button>
+          <button class="btn btn-sm" style="background:#2E7D32;color:#fff" onclick="saveMonthlyClosing()">✅ 確認並儲存本月結存</button>
+        </div>
+        <div id="mr-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:4px"></div>
+        <div style="text-align:center;font-size:12px;color:#999;margin-bottom:10px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動，匯出Excel也會照這個順序）</div>
         <div class="tbl-wrap" style="overflow-x:auto">
           <table>
             <thead><tr>
@@ -518,8 +531,81 @@ tr:hover td{background:#fafaf8}
           <div>填表人:＿＿＿＿＿＿＿＿＿＿</div>
           <div>醫院、診所負責人:＿＿＿＿＿＿＿＿＿＿</div>
         </div>
+        </div>
+
+        <div id="mr-report-2" style="display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="exportPcvReportExcel()">📥 匯出Excel</button>
+        </div>
+        <div id="mr2-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:10px"></div>
+        <div class="tbl-wrap" style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th style="width:150px">疫苗名稱</th>
+              <th class="c" style="width:55px">劑型</th>
+              <th style="width:130px">批號</th>
+              <th style="width:90px">有效日期</th>
+              <th class="c" style="width:70px">上月結存</th>
+              <th class="c" style="width:80px">撥入<br>(向衛生所領)</th>
+              <th class="c" style="width:80px">撥出<br>(調回衛生所)</th>
+              <th class="c" style="width:80px">消耗總瓶數</th>
+              <th class="c" style="width:70px">接種人數</th>
+              <th class="c" style="width:90px">本月結存<br>總瓶數</th>
+              <th style="width:130px">備註</th>
+            </tr></thead>
+            <tbody id="mr2-body"></tbody>
+          </table>
+        </div>
+        <div style="font-size:13px;color:#666;margin-top:16px;line-height:1.8">
+          註：<br>
+          1.本表應由每月2日前填報斗六市衛生所（請填寫該月第一日至最後一日）。<br>
+          2.撥入撥出消耗結存統計欄以『瓶』為單位。<br>
+          3.若該月份使用同一種疫苗，但有兩個以上批號請將所有批號寫出來。<br>
+          4.該月份的電子資料也請繳交，請填寫該月第一日至最後一日。<br>
+          5.TEL：05-5345140 #22　　　　E-mail：dlphc23@ylshb.gov.tw
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:24px;font-size:14px">
+          <div>斗六市____台大雲林分院___醫院、診所負責人:＿＿＿＿＿＿＿＿＿＿</div>
+          <div>填表人:＿＿＿＿＿＿＿＿＿＿</div>
+        </div>
+        </div>
+
+        <div id="mr-report-3" style="display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="renderHbigReport()">🔄 重新整理</button>
+          <button class="btn btn-sm" onclick="exportHbigReportExcel()">📥 匯出Excel</button>
+        </div>
+        <div id="mr3-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:6px">免費B肝疫苗遺傳工程預防注射 月份報表(丙)</div>
+        <div style="text-align:center;font-size:12px;color:#888;margin-bottom:14px">次月五日前寄達衛生局所各一份　　衛生所及協辦醫院診所（請蓋肝炎資訊代碼章）</div>
+        <div class="notice n-warn" style="margin-bottom:14px">下面欄位是系統從耗用報表自動試算的建議值，其中「第一~四劑」人次跟孕婦檢驗數／S抗原陽性數／e抗原陽性數／核銷及賠償都可以直接編輯覆蓋，填完會自動儲存這個月份。疫苗的「第幾劑」是系統嘗試從耗用報表裡的「疫苗劑別代碼」欄位自動判斷，如果醫療端當時選錯劑別導致數字不對，直接在這裡改成正確的數字即可，不用回頭改耗用報表。</div>
+        <div id="mr3-body"></div>
+        </div>
+
+        <div id="mr-report-4" style="display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="exportBcgReportExcel()">📥 匯出Excel</button>
+        </div>
+        <div id="mr4-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:10px"></div>
+        <div class="tbl-wrap" style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>機關別</th>
+              <th style="width:150px">批號</th>
+              <th class="c" style="width:90px">上月結存(支)</th>
+              <th class="c" style="width:90px">本月收入(支)</th>
+              <th class="c" style="width:90px">本月消耗(支)</th>
+              <th class="c" style="width:90px">本月結存(支)</th>
+              <th class="c" style="width:90px">本月注射量(人)</th>
+              <th style="width:180px">備註</th>
+            </tr></thead>
+            <tbody id="mr4-body"></tbody>
+          </table>
+        </div>
+        <div style="font-size:13px;color:#666;margin-top:16px">填表人:＿＿＿＿＿＿＿＿＿＿</div>
+      </div>
       </div>
     </div>
+
 
     <!-- ══ 主檔維護（疫苗主檔／分頁設定／帳號管理）══ -->
     <div class="sec" id="sec-master">
@@ -538,7 +624,7 @@ tr:hover td{background:#fafaf8}
           <button class="btn btn-sm" onclick="openVaccineBatch()">📋 批次匯入</button>
         </div>
         <!-- 啟用中 -->
-        <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px">啟用中品項</div>
+        <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px">啟用中品項 <span style="font-size:12px;font-weight:400;color:#999">🔀 可直接拖曳整列調整顯示順序（只影響這份清單，不影響其他畫面）</span></div>
         <div class="tbl-wrap" style="margin-bottom:16px">
           <table>
             <thead><tr>
@@ -689,6 +775,17 @@ tr:hover td{background:#fafaf8}
       <label>共用批號庫存（別名，選填）</label>
       <input type="text" id="vacc-alias-of" placeholder="留空＝獨立管理批號庫存；填入另一個藥品8碼＝這個8碼視為它的別名，耗用/進出貨上傳會自動併入那個8碼的批號庫存扣帳" class="inp">
       <div style="font-size:12px;color:#999;margin-top:2px">用於「同一批貨、但要用不同8碼申報」的情況（例如公費/自費、不同對象但共用同一支疫苗）。設定後這個8碼不需要自己開批號，庫存全部算在被設定的那個8碼下。</div>
+    </div>
+    <div class="fg" style="margin-top:6px">
+      <label>特殊月報表分類（選填）</label>
+      <select id="vacc-special-report" class="inp">
+        <option value="">無（只出現在一般疫苗消耗結存報表）</option>
+        <option value="pcv">肺炎鏈球菌疫苗報表</option>
+        <option value="bcg">卡介苗報表</option>
+        <option value="hbig_ig">B肝報表－免疫球蛋白(H.B.I.G)</option>
+        <option value="hbig_vaccine">B肝報表－遺傳工程疫苗</option>
+      </select>
+      <div style="font-size:12px;color:#999;margin-top:2px">設定後，這個品項會額外出現在「報表→月報表」對應的專屬報表分頁裡（原本的疫苗消耗結存報表不受影響，一樣會出現）</div>
     </div>
     <div class="fg" style="margin-top:6px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -1092,7 +1189,7 @@ async function initApp(){
     ' <span class="site-pill pill-admin" style="font-size:12px">'+roleLabel+'</span>';
 
   const tabs = isManager
-    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'reports',label:'報表'},{id:'master',label:'主檔維護'}]
+    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'主檔維護'}]
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
@@ -1117,7 +1214,21 @@ function showTab(id){
     renderOverview();
   }
   if(id==='master') initMasterTab();
-  if(id==='reports') switchReportMain(reportMainSub);
+  if(id==='upload') initReportsTab();
+  if(id==='niisrep'){
+    if(!document.getElementById('niis-date').value) document.getElementById('niis-date').value = todayStr();
+    renderNiisList();
+  }
+  if(id==='monthlyrep'){
+    const firstOpen = !document.getElementById('mr-year').options.length;
+    if(firstOpen) populateMrYearOptions();
+    if(firstOpen){
+      const now = new Date();
+      document.getElementById('mr-year').value = String(now.getFullYear());
+      document.getElementById('mr-month').value = String(now.getMonth()+1).padStart(2,'0');
+    }
+    renderMonthlyReport();
+  }
 }
 
 let invMainSub = 'input';
@@ -1135,32 +1246,6 @@ function switchInvMain(tab){
     // 只有管理者才顯示操作歷程子分頁
     document.getElementById('rec-sub-oplog').style.display = isManager?'':'none';
     renderRecords();
-  }
-}
-
-let reportMainSub = 'upload';
-function switchReportMain(tab){
-  reportMainSub = tab;
-  document.getElementById('rpt-main-sub-upload').classList.toggle('active', tab==='upload');
-  document.getElementById('rpt-main-sub-niis').classList.toggle('active', tab==='niis');
-  document.getElementById('rpt-main-sub-monthly').classList.toggle('active', tab==='monthly');
-  document.getElementById('rpt-main-panel-upload').style.display = tab==='upload' ? '' : 'none';
-  document.getElementById('rpt-main-panel-niis').style.display = tab==='niis' ? '' : 'none';
-  document.getElementById('rpt-main-panel-monthly').style.display = tab==='monthly' ? '' : 'none';
-  if(tab==='upload') initReportsTab();
-  if(tab==='niis'){
-    if(!document.getElementById('niis-date').value) document.getElementById('niis-date').value = todayStr();
-    renderNiisList();
-  }
-  if(tab==='monthly'){
-    const firstOpen = !document.getElementById('mr-year').options.length;
-    if(firstOpen) populateMrYearOptions();
-    if(firstOpen){
-      const now = new Date();
-      document.getElementById('mr-year').value = String(now.getFullYear());
-      document.getElementById('mr-month').value = String(now.getMonth()+1).padStart(2,'0');
-    }
-    renderMonthlyReport();
   }
 }
 
@@ -1881,6 +1966,7 @@ function toggleLogGroup(id){
    疫苗主資料庫
 ══════════════════════════════════════════ */
 let vaccSelected = new Set();
+let vaccMasterDragFromCode8 = null;
 let vaccActiveCodes = [];
 let vaccInactiveCodes = [];
 
@@ -1914,6 +2000,12 @@ async function renderVaccines(){
   // 啟用中（含各品項目前使用中的批號）
   const lotsMap = await fetchActiveLotsMap(vaccActiveCodes);
   vaccActiveRows = (active||[]).map(v => ({ v, lots: lotsMap[v.drug_code8]||[] }));
+  vaccActiveRows.sort((a,b)=>{
+    const sa = a.v.master_sort_order===null||a.v.master_sort_order===undefined ? Infinity : a.v.master_sort_order;
+    const sb2 = b.v.master_sort_order===null||b.v.master_sort_order===undefined ? Infinity : b.v.master_sort_order;
+    if(sa!==sb2) return sa-sb2;
+    return (a.v.tally_name||'').localeCompare(b.v.tally_name||'', 'zh-Hant');
+  });
   renderActiveVaccTable();
 
   // 已停用
@@ -2087,9 +2179,12 @@ function buildVaccRow(v, lots){
         return `<span style="font-family:monospace">${lotNo}</span><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">${tags.join('')}</div>`;
       }).join('<div style="height:8px"></div>')
     : '<span style="color:#bbb;font-size:13px">尚無使用中批號</span>';
-  return `<tr>
+  return `<tr draggable="true" data-code8="${v.drug_code8}"
+    ondragstart="vaccMasterDragStart(event)" ondragover="vaccMasterDragOver(event)"
+    ondragleave="vaccMasterDragLeave(event)" ondrop="vaccMasterDrop(event)" ondragend="vaccMasterDragEnd(event)"
+    style="cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent">
     <td><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
-    <td style="font-size:15px">${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
+    <td style="font-size:15px"><span style="color:#bbb;margin-right:4px">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
     <td style="font-size:14px;color:#666">${v.product_name||'—'}</td>
     <td style="font-size:14px;color:#666">${v.niis_name||'—'}</td>
     <td style="font-size:13px;color:#888">${v.drug_code8||''}</td>
@@ -2103,6 +2198,65 @@ function buildVaccRow(v, lots){
       <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
     </td>
   </tr>`;
+}
+
+function vaccMasterDragStart(e){
+  vaccMasterDragFromCode8 = e.currentTarget.dataset.code8;
+  e.dataTransfer.effectAllowed = 'move';
+  try{ e.dataTransfer.setData('text/plain', vaccMasterDragFromCode8); }catch(err){}
+}
+function vaccMasterDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const row = e.currentTarget;
+  if(!vaccMasterDragFromCode8 || row.dataset.code8 === vaccMasterDragFromCode8) return;
+  const rect = row.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height/2;
+  row.style.borderTopColor = before ? '#1B3A6B' : 'transparent';
+  row.style.borderBottomColor = before ? 'transparent' : '#1B3A6B';
+}
+function vaccMasterDragLeave(e){
+  e.currentTarget.style.borderTopColor = 'transparent';
+  e.currentTarget.style.borderBottomColor = 'transparent';
+}
+async function vaccMasterDrop(e){
+  e.preventDefault();
+  const row = e.currentTarget;
+  row.style.borderTopColor = 'transparent';
+  row.style.borderBottomColor = 'transparent';
+  const toCode8 = row.dataset.code8;
+  const fromCode8 = vaccMasterDragFromCode8;
+  vaccMasterDragFromCode8 = null;
+  if(!fromCode8 || fromCode8 === toCode8) return;
+
+  const order = vaccActiveRows.map(item => item.v.drug_code8);
+  const fromIdx = order.indexOf(fromCode8);
+  let toIdx = order.indexOf(toCode8);
+  if(fromIdx === -1 || toIdx === -1) return;
+
+  const rect = row.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height/2;
+  if(!before) toIdx++;
+
+  order.splice(fromIdx, 1);
+  if(fromIdx < toIdx) toIdx--;
+  order.splice(toIdx, 0, fromCode8);
+
+  try{
+    await Promise.all(order.map((code8, idx) => sb.from('vaccine_master').update({master_sort_order: idx*10}).eq('drug_code8', code8)));
+  }catch(err){
+    alert('順序儲存失敗：'+err.message);
+    return;
+  }
+  vaccSortKey = null; // 拖曳後改用手動順序顯示，取消原本點欄位標題的排序狀態
+  await renderVaccines();
+}
+function vaccMasterDragEnd(){
+  vaccMasterDragFromCode8 = null;
+  document.querySelectorAll('#vacc-active-body tr[draggable="true"]').forEach(r=>{
+    r.style.borderTopColor = 'transparent';
+    r.style.borderBottomColor = 'transparent';
+  });
 }
 
 function toggleInactive(){
@@ -2129,6 +2283,7 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-doses-per-vial').value = data.doses_per_vial||1;
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
+      document.getElementById('vacc-special-report').value = data.special_report||'';
     }
     document.getElementById('lot-drug-code').value = code8;
     if(data && data.alias_of){
@@ -2147,6 +2302,7 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-doses-per-vial').value = 1;
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-alias-of').value = '';
+    document.getElementById('vacc-special-report').value = '';
     document.getElementById('vacc-lots-placeholder').style.display = '';
     document.getElementById('vacc-lots-content').style.display = 'none';
   }
@@ -2166,6 +2322,7 @@ async function saveVaccine(){
     doses_per_vial: parseFloat(document.getElementById('vacc-doses-per-vial').value) || 1,
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
+    special_report: document.getElementById('vacc-special-report').value || null,
     status: 'active'
   };
   if(!row.drug_code8 || !row.tally_name){ alert('請填寫藥品8碼和盤點表名稱'); return; }
@@ -2994,8 +3151,10 @@ async function submitMyPwChange(){
    報表上傳
 ══════════════════════════════════════════ */
 let usageGrouped = [];
+let usageDoseGrouped = [];
 let lastNiisList = [];
 let niisMirrorRows = [];
+let niisMirrorAllRows = [];
 let niisUploadedDates = new Set();
 let lastNiisMirrorVmaster = [];
 
@@ -3060,12 +3219,14 @@ async function handleUsageFile(input){
   const idxLot = findColIdx(header, ['批號']);
   const idxQty = findColIdx(header, ['給藥量','數量']);
   const idxRxDate = findColIdx(header, ['處方確認日期','施打日期','用藥日期','投藥日期']);
+  const idxDoseNo = findColIdx(header, ['疫苗劑別代碼','劑別代碼','疫苗劑別']);
   if(idxLot<0 || idxQty<0){ alert('找不到必要欄位（批號／給藥量），請確認檔案格式'); return; }
 
   const dataRows = rows.slice(headerIdx+1).filter(r=>r && r.length && String(r[idxCode8]||'').trim());
 
   // 逐列讀取施打日期，各列可以是不同日期，依「日期＋藥品8碼＋批號」自動分組（不再整份檔案只取單一日期）
   const map = {};          // key: date|code8|lot -> 彙總
+  const doseMap = {};      // key: date|code8|lot|dose_no -> 彙總（只用於B肝報表第幾劑拆分，額外記錄、不影響上面map的耗用計算）
   const dateCount = {};    // 每個日期幾筆原始列
   let unparsedCount = 0;
   let dateNotice = '';
@@ -3088,6 +3249,15 @@ async function handleUsageFile(input){
     const key = date+'|'+code8+'|'+lot;
     if(!map[key]) map[key] = {date, drug_code8:code8, lot_no:lot, niis_code:niis, usage_qty:0};
     map[key].usage_qty += qty;
+
+    if(idxDoseNo>=0){
+      const doseNo = String(r[idxDoseNo]||'').trim();
+      if(doseNo){
+        const dkey = date+'|'+code8+'|'+lot+'|'+doseNo;
+        if(!doseMap[dkey]) doseMap[dkey] = {date, drug_code8:code8, lot_no:lot, dose_no:doseNo, qty:0};
+        doseMap[dkey].qty += qty;
+      }
+    }
   });
 
   const distinctDates = Object.keys(dateCount).sort();
@@ -3106,6 +3276,14 @@ async function handleUsageFile(input){
         const key = fallbackDate+'|'+code8+'|'+lot;
         if(!map[key]) map[key] = {date:fallbackDate, drug_code8:code8, lot_no:lot, niis_code:niis, usage_qty:0};
         map[key].usage_qty += qty;
+        if(idxDoseNo>=0){
+          const doseNo = String(r[idxDoseNo]||'').trim();
+          if(doseNo){
+            const dkey = fallbackDate+'|'+code8+'|'+lot+'|'+doseNo;
+            if(!doseMap[dkey]) doseMap[dkey] = {date:fallbackDate, drug_code8:code8, lot_no:lot, dose_no:doseNo, qty:0};
+            doseMap[dkey].qty += qty;
+          }
+        }
       });
     }
   } else if(!distinctDates.length){
@@ -3127,6 +3305,7 @@ async function handleUsageFile(input){
   usageGrouped = Object.values(map)
     .map(r=>({...r, tally_name: vmap[r.drug_code8]?vmap[r.drug_code8].tally_name:null}))
     .sort((a,b)=> a.date.localeCompare(b.date) || (a.tally_name||a.drug_code8).localeCompare(b.tally_name||b.drug_code8));
+  usageDoseGrouped = Object.values(doseMap);
 
   document.getElementById('usage-raw-count').textContent = dataRows.length;
   document.getElementById('usage-grp-count').textContent = usageGrouped.length;
@@ -3200,6 +3379,15 @@ async function commitUsageUpload(){
     const { error } = await sb.from('usage_uploads').insert(rows);
     if(error){ alert(`寫入 ${date} 失敗：${error.message}\n（在此之前的日期若已成功寫入，資料庫中仍會保留，請檢查後視情況手動處理或重新上傳）`); return; }
 
+    // 劑別拆分（第幾劑）只用於B肝報表統計，非必要資料，失敗不影響主流程
+    try{
+      await sb.from('usage_dose_breakdown').delete().eq('upload_date', date);
+      const doseRows = usageDoseGrouped.filter(d=>d.date===date).map(d=>({
+        upload_date: d.date, drug_code8: d.drug_code8, lot_no: d.lot_no, dose_no: d.dose_no, qty: d.qty
+      }));
+      if(doseRows.length) await sb.from('usage_dose_breakdown').insert(doseRows);
+    }catch(e){ /* 劑別拆分非必要資料，靜默略過 */ }
+
     // 先還原這天先前已經扣過的「整瓶領用」紀錄（避免同一天重複上傳造成重複扣庫存），再依這次最新的耗用量重新計算扣一次
     const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
     for(const pd of (prevDeducts||[])){
@@ -3241,6 +3429,7 @@ async function commitUsageUpload(){
   document.getElementById('usage-file').value='';
   document.getElementById('usage-preview-wrap').style.display='none';
   usageGrouped = [];
+  usageDoseGrouped = [];
   renderUploadHistory();
 }
 
@@ -4302,10 +4491,22 @@ async function renderNiisMirror(vmaster){
     return a.niis_name.localeCompare(b.niis_name) || a.lotNo.localeCompare(b.lotNo);
   });
 
+  niisMirrorAllRows = rows;
+  renderNiisMirrorRows();
+}
+
+function renderNiisMirrorRows(){
+  const tbody = document.getElementById('niis-mirror-body');
+  const allRows = niisMirrorAllRows || [];
+  const rows = allRows.filter(r => !(r.qty===0 && r.hold===0 && r.pendingCount===0));
+  const hiddenCount = allRows.length - rows.length;
+  const countEl = document.getElementById('niis-hide-zero-count');
+  if(countEl) countEl.textContent = hiddenCount>0 ? `（已隱藏${hiddenCount}筆）` : '';
+
   niisMirrorRows = rows;
 
   if(!rows.length){
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#bbb">目前無批號資料</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:#bbb">${allRows.length ? '庫存量為0的品項已全部隱藏' : '目前無批號資料'}</td></tr>`;
     return;
   }
 
@@ -4733,7 +4934,7 @@ async function renderMonthlyReport(){
     codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
-    codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct').in('drug_code8', codes) : Promise.resolve({data:[]}),
+    codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,special_report,report1_sort_order').in('drug_code8', codes) : Promise.resolve({data:[]}),
     // 盤點作業是「每個疫苗品項」總量、不分批號，只有在該品項當時只有單一批號在用時，才能直接拿盤點總量當那個批號的月結存建議值；
     // 多批號品項系統不知道要怎麼拆，還是要人工判斷分批填寫
     codes.length ? sb.from('tally_records').select('drug_code8,campus,tally_qty').eq('tally_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -4826,6 +5027,8 @@ async function renderMonthlyReport(){
       code8, lotNo,
       name: (vmap[code8] && vmap[code8].tally_name) || code8,
       dosesPerVial,
+      specialReport: (vmap[code8] && vmap[code8].special_report) || null,
+      report1SortOrder: (vmap[code8] && vmap[code8].report1_sort_order),
       expiry: expiryMap[key] || null,
       hasBaseline,
       startVials,
@@ -4840,7 +5043,12 @@ async function renderMonthlyReport(){
     });
   }
 
-  results.sort((a,b)=> a.name.localeCompare(b.name) || a.lotNo.localeCompare(b.lotNo));
+  results.sort((a,b)=>{
+    const sa = a.report1SortOrder===null||a.report1SortOrder===undefined ? Infinity : a.report1SortOrder;
+    const sb2 = b.report1SortOrder===null||b.report1SortOrder===undefined ? Infinity : b.report1SortOrder;
+    if(sa!==sb2) return sa-sb2;
+    return a.name.localeCompare(b.name) || a.lotNo.localeCompare(b.lotNo);
+  });
   lastMonthlyReport = results;
 
   // 民國年標題，比照衛生所紙本表格式
@@ -4856,7 +5064,7 @@ async function renderMonthlyReport(){
     const isFirstOfName = !seenName.has(r.name);
     seenName.add(r.name);
     const rowspan = nameCounts[r.name];
-    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle">${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle">${r.dosesPerVial}</td>` : '';
+    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle"><span style="color:#bbb;margin-right:4px">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle">${r.dosesPerVial}</td>` : '';
     const key = r.code8+'|'+r.lotNo;
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
     const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '');
@@ -4866,7 +5074,8 @@ async function renderMonthlyReport(){
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
     const checkNote = (r.nowVials!=null && r.endVials!=null && r.nowVials!==r.endVials)
       ? `<div style="font-size:11px;color:#A32D2D">系統即時庫存 ${r.nowVials} 瓶</div>` : '';
-    return `<tr data-key="${key}">
+    return `<tr data-key="${key}" data-name="${xEsc(r.name)}"
+      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent"` : ''}>
     ${nameCell}
     <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
     <td style="font-size:13px;color:#888">${r.expiry||'—'}</td>
@@ -4880,6 +5089,489 @@ async function renderMonthlyReport(){
     <td>${statusBadge}</td>
   </tr>`;
   }).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:#bbb">該月份查無任何批號結存或異動資料</td></tr>';
+
+  renderPcvReport();
+  renderBcgReport();
+  if(mrActiveReport==='3') renderHbigReport();
+}
+
+/* ── 月報表底下4份報表切換 ── */
+let mrActiveReport = '1';
+function switchMrReport(n){
+  mrActiveReport = n;
+  ['1','2','3','4'].forEach(k=>{
+    document.getElementById('mr-report-'+k).style.display = (k===n) ? '' : 'none';
+    document.getElementById('mr-rep-tab-'+k).classList.toggle('active', k===n);
+  });
+  if(n==='3' && lastMonthlyReport.length) renderHbigReport();
+}
+
+/* ── 報表② 肺炎鏈球菌疫苗消耗結存月報表：跟報表①用同一份月報表資料，只過濾special_report='pcv'的品項 ── */
+function renderPcvReport(){
+  const rows = lastMonthlyReport.filter(r=>r.specialReport==='pcv');
+  const ym = monthlyReportYm;
+  if(!ym){ document.getElementById('mr2-body').innerHTML=''; return; }
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+  document.getElementById('mr2-title').textContent = `${rocYear}年 ${mm}月 肺炎鏈球菌疫苗消耗結存月報表`;
+
+  const nameCounts = {}; rows.forEach(r=>{ nameCounts[r.name]=(nameCounts[r.name]||0)+1; });
+  const seenName = new Set();
+  document.getElementById('mr2-body').innerHTML = rows.map(r=>{
+    const isFirst = !seenName.has(r.name); seenName.add(r.name);
+    const rowspan = nameCounts[r.name];
+    const nameCell = isFirst ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle">${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle">${r.dosesPerVial}</td>` : '';
+    const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
+    const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '—');
+    return `<tr>${nameCell}
+      <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
+      <td style="font-size:13px;color:#888">${r.expiry||'—'}</td>
+      <td class="c">${startCell}</td>
+      <td class="c">${r.inVials}</td>
+      <td class="c">${r.outVials}</td>
+      <td class="c">${r.consumedVials}</td>
+      <td class="c">${r.vaccinated}</td>
+      <td class="c">${endValue}</td>
+      <td style="font-size:13px">${r.note||''}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「肺炎鏈球菌疫苗報表」，請到主檔維護把對應品項的「特殊月報表分類」設為此類別</td></tr>`;
+}
+
+async function exportPcvReportExcel(){
+  const rows = lastMonthlyReport.filter(r=>r.specialReport==='pcv');
+  if(!rows.length){ alert('目前沒有品項被設定為「肺炎鏈球菌疫苗報表」'); return; }
+  const ym = monthlyReportYm;
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+
+  let xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  xml += `<row r="1">${xStr('A1',1,`斗六市____台大雲林分院___醫院、診所　　　　${rocYear}年 ${mm}月肺炎鏈球菌疫苗消耗結存月報表`)}${['B','C','D','E','F','G','H','I','J'].map(c=>xEmpty(c+'1',2)).join('')}${xEmpty('K1',3)}</row>`;
+  xml += `<row r="2">${xStr('A2',4,'疫苗名稱')}${xStr('B2',4,'劑型')}${xStr('C2',4,'批號')}${xStr('D2',4,'有效　　　　日期')}${xStr('E2',4,'上月　　　　結存')}${xStr('F2',4,'撥入　　　　(向衛生所領)')}${xStr('G2',4,'撥出(調回衛生所)')}${xStr('H2',4,'消耗　　　　總瓶數')}${xStr('I2',4,'接種　　　　人數')}${xStr('J2',4,'本月結存總瓶數')}${xStr('K2',4,'備註')}</row>`;
+
+  const nameCounts = {}; rows.forEach(r=>{ nameCounts[r.name]=(nameCounts[r.name]||0)+1; });
+  const seenName = new Set();
+  let rn = 3;
+  const merges = ['<mergeCell ref="A1:K1"/>'];
+  rows.forEach(r=>{
+    const isFirst = !seenName.has(r.name);
+    if(isFirst){
+      seenName.add(r.name);
+      const span = nameCounts[r.name];
+      if(span>1){ merges.push(`<mergeCell ref="A${rn}:A${rn+span-1}"/>`); merges.push(`<mergeCell ref="B${rn}:B${rn+span-1}"/>`); }
+    }
+    xml += `<row r="${rn}">`;
+    xml += isFirst ? xStr('A'+rn,5,r.name) : xEmpty('A'+rn,5);
+    xml += isFirst ? xNum('B'+rn,6,r.dosesPerVial) : xEmpty('B'+rn,6);
+    xml += xStr('C'+rn,7,r.lotNo);
+    const d = xToDate(r.expiry); xml += d ? xNum('D'+rn,8,xDateSerial(d)) : xEmpty('D'+rn,8);
+    xml += r.hasBaseline ? xNum('E'+rn,9,r.startVials) : xEmpty('E'+rn,9);
+    xml += xNum('F'+rn,9,r.inVials);
+    xml += xNum('G'+rn,9,r.outVials);
+    xml += xNum('H'+rn,9,r.consumedVials);
+    xml += xFormula('I'+rn,10,'H'+rn);
+    xml += xFormula('J'+rn,10,`E${rn}+F${rn}-G${rn}-H${rn}`);
+    xml += xStr('K'+rn,11,r.note||'');
+    xml += '</row>';
+    rn++;
+  });
+
+  const noteRow = rn;
+  const noteText = '註：\n1.本表應由每月2日前填報斗六市衛生所（請填寫該月第一日至最後一日）。\n2.撥入撥出消耗結存統計欄以『瓶』為單位。\n3.若該月份使用同一種疫苗，但有兩個以上批號請將所有批號寫出來。\n4.該月份的電子資料也請繳交，請填寫該月第一日至最後一日。\n5.TEL：05-5345140 #22　　　　E-mail：dlphc23@ylshb.gov.tw';
+  xml += `<row r="${noteRow}">${xStr('A'+noteRow,13,noteText)}${['B','C','D','E','F','G','H','I','J'].map(c=>xEmpty(c+noteRow,2)).join('')}${xEmpty('K'+noteRow,3)}</row>`;
+  merges.push(`<mergeCell ref="A${noteRow}:K${noteRow}"/>`);
+
+  const sigRow = noteRow+1;
+  xml += `<row r="${sigRow}">${xStr('A'+sigRow,14,'___________醫院、診所負責人：')}${['B','C','D','E','F'].map(c=>xEmpty(c+sigRow,15)).join('')}${xStr('G'+sigRow,16,'填表人：')}${['H','I','J','K'].map(c=>xEmpty(c+sigRow,15)).join('')}</row>`;
+  merges.push(`<mergeCell ref="A${sigRow}:F${sigRow}"/>`, `<mergeCell ref="G${sigRow}:K${sigRow}"/>`);
+
+  xml += '</sheetData>';
+  xml += `<mergeCells count="${merges.length}">${merges.join('')}</mergeCells>`;
+  xml += '</worksheet>';
+
+  await downloadXlsxFromTemplate(REPORT2_TEMPLATE_B64, xml, `${rocYear}年${mm}月_肺炎鏈球菌疫苗消耗結存月報表.xlsx`);
+}
+
+/* ── 報表④ 卡介苗消耗報表：一樣過濾special_report='bcg'，欄位比較簡單，單位是「支」。
+   實務上卡介苗不會退回衛生所，如果那個月剛好有撥出紀錄，不寫進「本月收入」欄，改成在備註特別註記 ── */
+function renderBcgReport(){
+  const rows = lastMonthlyReport.filter(r=>r.specialReport==='bcg');
+  const ym = monthlyReportYm;
+  if(!ym){ document.getElementById('mr4-body').innerHTML=''; return; }
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+  document.getElementById('mr4-title').textContent = `斗六市醫療院所卡介苗消耗報表 ${rocYear}年${mm}月`;
+
+  document.getElementById('mr4-body').innerHTML = rows.map(r=>{
+    const startCell = r.hasBaseline ? r.startVials : '需盤點';
+    const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '—');
+    const returnNote = r.outVials>0 ? `本月另有退回衛生所${r.outVials}支` : '';
+    const noteFull = [returnNote, r.note||''].filter(Boolean).join('；');
+    return `<tr>
+      <td style="font-size:14px">台大醫院雲林分院</td>
+      <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
+      <td class="c">${startCell}</td>
+      <td class="c">${r.inVials}</td>
+      <td class="c">${r.consumedVials}</td>
+      <td class="c">${endValue}</td>
+      <td class="c">${r.vaccinated}</td>
+      <td style="font-size:13px;${returnNote?'color:#A32D2D':''}">${noteFull}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「卡介苗報表」，請到主檔維護把卡介苗的「特殊月報表分類」設為此類別</td></tr>`;
+}
+
+async function exportBcgReportExcel(){
+  const rows = lastMonthlyReport.filter(r=>r.specialReport==='bcg');
+  if(!rows.length){ alert('目前沒有品項被設定為「卡介苗報表」'); return; }
+  const ym = monthlyReportYm;
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+  const nextMonthFirst = shiftYm(ym, 1) + '-01';
+  const [ny,nm,nd] = nextMonthFirst.split('-').map(Number);
+
+  let xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  xml += `<row r="1">${xStr('A1',1,`斗六市醫療院所卡介苗消耗報表      ${rocYear}年${mm}月`)}</row>`;
+  xml += `<row r="2">${xStr('A2',2,'機關別')}${xStr('B2',3,'批號')}${xStr('C2',3,'上月結存(支)')}${xStr('D2',3,'本月收入(支)')}${xStr('E2',3,'本月消耗(支)')}${xStr('F2',3,'本月結存(支)')}${xStr('G2',3,'本月注射量(人)')}${xStr('H2',4,'備註')}</row>`;
+
+  let r = 3;
+  rows.forEach(rw=>{
+    const returnNote = rw.outVials>0 ? `本月另有退回衛生所${rw.outVials}支` : '';
+    const noteFull = [returnNote, rw.note||''].filter(Boolean).join('；');
+    xml += `<row r="${r}">`;
+    xml += xStr('A'+r,5,'台大醫院雲林分院');
+    xml += xStr('B'+r,6, rw.lotNo + (rw.expiry?('\n'+rw.expiry):''));
+    xml += rw.hasBaseline ? xNum('C'+r,7,rw.startVials) : xEmpty('C'+r,7);
+    xml += xNum('D'+r,7,rw.inVials);
+    xml += xNum('E'+r,7,rw.consumedVials);
+    xml += xFormula('F'+r,8, `C${r}+D${r}-E${r}`);
+    xml += xNum('G'+r,7,rw.vaccinated);
+    xml += xStr('H'+r,9,noteFull);
+    xml += '</row>';
+    r++;
+  });
+
+  const totalRow = r;
+  xml += `<row r="${totalRow}">${xStr('A'+totalRow,10,'合計')}${xEmpty('B'+totalRow,11)}${xEmpty('C'+totalRow,11)}${xEmpty('D'+totalRow,11)}${xEmpty('E'+totalRow,12)}${xFormula('F'+totalRow,12,`SUM(F3:F${totalRow-1})`)}${xFormula('G'+totalRow,12,`SUM(G3:G${totalRow-1})`)}${xEmpty('H'+totalRow,9)}</row>`;
+
+  const footerRow = totalRow+1;
+  xml += `<row r="${footerRow}">${xStr('B'+footerRow,13,'填表人:')}${xStr('F'+footerRow,14,`民國${ny-1911}年${nm}月${nd}日`)}${xEmpty('G'+footerRow,15)}${xEmpty('H'+footerRow,15)}</row>`;
+
+  xml += '</sheetData>';
+  xml += `<mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="F${footerRow}:H${footerRow}"/></mergeCells>`;
+  xml += '</worksheet>';
+
+  await downloadXlsxFromTemplate(REPORT4_TEMPLATE_B64, xml, `${rocYear}年${mm}月_卡介苗消耗報表.xlsx`);
+}
+
+/* ── 報表③ 免費B肝疫苗遺傳工程預防注射報表：結構跟其他3份完全不同，
+   免疫球蛋白(H.B.I.G)跟遺傳工程疫苗各自一個批號區塊，孕婦檢驗數/S抗原/e抗原/核銷賠償是手動欄位(存在monthly_report_manual)，
+   遺傳工程疫苗的第一~四劑人次，試著從usage_dose_breakdown(耗用報表裡的「疫苗劑別代碼」欄位)自動抓，抓不到就是0，需要人工核對 ── */
+const HBIG_TEMPLATE_B64 = "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";
+const REPORT1_TEMPLATE_B64 = "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";
+const REPORT4_TEMPLATE_B64 = "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";
+const REPORT2_TEMPLATE_B64 = "UEsDBBQAAAAIAPuS+lxGx01IlQAAAM0AAAAQAAAAZG9jUHJvcHMvYXBwLnhtbE3PTQvCMAwG4L9SdreZih6kDkQ9ip68zy51hbYpbYT67+0EP255ecgboi6JIia2mEXxLuRtMzLHDUDWI/o+y8qhiqHke64x3YGMsRoPpB8eA8OibdeAhTEMOMzit7Dp1C5GZ3XPlkJ3sjpRJsPiWDQ6sScfq9wcChDneiU+ixNLOZcrBf+LU8sVU57mym/8ZAW/B7oXUEsDBBQAAAAIAPuS+ly70L5r7wAAACsCAAARAAAAZG9jUHJvcHMvY29yZS54bWzNks9qwzAMh19l+J4ocWg2TJrLRk8dDFbY2M3Yamsa/8HWSPr2S7I2ZWwPsKOlnz99AjUqCOUjvkQfMJLBdDfYziWhwpodiYIASOqIVqZ8TLixuffRShqf8QBBqpM8IPCiqMEiSS1JwgTMwkJkbaOVUBEl+XjBa7Xgw2fsZphWgB1adJSgzEtg7TQxnIeugRtgghFGm74LqBfiXP0TO3eAXZJDMkuq7/u8r+bcuEMJ78/b13ndzLhE0ikcfyUj6Bxwza6T36rHp92GtbzgdVbcZ7zelQ+CV2K1+phcf/jdhK3XZm/+sfFVsG3g1120X1BLAwQUAAAACAD7kvpcmVycIxAGAACcJwAAEwAAAHhsL3RoZW1lL3RoZW1lMS54bWztWltz2jgUfu+v0Hhn9m0LxjaBtrQTc2l227SZhO1OH4URWI1seWSRhH+/RzYQy5YN7ZJNups8BCzp+85FR+foOHnz7i5i6IaIlPJ4YNkv29a7ty/e4FcyJBFBMBmnr/DACqVMXrVaaQDDOH3JExLD3IKLCEt4FMvWXOBbGi8j1uq0291WhGlsoRhHZGB9XixoQNBUUVpvXyC05R8z+BXLVI1lowETV0EmuYi08vlsxfza3j5lz+k6HTKBbjAbWCB/zm+n5E5aiOFUwsTAamc/VmvH0dJIgILJfZQFukn2o9MVCDINOzqdWM52fPbE7Z+Mytp0NG0a4OPxeDi2y9KLcBwE4FG7nsKd9Gy/pEEJtKNp0GTY9tqukaaqjVNP0/d93+ubaJwKjVtP02t33dOOicat0HgNvvFPh8Ouicar0HTraSYn/a5rpOkWaEJG4+t6EhW15UDTIABYcHbWzNIDll4p+nWUGtkdu91BXPBY7jmJEf7GxQTWadIZljRGcp2QBQ4AN8TRTFB8r0G2iuDCktJckNbPKbVQGgiayIH1R4Ihxdyv/fWXu8mkM3qdfTrOa5R/aasBp+27m8+T/HPo5J+nk9dNQs5wvCwJ8fsjW2GHJ247E3I6HGdCfM/29pGlJTLP7/kK6048Zx9WlrBdz8/knoxyI7vd9lh99k9HbiPXqcCzIteURiRFn8gtuuQROLVJDTITPwidhphqUBwCpAkxlqGG+LTGrBHgE323vgjI342I96tvmj1XoVhJ2oT4EEYa4pxz5nPRbPsHpUbR9lW83KOXWBUBlxjfNKo1LMXWeJXA8a2cPB0TEs2UCwZBhpckJhKpOX5NSBP+K6Xa/pzTQPCULyT6SpGPabMjp3QmzegzGsFGrxt1h2jSPHr+BfmcNQockRsdAmcbs0YhhGm78B6vJI6arcIRK0I+Yhk2GnK1FoG2camEYFoSxtF4TtK0EfxZrDWTPmDI7M2Rdc7WkQ4Rkl43Qj5izouQEb8ehjhKmu2icVgE/Z5ew0nB6ILLZv24fobVM2wsjvdH1BdK5A8mpz/pMjQHo5pZCb2EVmqfqoc0PqgeMgoF8bkePuV6eAo3lsa8UK6CewH/0do3wqv4gsA5fy59z6XvufQ9odK3NyN9Z8HTi1veRm5bxPuuMdrXNC4oY1dyzcjHVK+TKdg5n8Ds/Wg+nvHt+tkkhK+aWS0jFpBLgbNBJLj8i8rwKsQJ6GRbJQnLVNNlN4oSnkIbbulT9UqV1+WvuSi4PFvk6a+hdD4sz/k8X+e0zQszQ7dyS+q2lL61JjhK9LHMcE4eyww7ZzySHbZ3oB01+/ZdduQjpTBTl0O4GkK+A226ndw6OJ6YkbkK01KQb8P56cV4GuI52QS5fZhXbefY0dH758FRsKPvPJYdx4jyoiHuoYaYz8NDh3l7X5hnlcZQNBRtbKwkLEa3YLjX8SwU4GRgLaAHg69RAvJSVWAxW8YDK5CifEyMRehw55dcX+PRkuPbpmW1bq8pdxltIlI5wmmYE2eryt5lscFVHc9VW/Kwvmo9tBVOz/5ZrcifDBFOFgsSSGOUF6ZKovMZU77nK0nEVTi/RTO2EpcYvOPmx3FOU7gSdrYPAjK5uzmpemUxZ6by3y0MCSxbiFkS4k1d7dXnm5yueiJ2+pd3wWDy/XDJRw/lO+df9F1Drn723eP6bpM7SEycecURAXRFAiOVHAYWFzLkUO6SkAYTAc2UyUTwAoJkphyAmPoLvfIMuSkVzq0+OX9FLIOGTl7SJRIUirAMBSEXcuPv75Nqd4zX+iyBbYRUMmTVF8pDicE9M3JD2FQl867aJguF2+JUzbsaviZgS8N6bp0tJ//bXtQ9tBc9RvOjmeAes4dzm3q4wkWs/1jWHvky3zlw2zreA17mEyxDpH7BfYqKgBGrYr66r0/5JZw7tHvxgSCb/NbbpPbd4Ax81KtapWQrET9LB3wfkgZjjFv0NF+PFGKtprGtxtoxDHmAWPMMoWY434dFmhoz1YusOY0Kb0HVQOU/29QNaPYNNByRBV4xmbY2o+ROCjzc/u8NsMLEjuHti78BUEsDBBQAAAAIAPuS+lwUwX+FpQUAAN8VAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1s3RjJbttG9J6vIGQgSBFInJ0zliy0lrXYagEjaVOgl4CWKEsIKaokbSV/39lEkRSn9KmH+uDhzNuXee9pRsc0+5Zvo6jwvifxPr/pbYvicO37+WobJWE+SA/RXkI2aZaEhdxmz35+yKJwrYmS2EcAMD8Jd/veeKTPHrPxKH0p4t0+esy8/CVJwuzHbRSnx5se7J0OPu2et4U68MejQ/gcfY6KPw6Pmdz5JZf1Lon2+S7de1m0uen9Aq+XTOFrhC+76JhXvj1lyVOaflOb+/VNDyiFojhaFYpDKJfXaBLFsWIk1fjb8uyVIhVh9fvEfaZtl7Y8hXk0SeM/d+tie9PjPW8dbcKXuPiUHheRtYcqfqs0zvV/72hwUTAIaM9bveRFmlh6qUSy25s1/G5dUaFx4SOLjxr4MBi4SLAlwU0SOOBOvYglIg0iPoDIRUMtDb0U5DS/tL/pAOGiOHkAahf4xts6VHdhEY5HWXr0MoUv2akPHW9NLyO026vM/FxkErqTdMX4/RViAARDuQJOqFoJYGz4Vf7Jb0g4V2eIIyxXzBlBas8oFJpGCK7PiVw1CQ6QgOXR+ysoaRUqppJYkVBIkT3nzhVCqjSBHAw9puThQBFjJChRTDiHasUBx1ofwYQWggMC1Aqg0RcToW3iwJyjwCgnjVV7hKWawzN/hGigfCHJEBiO/EJ6WPnJX1lv3hpvIu1NdetLyMQJuXNCpk7IzAmZOyELJ+TeCXlwQpYGgmsQX2ZXmWKoTDGkUYkzxS7CASnUboaIw1Y3d3FEEGKdtDJHWjlMOjlQmbw61FimTguHu04OMmm0DlQgdyafV3nRODXJ1i5x2iURChHwSrp2SayneYvEWbeXAkZNcdD+/neJH3RoETQ3yFQVWSBw5dpjLjAb/tSiy/ztughZST6okmKrEEKYO2W2yVp0ymoUjG5PY2hFmwJJhYxQi+T7biupyUuIgjdlFYCmJLokPnTnMYGoklXN4vhm25adkgDD2PaCoMGhVlpwWVqwZkkdLB8fv3gIex90rAEp3dEW81vDipUF7XUMR/5rtWYYjMAh7C8ASUB4f3I3aSsXhphX2BNGAaiLmBos4VZidonR4DHvxFh0Srk3GFDNiZvxgoz8jcKqIz3UkKbk44z056TvwF5abOjuGKQMK6mEtdZ2bkkjSufokK7oBJgQV3RIS3QYxI3okEu/NVw7u0RphqcTY3GJETTCQ2rhoe3hqSFN6ccZ7c9p34G9tNjIHR5ahocaXOzu6PoGv79iFAM2fAcH5zJiZid1I4G57AAAVUJRQPWMZsoMqvRDCJgp4wzTyhDWPpi6WwujthZTimGVHzZ7TAmp1TlI9fAouyqr9meMETPysTknhIEWPCVPmEoswBsq9f9jfYcGl2NBvTV3z9tYzW+mEWCNH2DBTPUWZszAAFVajtrrUHNOdQigwKbaYwDLELzDAxU92z8b0UYA6cFEklBoWAsNl7Moq0T31HebM6uMtsEHSJx+Mpyy0/AlAlZNOM1qtTmzkp3yQ1Sy9zxN1vFP2Vu6VurPzyaTgdtU6TMTBc6MydgmPgNY2AtmfsXJvlxRTTb8wJqCUcX0/+piWdPo4Pfpr6cSA2ifYkIhAZ6U35Wk034S7uIT7To+bFcI//wjzrdPg+f0dVAc2wYE6vxt54TcOSFTJ2TmhMydkIUTcu+EPDghS9r1246VrYCZVuAa6r6e/97+218mIABmNZOnnWFNuNpCY7VoGRgmbtCdGzR1g2Zu0NyCmHvCtVejbIJdli3c0u7doAc3aNkKMsH1K+9ESZQ96yfB3FulL/vCTGflqX11ZNcz/erYPIfXS9hyPmf2lbKJT6+X+lnMP4s1T5+/hdnzbp97cbSRKgD9UpiZ50SzKdKDfr16SosiTfTnNgrXUaYQJHyTpsVpowSUb7rjfwBQSwMEFAAAAAgA+5L6XNIRdMwZBAAAqBwAAA0AAAB4bC9zdHlsZXMueG1s7VnBbuM2EP0VQfesbEuRrcA20BoIUKBdLLo+9EpblEWUFFWKztr7ET310H5AgQK99FCgf5Sif1GOKMuKo3HkjZF1iioIRM5w5r0ZDqWBPC70ltP3KaXa2QieFRM31Tq/8bximVJBijcyp5nRJFIJos1UrbwiV5TEBRgJ7g16vdAThGXudJytxa3QhbOU60xP3H4tcuztq9gIw8B1rLuZjOnE3ZrrSoirOHbSGyFuisL1pmOv8jUdJzLbuxy5VmAcE0GdO8In7oxwtlAMrBIiGN9a8QAES8mlcrSJhQIfIyk+WnXfziDMyo9gmVQltkU4xLn/7Zf7X//65/efSscpUYXJmvXlh4fowRPowRGgRkBPwfSfgBl81iD9I0BzJmjhvKUfnG+lINknBfYM150c/f3nH/c//9gxGf4zGJ81602g8gaHiHFeHyLftYLpOCdaU5XdmklpUwofqZxqPN/mBmylyLY/uHY7GxSSsxggV7Mm6Z7raAZ0rnpv+kEURaNgGPSGwfUgLCNYVMtZFtMNNU+O0J6ZBk7NoLyZMBdSxVTVgUbuTjQdc5poY67YKoW7ljlgSK2lMIOYkZXMSJmFnUXT0ikflOb40JithbvL/yE3WFphdLQo15Z0OhqYlTveHS3s4qdjfJidi6Hz+hK5c6fT8q3YuVSOrn8c39HlLdEdXf9KYzvh6J7K+OR6+yz78dxD2yGBL3gQETbVwDzgl5Tz9+D1u+RBm7lJGi1mDxrMrB6aV0M1tG7sBPw3vVnfTbfDT/Lr5OxO6i/XJpysnP+wlpq+UzRhm3K+SWoCmPc+4t3ISZ7z7RecrTJBbfCdAadjsrNzUqnYR4MGDcPSCKhynTuqNFs2JJCiTXJ6EgZnSQLm3T+Ld/8yUux8UCSf042umrij+Q4QzsH/nJ9byhjN6xdObZEqln0/l7cMz24/2PO+vgzeryS9J9AcXHCxhkg2w8uiiW36hdEcvuibABqqJknT/Jz2QMV6g+HZ6J6tDxie5U2N7c8LBOxVLWGj73zQddZSBz7lTNy38FmT70GcxZpxzbJqlrI4ptmj5tO412TB6UP/Zn1ME7Lmel4rJ+5+/E3ZVEf1qncQeLVqP/4amvF+WH8xMlhV+z2rpmq1sN9ZzMCgVhcYHGpuy6tdg9lYXbsGdBgOxgCzsVYYzn8pnhEaj9Vh3EatmhFqM0JtrFWbZlb+YTjtNpG52iONIt8PQyyjs1krgxmWtzCE/3ZvGDewwHAA6bRc47uNV8jxOsD29FiFYJHilYhFiucaNO15A4soat9tDAcssF3Aagfw23GgptptfB92FeOGnWBcE0WYBmqxvUbDEMlOCH/t+4OdEt+PonYN6NoZ+D6mgdOIazAGwAHT+PbnoYP3kbd7T3n73yan/wJQSwMEFAAAAAgA+5L6XJeKuxzAAAAAEwIAAAsAAABfcmVscy8ucmVsc52SuW7DMAxAf8XQnjAH0CGIM2XxFgT5AVaiD9gSBYpFnb+v2qVxkAsZeT08EtweaUDtOKS2i6kY/RBSaVrVuAFItiWPac6RQq7ULB41h9JARNtjQ7BaLD5ALhlmt71kFqdzpFeIXNedpT3bL09Bb4CvOkxxQmlISzMO8M3SfzL38ww1ReVKI5VbGnjT5f524EnRoSJYFppFydOiHaV/Hcf2kNPpr2MitHpb6PlxaFQKjtxjJYxxYrT+NYLJD+x+AFBLAwQUAAAACAD7kvpcALeHbjABAAAfAgAADwAAAHhsL3dvcmtib29rLnhtbI1R0UrDQBD8lXAfYNKiBUvji0UtiBYrfb8km2bp3W3Y27Tar3eTECz44tPezizDzNzqTHwsiI7Jl3ch5qYRaZdpGssGvI031EJQpib2VnTlQxpbBlvFBkC8S+dZtki9xWAeVpPWltPrhQRKQQoK9sAe4Rx/+X5NThixQIfynZvh7cAkHgN6vECVm8wksaHzCzFeKIh1u5LJudzMRmIPLFj+gXe9yU9bxAERW3xYNZKbRaaCNXKU4WLQt+rxBHo8bp3QEzoBXluBZ6auxXDoZTRFehVj6GGaY4lL/k+NVNdYwprKzkOQsUcG1xsMscE2miRYD7nheR9G1TfVGEzU0VVNvEQleFON3iZDFdQYoHpTjai4llNuOenHoDO/vZvdawmdc4+KvYdXstWUb/qbhx9QSwMEFAAAAAgA+5L6XCQem6KtAAAA+AEAABoAAAB4bC9fcmVscy93b3JrYm9vay54bWwucmVsc7WRPQ6DMAyFrxLlADVQqUMFTF1YKy4QBfMjEhLFrgq3L4UBkDp0YbKeLX/vyU6faBR3bqC28yRGawbKZMvs7wCkW7SKLs7jME9qF6ziWYYGvNK9ahCSKLpB2DNknu6Zopw8/kN0dd1pfDj9sjjwDzC8XeipRWQpShUa5EzCaLY2wVLiy0yWoqgyGYoqlnBaIOLJIG1pVn2wT06053kXN/dFrs3jCa7fDHB4dP4BUEsDBBQAAAAIAPuS+lxlkHmSGQEAAM8DAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK2TTU7DMBCFrxJlWyUuLFigphtgC11wAWNPGqv+k2da0tszTtpKoBIVhU2seN68z56XrN6PEbDonfXYlB1RfBQCVQdOYh0ieK60ITlJ/Jq2Ikq1k1sQ98vlg1DBE3iqKHuU69UztHJvqXjpeRtN8E2ZwGJZPI3CzGpKGaM1ShLXxcHrH5TqRKi5c9BgZyIuWFCKq4Rc+R1w6ns7QEpGQ7GRiV6lY5XorUA6WsB62uLKGUPbGgU6qL3jlhpjAqmxAyBn69F0MU0mnjCMz7vZ/MFmCsjKTQoRObEEf8edI8ndVWQjSGSmr3ghsvXs+0FOW4O+kc3j/QxpN+SBYljmz/h7xhf/G87xEcLuvz+xvNZOGn/mi+E/Xn8BUEsBAhQDFAAAAAgA+5L6XEbHTUiVAAAAzQAAABAAAAAAAAAAAAAAAIABAAAAAGRvY1Byb3BzL2FwcC54bWxQSwECFAMUAAAACAD7kvpcu9C+a+8AAAArAgAAEQAAAAAAAAAAAAAAgAHDAAAAZG9jUHJvcHMvY29yZS54bWxQSwECFAMUAAAACAD7kvpcmVycIxAGAACcJwAAEwAAAAAAAAAAAAAAgAHhAQAAeGwvdGhlbWUvdGhlbWUxLnhtbFBLAQIUAxQAAAAIAPuS+lwUwX+FpQUAAN8VAAAYAAAAAAAAAAAAAACAgSIIAAB4bC93b3Jrc2hlZXRzL3NoZWV0MS54bWxQSwECFAMUAAAACAD7kvpc0hF0zBkEAACoHAAADQAAAAAAAAAAAAAAgAH9DQAAeGwvc3R5bGVzLnhtbFBLAQIUAxQAAAAIAPuS+lyXirscwAAAABMCAAALAAAAAAAAAAAAAACAAUESAABfcmVscy8ucmVsc1BLAQIUAxQAAAAIAPuS+lwAt4duMAEAAB8CAAAPAAAAAAAAAAAAAACAASoTAAB4bC93b3JrYm9vay54bWxQSwECFAMUAAAACAD7kvpcJB6boq0AAAD4AQAAGgAAAAAAAAAAAAAAgAGHFAAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHNQSwECFAMUAAAACAD7kvpcZZB5khkBAADPAwAAEwAAAAAAAAAAAAAAgAFsFQAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLBQYAAAAACQAJAD4CAAC2FgAAAAA=";
+let hbigManualCache = {};
+let lastHbigDoseCounts = {1:0,2:0,3:0,4:0};
+let lastHbigIgRows = [];
+let lastHbigVacRows = [];
+async function renderHbigReport(){
+  const ym = monthlyReportYm;
+  const box = document.getElementById('mr3-body');
+  if(!ym){ box.innerHTML=''; return; }
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+  const monthStart = `${ym}-01`;
+  const lastDay = new Date(yy, mm, 0).getDate();
+  const monthEnd = `${ym}-${String(lastDay).padStart(2,'0')}`;
+
+  const igRows = lastMonthlyReport.filter(r=>r.specialReport==='hbig_ig');
+  const vacRows = lastMonthlyReport.filter(r=>r.specialReport==='hbig_vaccine');
+  lastHbigIgRows = igRows;
+  lastHbigVacRows = vacRows;
+
+  const sum = (rows, field) => rows.reduce((a,r)=>a + (Number(r[field])||0), 0);
+  const endOf = r => r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : 0);
+
+  let doseCounts = {1:0,2:0,3:0,4:0};
+  for(const vacRow of vacRows){
+    const { data: doseRows } = await sb.from('usage_dose_breakdown')
+      .select('dose_no,qty').eq('drug_code8', vacRow.code8).eq('lot_no', vacRow.lotNo)
+      .gte('upload_date', monthStart).lte('upload_date', monthEnd);
+    (doseRows||[]).forEach(d=>{
+      const n = parseInt(String(d.dose_no).replace(/[^0-9]/g,''));
+      if(n>=1 && n<=4) doseCounts[n] = (doseCounts[n]||0) + Number(d.qty||0);
+    });
+  }
+  lastHbigDoseCounts = doseCounts;
+
+  const { data: manualRows } = await sb.from('monthly_report_manual').select('field_key,value').eq('year_month', ym).eq('report_key','hbig');
+  const manual = {}; (manualRows||[]).forEach(m=>manual[m.field_key]=m.value);
+  hbigManualCache = manual;
+
+  const mfield = (key, label, width) => `<div class="fg" style="margin:0"><label style="font-size:12px">${label}</label><input type="text" class="inp hbig-manual" data-key="${key}" value="${manual[key]||''}" style="width:${width}px"></div>`;
+  const doseField = (key, autoValue) => {
+    const hasOverride = manual[key]!==undefined && manual[key]!==null && manual[key]!=='';
+    const val = hasOverride ? manual[key] : autoValue;
+    return `<input type="number" class="inp hbig-manual" data-key="${key}" value="${val}" style="width:70px;text-align:center">`;
+  };
+
+  const lotListHtml = rows => rows.length ? rows.map(r=>`<div>批號：${r.lotNo}　有效期限：${r.expiry||'—'}　本月結存：${endOf(r)}${r.wholeVial?'瓶':''}</div>`).join('') : '<div style="color:#bbb">（尚未設定批號）</div>';
+
+  box.innerHTML = `
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px">
+      ${mfield('pregnant_test_count','孕婦檢驗數',90)}
+      ${mfield('s_antigen_positive','S抗原陽性數',90)}
+      ${mfield('e_antigen_positive','＊e抗原陽性數（S抗原陽性中e抗原含HBsAg(+)效價≧2560）',90)}
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div style="flex:1;min-width:340px;border:1px solid #eee;border-radius:8px;padding:14px">
+        <div style="font-weight:600;color:#1B3A6B;margin-bottom:8px">免疫球蛋白 (H.B.I.G)</div>
+        ${igRows.length ? `
+          <div style="font-size:13px;color:#888;margin-bottom:8px">${lotListHtml(igRows)}</div>
+          <table style="width:100%;font-size:13px"><tbody>
+            <tr><td>上月結存量(劑)</td><td class="c">${sum(igRows,'startVials')}</td></tr>
+            <tr><td>本月撥入出量(劑)</td><td class="c">${sum(igRows,'inVials') - sum(igRows,'outVials')}</td></tr>
+            <tr><td>注射人次</td><td class="c">${sum(igRows,'vaccinated')}</td></tr>
+            <tr><td>核銷及賠償(劑)</td><td class="c">${mfield('ig_writeoff','',80)}</td></tr>
+            <tr><td>本月結存量(劑)</td><td class="c" style="font-weight:600">${igRows.reduce((a,r)=>a+endOf(r),0)}</td></tr>
+          </tbody></table>
+        ` : `<div style="color:#bbb;font-size:13px">尚未在主檔維護把免疫球蛋白品項設定為「B肝報表－免疫球蛋白」分類</div>`}
+      </div>
+      <div style="flex:1;min-width:340px;border:1px solid #eee;border-radius:8px;padding:14px">
+        <div style="font-weight:600;color:#1B3A6B;margin-bottom:8px">遺傳工程疫苗</div>
+        ${vacRows.length ? `
+          <div style="font-size:13px;color:#888;margin-bottom:8px">${lotListHtml(vacRows)}</div>
+          <table style="width:100%;font-size:13px"><tbody>
+            <tr><td>上月結存量(劑)</td><td class="c">${sum(vacRows,'startVials')}</td></tr>
+            <tr><td>本月撥入出量(劑)</td><td class="c">${sum(vacRows,'inVials') - sum(vacRows,'outVials')}</td></tr>
+            <tr><td>注射人次－第一劑</td><td class="c">${doseField('dose1',doseCounts[1])}</td></tr>
+            <tr><td>注射人次－第二劑</td><td class="c">${doseField('dose2',doseCounts[2])}</td></tr>
+            <tr><td>注射人次－第三劑</td><td class="c">${doseField('dose3',doseCounts[3])}</td></tr>
+            <tr><td>注射人次－第四劑</td><td class="c">${doseField('dose4',doseCounts[4])}</td></tr>
+            <tr><td>核銷及賠償(劑)</td><td class="c">${mfield('vaccine_writeoff','',80)}</td></tr>
+            <tr><td>本月結存量(劑)</td><td class="c" style="font-weight:600">${vacRows.reduce((a,r)=>a+endOf(r),0)}</td></tr>
+          </tbody></table>
+        ` : `<div style="color:#bbb;font-size:13px">尚未在主檔維護把遺傳工程B肝疫苗品項設定為「B肝報表－遺傳工程疫苗」分類</div>`}
+      </div>
+    </div>
+    ${(igRows.length>3 || vacRows.length>3) ? `<div style="color:#A32D2D;font-size:12px;margin-top:8px">⚠️ 匯出Excel的「結存情況」區塊最多只能列3個批號，目前${igRows.length>3?'免疫球蛋白':'遺傳工程疫苗'}超過3個批號，匯出時只會列出前3個，其餘請自行於Excel補上</div>` : ''}
+    <div style="margin-top:14px">
+      <button class="btn btn-primary btn-sm" onclick="saveHbigManual()">💾 儲存手動填寫欄位</button>
+    </div>
+  `;
+}
+
+async function saveHbigManual(){
+  const ym = monthlyReportYm;
+  const rows = [];
+  document.querySelectorAll('.hbig-manual').forEach(inp=>{
+    rows.push({ year_month: ym, report_key: 'hbig', field_key: inp.dataset.key, value: inp.value, updated_by: me.emp_id });
+  });
+  const { error } = await sb.from('monthly_report_manual').upsert(rows, { onConflict: 'year_month,report_key,field_key' });
+  if(error){ alert('儲存失敗：'+error.message); return; }
+  alert('✓ 已儲存');
+}
+
+/* ── 報表①④共用：直接組出sheet1.xml字串塞回範本zip，保留原始框線/樣式，支援任意筆數的資料列 ── */
+function xEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function xStr(ref,s,v){ return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xEsc(v)}</t></is></c>`; }
+function xNum(ref,s,v){ return `<c r="${ref}" s="${s}" t="n"><v>${v}</v></c>`; }
+function xEmpty(ref,s){ return `<c r="${ref}" s="${s}" t="n"></c>`; }
+function xFormula(ref,s,f){ return `<c r="${ref}" s="${s}"><f>${xEsc(f)}</f></c>`; }
+function xDateSerial(jsDate){ const epoch=Date.UTC(1899,11,30); return Math.round((jsDate.getTime()-epoch)/86400000); }
+function xToDate(s){ if(!s) return null; const d=new Date(s+'T00:00:00'); return isNaN(d) ? null : d; }
+
+async function downloadXlsxFromTemplate(b64, sheetXml, filename){
+  const binStr = atob(b64);
+  const bytes = new Uint8Array(binStr.length);
+  for(let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
+  const zip = await JSZip.loadAsync(bytes);
+  zip.file('xl/worksheets/sheet1.xml', sheetXml);
+  const blob = await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+}
+
+function hbigExcelDateSerial(jsDate){
+  // Excel日期序號：1899/12/30為第0天(內含Excel 1900閏年bug的業界慣用算法)
+  const epoch = Date.UTC(1899,11,30);
+  return Math.round((jsDate.getTime() - epoch) / 86400000);
+}
+
+function hbigXmlSetCell(doc, ref, value, isDate){
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const cell = doc.querySelector(`c[r="${ref}"]`);
+  if(!cell){ console.warn('B肝範本找不到儲存格', ref); return; }
+  while(cell.firstChild) cell.removeChild(cell.firstChild);
+  if(isDate || typeof value === 'number'){
+    cell.setAttribute('t','n');
+    const v = doc.createElementNS(NS,'v');
+    v.textContent = String(isDate ? hbigExcelDateSerial(value) : value);
+    cell.appendChild(v);
+  } else {
+    cell.setAttribute('t','inlineStr');
+    const is = doc.createElementNS(NS,'is');
+    const t = doc.createElementNS(NS,'t');
+    t.setAttribute('xml:space','preserve');
+    t.textContent = String(value==null?'':value);
+    is.appendChild(t);
+    cell.appendChild(is);
+  }
+}
+
+async function exportHbigReportExcel(){
+  const ym = monthlyReportYm;
+  if(!ym){ alert('請先產生報表'); return; }
+  const [yy, mm] = ym.split('-').map(Number);
+  const rocYear = yy - 1911;
+  const igRows = lastHbigIgRows || [];
+  const vacRows = lastHbigVacRows || [];
+  const manual = hbigManualCache || {};
+  const dose = {
+    1: (manual.dose1!==undefined && manual.dose1!==null && manual.dose1!=='') ? Number(manual.dose1) : (lastHbigDoseCounts[1]||0),
+    2: (manual.dose2!==undefined && manual.dose2!==null && manual.dose2!=='') ? Number(manual.dose2) : (lastHbigDoseCounts[2]||0),
+    3: (manual.dose3!==undefined && manual.dose3!==null && manual.dose3!=='') ? Number(manual.dose3) : (lastHbigDoseCounts[3]||0),
+    4: (manual.dose4!==undefined && manual.dose4!==null && manual.dose4!=='') ? Number(manual.dose4) : (lastHbigDoseCounts[4]||0),
+  };
+
+  if(igRows.length>3 || vacRows.length>3){
+    if(!confirm(`「結存情況」最多只能列3個批號，目前${igRows.length>3?'免疫球蛋白有'+igRows.length+'個':'遺傳工程疫苗有'+vacRows.length+'個'}批號，匯出時只會列出前3個。確定要繼續嗎？`)) return;
+  }
+
+  const sum = (rows, field) => rows.reduce((a,r)=>a + (Number(r[field])||0), 0);
+  const endOf = r => r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : 0);
+  const toDate = s => { if(!s) return null; const d = new Date(s+'T00:00:00'); return isNaN(d) ? null : d; };
+
+  // base64 -> bytes
+  const binStr = atob(HBIG_TEMPLATE_B64);
+  const bytes = new Uint8Array(binStr.length);
+  for(let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
+
+  const zip = await JSZip.loadAsync(bytes);
+  const sheetPath = 'xl/worksheets/sheet1.xml';
+  const xmlText = await zip.file(sheetPath).async('string');
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+
+  hbigXmlSetCell(doc, 'J1', rocYear);
+  hbigXmlSetCell(doc, 'M1', mm);
+
+  hbigXmlSetCell(doc, 'C6', Number(manual.pregnant_test_count)||0);
+  hbigXmlSetCell(doc, 'D6', Number(manual.s_antigen_positive)||0);
+  hbigXmlSetCell(doc, 'E6', Number(manual.e_antigen_positive)||0);
+
+  // 免疫球蛋白(H.B.I.G)：F上月結存 G入 H出 I注射人次 J核銷賠償(手動) — K本月結存是範本內建公式，不動它
+  hbigXmlSetCell(doc, 'F6', sum(igRows,'startVials'));
+  hbigXmlSetCell(doc, 'G6', sum(igRows,'inVials'));
+  hbigXmlSetCell(doc, 'H6', sum(igRows,'outVials'));
+  hbigXmlSetCell(doc, 'I6', sum(igRows,'vaccinated'));
+  hbigXmlSetCell(doc, 'J6', Number(manual.ig_writeoff)||0);
+
+  // 遺傳工程疫苗：L上月結存 M入 N出 O~R第一~四劑 T核銷賠償(手動) — S合計、U本月結存是範本內建公式，不動它們
+  hbigXmlSetCell(doc, 'L6', sum(vacRows,'startVials'));
+  hbigXmlSetCell(doc, 'M6', sum(vacRows,'inVials'));
+  hbigXmlSetCell(doc, 'N6', sum(vacRows,'outVials'));
+  hbigXmlSetCell(doc, 'O6', dose[1]||0);
+  hbigXmlSetCell(doc, 'P6', dose[2]||0);
+  hbigXmlSetCell(doc, 'Q6', dose[3]||0);
+  hbigXmlSetCell(doc, 'R6', dose[4]||0);
+  hbigXmlSetCell(doc, 'T6', Number(manual.vaccine_writeoff)||0);
+
+  // 結存情況：逐批號列出（最多3個），批號欄/有效期限欄/本月結存量欄
+  const igCells = [['D8','H8','J8'], ['D9','H9','J9'], ['D10','H10','J10']];
+  igRows.slice(0,3).forEach((r,i)=>{
+    hbigXmlSetCell(doc, igCells[i][0], r.lotNo);
+    const d = toDate(r.expiry); if(d) hbigXmlSetCell(doc, igCells[i][1], d, true);
+    hbigXmlSetCell(doc, igCells[i][2], endOf(r));
+  });
+  const vacCells = [['M8','R8','T8'], ['M9','R9','T9'], ['M10','R10','T10']];
+  vacRows.slice(0,3).forEach((r,i)=>{
+    hbigXmlSetCell(doc, vacCells[i][0], r.lotNo);
+    const d = toDate(r.expiry); if(d) hbigXmlSetCell(doc, vacCells[i][1], d, true);
+    hbigXmlSetCell(doc, vacCells[i][2], endOf(r));
+  });
+
+  const newXml = new XMLSerializer().serializeToString(doc);
+  zip.file(sheetPath, newXml);
+  const blob = await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${rocYear}年${mm}月_免費B肝疫苗遺傳工程預防注射報表.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+}
+
+let report1DragFromName = null;
+function report1DragStart(e){
+  report1DragFromName = e.currentTarget.dataset.name;
+  e.dataTransfer.effectAllowed = 'move';
+  try{ e.dataTransfer.setData('text/plain', report1DragFromName); }catch(err){}
+}
+function report1DragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const row = e.currentTarget;
+  if(!report1DragFromName || row.dataset.name === report1DragFromName) return;
+  const rect = row.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height/2;
+  row.style.borderTopColor = before ? '#1B3A6B' : 'transparent';
+  row.style.borderBottomColor = before ? 'transparent' : '#1B3A6B';
+}
+function report1DragLeave(e){
+  e.currentTarget.style.borderTopColor = 'transparent';
+  e.currentTarget.style.borderBottomColor = 'transparent';
+}
+async function report1Drop(e){
+  e.preventDefault();
+  const row = e.currentTarget;
+  row.style.borderTopColor = 'transparent';
+  row.style.borderBottomColor = 'transparent';
+  const toName = row.dataset.name;
+  const fromName = report1DragFromName;
+  report1DragFromName = null;
+  if(!fromName || fromName === toName) return;
+
+  // 依目前畫面上出現的順序取得不重複的疫苗名稱清單（同名多批號視為一組一起移動）
+  const order = [];
+  lastMonthlyReport.forEach(r=>{ if(!order.includes(r.name)) order.push(r.name); });
+
+  const fromIdx = order.indexOf(fromName);
+  let toIdx = order.indexOf(toName);
+  if(fromIdx === -1 || toIdx === -1) return;
+
+  const rect = row.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height/2;
+  if(!before) toIdx++;
+
+  order.splice(fromIdx, 1);
+  if(fromIdx < toIdx) toIdx--;
+  order.splice(toIdx, 0, fromName);
+
+  // 同一個名稱下可能對應到不只一個藥品8碼（少見但可能），該名稱所有批號的8碼都要一起更新同一個排序值
+  try{
+    const updates = [];
+    order.forEach((name, idx) => {
+      const codes = new Set(lastMonthlyReport.filter(r=>r.name===name).map(r=>r.code8));
+      codes.forEach(code8 => updates.push(sb.from('vaccine_master').update({report1_sort_order: idx*10}).eq('drug_code8', code8)));
+    });
+    await Promise.all(updates);
+  }catch(err){
+    alert('順序儲存失敗：'+err.message);
+    return;
+  }
+  renderMonthlyReport();
+}
+function report1DragEnd(){
+  report1DragFromName = null;
+  document.querySelectorAll('#mr-body tr[draggable="true"]').forEach(r=>{
+    r.style.borderTopColor = 'transparent';
+    r.style.borderBottomColor = 'transparent';
+  });
 }
 
 async function saveMonthlyClosing(){
@@ -4910,62 +5602,60 @@ async function saveMonthlyClosing(){
   renderMonthlyReport();
 }
 
-function exportMonthlyReportExcel(){
+async function exportMonthlyReportExcel(){
   if(!lastMonthlyReport.length){ alert('請先產生報表'); return; }
   const ym = monthlyReportYm || getMrYm();
   const [yy, mm] = ym.split('-').map(Number);
   const rocYear = yy - 1911;
-  const title = `${rocYear}年 ${mm}月 疫苗消耗結存月報表`;
 
-  const header = ['疫苗名稱','劑型','批號','有效日期','上月結存','撥入(向衛生所領)','撥出(調回衛生所)','消耗總瓶數','接種人數','本月結存總瓶數','備註'];
-  const aoa = [[title], [], header];
+  let xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  xml += `<row r="1">${xStr('A1',1,'斗六市台大雲林醫院、診所 ')}${xStr('F1',2,rocYear+'年')}${xStr('G1',2,mm+'月')}${xStr('H1',3,'疫苗消耗結存月報表')}</row>`;
+  xml += `<row r="2"></row>`;
+  xml += `<row r="3">${xStr('A3',6,'疫苗名稱')}${xStr('B3',6,'劑型')}${xStr('C3',6,'批 號')}${xStr('D3',6,'有 效  日 期')}${xStr('E3',6,'上月結存')}${xStr('F3',6,'撥    入 (向衛生所領)')}${xStr('G3',6,'撥     出 (調回衛生所)')}${xStr('H3',6,'消耗 總瓶數')}${xStr('I3',6,'接 種 人 數')}${xStr('J3',6,'本月結存總瓶數')}${xStr('K3',7,'備註')}</row>`;
+
+  const nameCounts = {}; lastMonthlyReport.forEach(r=>{ nameCounts[r.name]=(nameCounts[r.name]||0)+1; });
+  const seenName = new Set();
+  let rn = 4;
+  const merges = ['<mergeCell ref="A1:E1"/>'];
   lastMonthlyReport.forEach(r=>{
-    const noteOut = r.saved ? (r.note||'') : (r.hasBaseline ? '待確認' : '無上月基準，需實盤登錄');
-    aoa.push([r.name, r.dosesPerVial, r.lotNo, r.expiry||'', r.hasBaseline ? r.startVials : '需盤點', r.inVials, r.outVials, r.consumedVials, r.vaccinated, r.endVials!=null ? r.endVials : '', noteOut]);
-  });
-  aoa.push([]);
-  aoa.push(['註：']);
-  aoa.push(['1. 本表應由每月2日前填報衛生所(請填寫該月第一日至最後一日)。']);
-  aoa.push(['2. 撥入撥出消耗結存統計『欄』以瓶為單位。']);
-  aoa.push(['3. 若該月份使用同一種疫苗，但有兩個以上批號請將所有批號寫出來。']);
-  aoa.push(['4. 該月份的電子資料，也請繳交~請填寫該月第一日至最後一日(可分多次匯出)。']);
-  aoa.push([]);
-  aoa.push(['填表人:', '', '', '', '', '', '', '醫院、診所負責人:']);
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:10} }];
-
-  // 合併同疫苗名稱／劑型的批號列（比照紙本格式）
-  let rowIdx = 3; // aoa row 0=title,1=blank,2=header -> data starts at sheet row index 3
-  const nameCounts2 = {};
-  lastMonthlyReport.forEach(r=>{ nameCounts2[r.name] = (nameCounts2[r.name]||0)+1; });
-  const seenName2 = new Set();
-  lastMonthlyReport.forEach(r=>{
-    if(!seenName2.has(r.name)){
-      seenName2.add(r.name);
-      const span = nameCounts2[r.name];
-      if(span>1){
-        ws['!merges'].push({ s:{r:rowIdx,c:0}, e:{r:rowIdx+span-1,c:0} });
-        ws['!merges'].push({ s:{r:rowIdx,c:1}, e:{r:rowIdx+span-1,c:1} });
-      }
+    const isFirst = !seenName.has(r.name);
+    if(isFirst){
+      seenName.add(r.name);
+      const span = nameCounts[r.name];
+      if(span>1){ merges.push(`<mergeCell ref="A${rn}:A${rn+span-1}"/>`); merges.push(`<mergeCell ref="B${rn}:B${rn+span-1}"/>`); }
     }
-    rowIdx++;
+    const noteOut = r.saved ? (r.note||'') : (r.hasBaseline ? '待確認' : '無上月基準，需實盤登錄');
+    xml += `<row r="${rn}">`;
+    xml += isFirst ? xStr('A'+rn,9,r.name) : xEmpty('A'+rn,9);
+    xml += isFirst ? xNum('B'+rn,10,r.dosesPerVial) : xEmpty('B'+rn,10);
+    xml += xStr('C'+rn,11,r.lotNo);
+    const d = xToDate(r.expiry); xml += d ? xNum('D'+rn,12,xDateSerial(d)) : xEmpty('D'+rn,12);
+    xml += r.hasBaseline ? xNum('E'+rn,13,r.startVials) : xEmpty('E'+rn,13);
+    xml += xNum('F'+rn,13,r.inVials);
+    xml += xNum('G'+rn,13,r.outVials);
+    xml += xNum('H'+rn,13,r.consumedVials);
+    xml += xFormula('I'+rn,14,'H'+rn);
+    xml += xFormula('J'+rn,14,`E${rn}+F${rn}-G${rn}-H${rn}`);
+    xml += xStr('K'+rn,15,noteOut);
+    xml += '</row>';
+    rn++;
   });
 
-  ws['!cols'] = [{wch:16},{wch:6},{wch:16},{wch:12},{wch:8},{wch:10},{wch:10},{wch:10},{wch:8},{wch:10},{wch:24}];
+  const noteRow = rn;
+  xml += `<row r="${noteRow}">${xStr('A'+noteRow,16,'註：')}${xEmpty('K'+noteRow,17)}</row>`;
+  xml += `<row r="${noteRow+1}">${xStr('A'+(noteRow+1),18,'1.　本表應由每月2日前填報斗六市衛生所(請填寫該月第一日至最後一日)。TEL : 5345140；5322226')}${xEmpty('K'+(noteRow+1),17)}</row>`;
+  xml += `<row r="${noteRow+2}">${xStr('A'+(noteRow+2),18,'2.　撥入撥出消耗結存統計『欄』以瓶為單位。')}${xEmpty('K'+(noteRow+2),17)}</row>`;
+  xml += `<row r="${noteRow+3}">${xStr('A'+(noteRow+3),18,'3.　若該月份使用同一種疫苗，但有兩個以上批號請將所有批號寫出來。')}${xEmpty('K'+(noteRow+3),17)}</row>`;
+  xml += `<row r="${noteRow+4}">${xStr('A'+(noteRow+4),19,'4.　該月份的電子資料，也請繳交~請填寫該月第一日至最後一日(可分多次匯出)。D5345140@yahoo.com.tw')}${['B','C','D','E','F','G','H','I','J'].map(c=>xEmpty(c+(noteRow+4),20)).join('')}${xEmpty('K'+(noteRow+4),21)}</row>`;
+  const sigRow = noteRow+5;
+  xml += `<row r="${sigRow}">${xStr('A'+sigRow,22,'醫院、診所負責人:')}${xEmpty('B'+sigRow,23)}${xEmpty('C'+sigRow,23)}${xStr('E'+sigRow,24,'填表人:')}${xEmpty('I'+sigRow,22)}${xEmpty('J'+sigRow,23)}</row>`;
+  merges.push(`<mergeCell ref="B${sigRow}:C${sigRow}"/>`, `<mergeCell ref="I${sigRow}:J${sigRow}"/>`);
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '月報表');
-  XLSX.writeFile(wb, `${rocYear}年${mm}月_疫苗消耗結存月報表.xlsx`);
-}
+  xml += '</sheetData>';
+  xml += `<mergeCells count="${merges.length}">${merges.join('')}</mergeCells>`;
+  xml += '</worksheet>';
 
-function copyMonthlyReport(){
-  if(!lastMonthlyReport.length){ alert('尚無資料可複製'); return; }
-  const text = lastMonthlyReport.map(r=>{
-    const noteOut = r.saved ? (r.note||'') : (r.hasBaseline ? '待確認' : '無上月基準，需實盤登錄');
-    return [r.name,r.dosesPerVial,r.lotNo,r.expiry||'',r.hasBaseline?r.startVials:'需盤點',r.inVials,r.outVials,r.consumedVials,r.vaccinated,r.endVials!=null?r.endVials:'',noteOut].join('\t');
-  }).join('\n');
-  navigator.clipboard.writeText(text).then(()=>alert('✓ 已複製到剪貼簿')).catch(()=>alert('複製失敗，請手動選取'));
+  await downloadXlsxFromTemplate(REPORT1_TEMPLATE_B64, xml, `${rocYear}年${mm}月_疫苗消耗結存月報表.xlsx`);
 }
 
 document.querySelectorAll('.modal-bg').forEach(el => el.addEventListener('click', function(e){ if(e.target===this) closeModal(this.id); }));
