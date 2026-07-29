@@ -1760,7 +1760,7 @@ async function renderOverview(){
   const [{ data: recs }, { data: stocks }, { data: notes }] = await Promise.all([
     sb.from('tally_records').select('drug_code8, campus, tally_qty').eq('tally_date', selDate).in('drug_code8', codes),
     sb.from('stock_uploads').select('drug_code8, station_code, stock_qty').eq('upload_date', selDate).in('drug_code8', codes),
-    sb.from('overview_notes').select('drug_code8, note').eq('note_date', selDate).in('drug_code8', codes)
+    sb.from('overview_notes').select('drug_code8, note').eq('note_date', selDate).eq('source','overview').in('drug_code8', codes)
   ]);
 
   const noteMap = {};
@@ -1824,7 +1824,7 @@ async function renderOverview(){
   document.getElementById('ov-err').textContent = errCount;
 }
 
-// 管理總覽的「當天備註」：對應 drug_code8 + note_date，換日期查詢就不會帶出來，只跟當天那一列綁定
+// 管理總覽的「當天備註」：對應 drug_code8 + note_date + source='overview'，換日期查詢就不會帶出來，只跟當天那一列綁定，也不會跟全院庫存核對的備註互相干擾
 async function saveOverviewNote(el){
   const code8 = el.dataset.code;
   const noteDate = document.getElementById('ov-date').value;
@@ -1833,11 +1833,11 @@ async function saveOverviewNote(el){
   el.style.opacity = '0.6';
   let err = null;
   if(val === ''){
-    ({ error: err } = await sb.from('overview_notes').delete().eq('drug_code8', code8).eq('note_date', noteDate));
+    ({ error: err } = await sb.from('overview_notes').delete().eq('drug_code8', code8).eq('note_date', noteDate).eq('source','overview'));
   } else {
     ({ error: err } = await sb.from('overview_notes').upsert(
-      { drug_code8: code8, note_date: noteDate, note: val, created_by: me.emp_id },
-      { onConflict: 'drug_code8,note_date' }
+      { drug_code8: code8, note_date: noteDate, note: val, source: 'overview', created_by: me.emp_id },
+      { onConflict: 'drug_code8,note_date,source' }
     ));
   }
   el.disabled = false;
@@ -4292,7 +4292,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     sb.from('stock_uploads').select('drug_code8,station_code,upload_date,stock_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded),
-    sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).gte('note_date', earliestNeeded).lte('note_date', latestNeeded)
+    sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded)
   ]);
   const noteMap = {}; (noteRows||[]).forEach(n=>{ noteMap[n.drug_code8+'|'+n.note_date] = n.note; });
 
@@ -4376,7 +4376,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">無資料</td></tr>';
 }
 
-// 全院庫存核對的「當天備註」，跟管理總覽共用同一張表(overview_notes)，用藥品8碼+日期對應，方便記錄「已知是院內庫存報表落差，不是系統問題」這類說明
+// 全院庫存核對的「當天備註」，跟管理總覽是分開存的（source='stockcheck' vs 'overview'），同一個品項/日期兩邊可以各自寫不同的說明
 async function saveStockCheckNote(el){
   const code8 = el.dataset.code;
   const noteDate = el.dataset.date;
@@ -4385,11 +4385,11 @@ async function saveStockCheckNote(el){
   el.style.opacity = '0.6';
   let err = null;
   if(val === ''){
-    ({ error: err } = await sb.from('overview_notes').delete().eq('drug_code8', code8).eq('note_date', noteDate));
+    ({ error: err } = await sb.from('overview_notes').delete().eq('drug_code8', code8).eq('note_date', noteDate).eq('source','stockcheck'));
   } else {
     ({ error: err } = await sb.from('overview_notes').upsert(
-      { drug_code8: code8, note_date: noteDate, note: val, created_by: me.emp_id },
-      { onConflict: 'drug_code8,note_date' }
+      { drug_code8: code8, note_date: noteDate, note: val, source: 'stockcheck', created_by: me.emp_id },
+      { onConflict: 'drug_code8,note_date,source' }
     ));
   }
   el.disabled = false;
