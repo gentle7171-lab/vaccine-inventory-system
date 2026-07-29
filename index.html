@@ -2942,6 +2942,14 @@ async function renderAccounts(){
     return true;
   });
 
+  const campusOrder = { dl: 0, hw: 1 };
+  list.sort((a,b)=>{
+    const ca = campusOrder[a.campus] ?? 2;
+    const cb = campusOrder[b.campus] ?? 2;
+    if(ca !== cb) return ca - cb;
+    return (a.emp_id||'').localeCompare(b.emp_id||'');
+  });
+
   const roleLabel = {admin:'管理者', warehouse:'藥庫', pharm:'一般'};
   const campusLabel = {dl:'斗六', hw:'虎尾', '':'兩院區'};
   const hasSel = accCache.some(u=>u._chk);
