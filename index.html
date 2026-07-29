@@ -417,7 +417,7 @@ tr:hover td{background:#fafaf8}
 
         <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 8px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <span>NIIS申報總表（參考鏡像，僅供對照操作，無法直接送出至政府系統）<span style="font-size:13px;font-weight:400;color:#888;margin-left:8px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動）</span></span>
-          <span id="niis-hide-zero-count" style="font-size:12px;color:#aaa"></span>
+          <span id="niis-hide-zero-count" style="font-size:12px;color:#1B3A6B;text-decoration:underline;cursor:pointer" onclick="openNiisHiddenModal()"></span>
         </div>
         <div class="tbl-wrap" style="margin-bottom:20px">
           <table>
@@ -878,6 +878,26 @@ tr:hover td{background:#fafaf8}
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-niis-hidden">
+  <div class="modal" style="width:700px;max-width:96vw;max-height:88vh;overflow-y:auto">
+    <h3>被隱藏的品項</h3>
+    <div class="notice n-info" style="margin:10px 0">這些品項因為庫存量／控留量都是0、且沒有待結存或待校正的項目，被自動隱藏在NIIS申報總表裡（不影響資料，只是不顯示），可以用下面的搜尋找特定品項確認。</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+      <input type="text" id="niis-hidden-kw" class="inp" style="width:220px" placeholder="🔍 搜尋疫苗名稱/批號/代碼" oninput="renderNiisHiddenList()">
+    </div>
+    <div class="tbl-wrap" style="max-height:55vh;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th style="width:90px">疫苗代碼</th><th>疫苗名稱</th><th style="width:150px">批號</th>
+        </tr></thead>
+        <tbody id="niis-hidden-body"></tbody>
+      </table>
+    </div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-niis-hidden')">關閉</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-vacc-batch">
   <div class="modal" style="width:500px">
     <h3>疫苗批次匯入</h3>
@@ -945,7 +965,7 @@ tr:hover td{background:#fafaf8}
       <select id="lotfix-wrong-lot" class="inp" onchange="onLotFixWrongLotChange()"><option value="">請先選日期＋8碼</option></select>
     </div>
     <div class="fg"><label>更正數量（預設＝這個錯批號當天全部耗用量，可改成只搬一部分）</label>
-      <input type="number" id="lotfix-qty" class="inp" min="0" step="0.01">
+      <input type="number" id="lotfix-qty" class="inp" min="0" step="1">
     </div>
     <div class="fg"><label>對的批號</label>
       <select id="lotfix-correct-lot" class="inp"><option value="">請先選藥品8碼</option></select>
@@ -3155,6 +3175,7 @@ let usageDoseGrouped = [];
 let lastNiisList = [];
 let niisMirrorRows = [];
 let niisMirrorAllRows = [];
+let niisHiddenRows = [];
 let niisUploadedDates = new Set();
 let lastNiisMirrorVmaster = [];
 
@@ -4391,11 +4412,12 @@ async function renderNiisMirror(vmaster){
   const codes = vmaster.map(v=>v.drug_code8);
   const earliestNeeded = shiftDate(todayStr(), -60); // 只回溯60天內的耗用，避免資料無限累積
 
-  const [{data:lots}, {data:declareLog, error:declareErr}, {data:usageRows}, {data:allUploadDates}] = await Promise.all([
+  const [{data:lots}, {data:declareLog, error:declareErr}, {data:usageRows}, {data:allUploadDates}, {data:whTx}] = await Promise.all([
     sb.from('lot_details').select('drug_code8,lot_no,current_qty,campus').eq('status','active').in('drug_code8', codes),
     sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock,hold_qty,declared_usage,declared_at').in('drug_code8', codes).order('declare_date',{ascending:true}),
     sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').in('drug_code8', codes).gte('upload_date', earliestNeeded),
-    sb.from('usage_uploads').select('upload_date').gte('upload_date', earliestNeeded)
+    sb.from('usage_uploads').select('upload_date').gte('upload_date', earliestNeeded),
+    sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,qty,tx_date,reason').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', codes).or('niis_adjusted.is.false,niis_adjusted.is.null')
   ]);
   if(declareErr){
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:#A32D2D">尚未建立 niis_declare_log 資料表，請先執行 sql_niis_declare_log.sql（${declareErr.message}）</td></tr>`;
@@ -4426,6 +4448,21 @@ async function renderNiisMirror(vmaster){
   function baselineFor(key){
     return lastDeclareMap[key] ? Number(lastDeclareMap[key].closing_stock) : (lotFallbackMap[key]||0);
   }
+
+  // 自動列出「還沒被用過的藥庫進出貨」逐筆明細，讓使用者自己勾選要不要套用（不用日期比對算淨額，避免跟之前已經手動輸入過的其他異動重複算）
+  const autoAdjustMap = {};   // key -> [{direction, qty(換算後), tx_date, reason, rawQty}]
+  (whTx||[]).forEach(t=>{
+    const key = canon(t.drug_code8)+'|'+t.lot_no;
+    if(!lastDeclareMap[key]) return; // 從沒結存過的批號，起始庫存本來就直接抓藥庫現有量(已經包含這些進出貨)，不用再疊加
+    const wv = vmap[canon(t.drug_code8)];
+    const dosesPerVial = wv ? (wv.doses_per_vial || 1) : 1;
+    const qty = wv && wv.whole_vial_deduct ? Number(t.qty||0) / dosesPerVial : Number(t.qty||0);
+    if(!autoAdjustMap[key]) autoAdjustMap[key] = [];
+    autoAdjustMap[key].push({ direction: t.direction, qty, rawQty: t.qty, tx_date: t.tx_date, reason: t.reason });
+  });
+  Object.keys(autoAdjustMap).forEach(key=>{
+    autoAdjustMap[key].sort((a,b)=> a.tx_date.localeCompare(b.tx_date));
+  });
 
   // 依批號彙總「尚未結存的耗用日期」清單（不分組列出所有天，同一批號合併成一列）——不同8碼但共用同一批號的消耗，會合併算進同一個結存池
   const usageSum = {}; // key(code8|lot|date) -> qty（若為整瓶扣帳品項，這裡的qty已換算成用掉的整瓶所對應的「正式管理批號」劑量單位）
@@ -4482,6 +4519,7 @@ async function renderNiisMirror(vmaster){
       rawUsage,
       wholeVial,
       hold: 0,
+      autoAdjust: autoAdjustMap[key] || [],
       targetDate: nextPending ? nextPending.date : (latestOverallUploadDate || todayStr())
     };
   }).filter(Boolean).sort((a,b)=>{
@@ -4498,10 +4536,11 @@ async function renderNiisMirror(vmaster){
 function renderNiisMirrorRows(){
   const tbody = document.getElementById('niis-mirror-body');
   const allRows = niisMirrorAllRows || [];
-  const rows = allRows.filter(r => !(r.qty===0 && r.hold===0 && r.pendingCount===0));
-  const hiddenCount = allRows.length - rows.length;
+  const rows = allRows.filter(r => !(r.qty===0 && r.hold===0 && r.pendingCount===0 && !(r.autoAdjust && r.autoAdjust.length)));
+  niisHiddenRows = allRows.filter(r => (r.qty===0 && r.hold===0 && r.pendingCount===0 && !(r.autoAdjust && r.autoAdjust.length)));
+  const hiddenCount = niisHiddenRows.length;
   const countEl = document.getElementById('niis-hide-zero-count');
-  if(countEl) countEl.textContent = hiddenCount>0 ? `（已隱藏${hiddenCount}筆）` : '';
+  if(countEl) countEl.textContent = hiddenCount>0 ? `（已隱藏${hiddenCount}筆，點此查看）` : '';
 
   niisMirrorRows = rows;
 
@@ -4513,12 +4552,13 @@ function renderNiisMirrorRows(){
   let html = '';
   rows.forEach((r,i)=>{
     const hasPending = r.pendingCount > 0;
+    const hasAutoAdjust = !!(r.autoAdjust && r.autoAdjust.length);
     html += `<tr draggable="true" data-code8="${r.code8}"
       ondragstart="niisMainDragStart(event)" ondragover="niisMainDragOver(event)"
       ondragleave="niisMainDragLeave(event)" ondrop="niisMainDrop(event)" ondragend="niisMainDragEnd(event)"
-      style="${hasPending?'background:#FFF6DA;':''}cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent">
+      style="${hasPending?'background:#FFF6DA;':(hasAutoAdjust?'background:#EAF6F0;':'')}cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent">
       <td style="font-size:14px"><span style="color:#bbb;margin-right:4px">☰</span>${r.niis_code||'—'}</td>
-      <td style="font-size:15px">${r.niis_name}${hasPending?` <span style="color:#B8860B;font-size:12px">●有耗用待結存${r.pendingCount>1?'（'+r.pendingCount+'天）':''}</span>`:''}</td>
+      <td style="font-size:15px">${r.niis_name}${hasPending?` <span style="color:#B8860B;font-size:12px">●有耗用待結存${r.pendingCount>1?'（'+r.pendingCount+'天）':''}</span>`:''}${(!hasPending && hasAutoAdjust)?` <span style="color:#1D9E75;font-size:12px">●藥庫有進出待校正</span>`:''}</td>
       <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
       <td class="c">${r.qty}${r.wholeVial?'瓶':''}</td>
       <td class="c">${r.hold}</td>
@@ -4531,16 +4571,65 @@ function renderNiisMirrorRows(){
           <div class="fg" style="margin:0"><label>申報日期</label><input type="date" class="inp" id="niis-mirror-date-${i}" value="${r.targetDate}" style="width:150px"></div>
           <div class="fg" style="margin:0"><label>消耗量${r.wholeVial?'（瓶）':''}${r.rawUsage!==undefined && r.usage!==r.rawUsage ? `<span style="font-weight:400;color:#C77700;font-size:11px">（實際施打${r.rawUsage}人，換算${r.usage}瓶）</span>` : ''}</label><input type="number" class="inp" id="niis-mirror-usage-${i}" value="${r.usage}" style="width:100px" oninput="updateNiisMirrorPreview(${i})"></div>
           <div class="fg" style="margin:0"><label>控留量</label><input type="number" class="inp" id="niis-mirror-hold-${i}" value="${r.hold}" style="width:100px"></div>
-          <div class="fg" style="margin:0"><label>其他異動（退回衛生所等，正數＝要從結存扣掉）</label><input type="number" class="inp" id="niis-mirror-adjust-${i}" value="0" style="width:140px" oninput="updateNiisMirrorPreview(${i})"></div>
-          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;color:#1B3A6B;padding:7px 0">${r.qty - r.usage}</div></div>
+          <div class="fg" style="margin:0"><label>其他異動（退回衛生所等，正數＝扣掉、負數＝加回，例如撥入要填負數）</label><input type="number" class="inp" id="niis-mirror-adjust-${i}" value="${r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}" style="width:140px" oninput="updateNiisMirrorPreview(${i})"></div>
+          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;color:#1B3A6B;padding:7px 0">${r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}</div></div>
           <button class="btn btn-primary btn-sm" onclick="confirmNiisDeclare(${i})">確認結存</button>
         </div>
-        <div style="font-size:12px;color:#999;margin-top:6px">「其他異動」是給退回衛生所、報廢、盤損等非耗用的庫存減少用的，只影響這裡的結存基準，不會被當成消耗量、也不會影響月報表</div>
+        <div style="font-size:12px;color:#999;margin-top:6px">「其他異動」是給退回衛生所、藥庫進出貨、報廢、盤損等非耗用的庫存變動用的，只影響這裡的結存基準，不會被當成消耗量、也不會影響月報表</div>
+        ${r.autoAdjust.length ? `
+        <div style="margin-top:8px;border:1px solid #eee;border-radius:6px;padding:8px 10px;background:#fff">
+          <div style="font-size:12px;color:#1D9E75;margin-bottom:6px">✓ 找到 ${r.autoAdjust.length} 筆這個批號還沒套用過的藥庫進出貨，逐筆列在下面，預設全部勾選套用，取消勾選可以排除不要的那幾筆（勾選狀態改變時「其他異動」欄位會自動重算）：</div>
+          ${r.autoAdjust.map((x,j)=>`
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer">
+              <input type="checkbox" checked class="niis-adjitem" data-i="${i}" data-j="${j}" onchange="recalcNiisMirrorAdjust(${i})">
+              <span style="color:#888;width:90px">${x.tx_date}</span>
+              <span style="width:60px;color:${x.direction==='in'?'#1D9E75':'#A32D2D'}">${x.direction==='in'?'撥入':'撥出'}</span>
+              <span>${x.qty}${r.wholeVial?'瓶':''}</span>
+            </label>
+          `).join('')}
+        </div>` : ''}
         ${r.pendingCount>1 ? `<div style="font-size:12px;color:#B8860B;margin-top:6px">這個批號還有 ${r.pendingCount} 天尚未結存，會先帶入最早的一天，結存後再展開會換下一天。</div>` : ''}
       </td>
     </tr>`;
   });
   tbody.innerHTML = html;
+}
+
+function recalcNiisMirrorAdjust(i){
+  const r = niisMirrorRows[i];
+  if(!r) return;
+  let sum = 0;
+  document.querySelectorAll(`.niis-adjitem[data-i="${i}"]`).forEach(cb=>{
+    const j = Number(cb.dataset.j);
+    const x = r.autoAdjust[j];
+    if(cb.checked && x) sum += (x.direction==='out'?x.qty:-x.qty);
+  });
+  const input = document.getElementById('niis-mirror-adjust-'+i);
+  if(input) input.value = sum;
+  updateNiisMirrorPreview(i);
+}
+
+function openNiisHiddenModal(){
+  document.getElementById('niis-hidden-kw').value = '';
+  document.getElementById('modal-niis-hidden').classList.add('open');
+  renderNiisHiddenList();
+}
+function renderNiisHiddenList(){
+  const body = document.getElementById('niis-hidden-body');
+  if(!body) return;
+  if(!niisHiddenRows.length){ body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:#bbb">目前沒有被隱藏的品項</td></tr>'; return; }
+  const kw = (document.getElementById('niis-hidden-kw')?.value || '').trim().toLowerCase();
+  const filtered = kw ? niisHiddenRows.filter(r =>
+    (r.niis_name||'').toLowerCase().includes(kw) ||
+    (r.lotNo||'').toLowerCase().includes(kw) ||
+    (r.niis_code||'').toLowerCase().includes(kw)
+  ) : niisHiddenRows;
+  if(!filtered.length){ body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:#bbb">查無符合的品項</td></tr>'; return; }
+  body.innerHTML = filtered.map(r=>`<tr>
+    <td style="font-size:13px">${r.niis_code||'—'}</td>
+    <td style="font-size:14px">${r.niis_name}</td>
+    <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
+  </tr>`).join('');
 }
 
 function updateNiisMirrorPreview(i){
@@ -4587,6 +4676,35 @@ async function confirmNiisDeclare(i){
   }, { onConflict: 'drug_code8,lot_no,declare_date' });
 
   if(error){ alert('結存記錄失敗：'+error.message); return; }
+
+  if(!r.lastDeclareDate){
+    // 這是這個批號第一次結存：起始庫存量是直接抓藥庫目前現有量，已經包含這個批號過去所有的進出貨，
+    // 所以要把它過去所有的進出貨都標記為已套用，不然下次結存會被誤判成「還沒校正」而重複跳出來
+    try{
+      await sb.from('warehouse_transactions').update({ niis_adjusted: true })
+        .eq('campus','wh').eq('drug_code8', r.code8).eq('lot_no', r.lotNo)
+        .in('reason', ['receive_import','return_import']);
+    }catch(err){ console.warn('標記首次結存前的藥庫異動失敗', err); }
+  }
+
+  // 把這次勾選套用的藥庫進出貨明細標記為已套用，避免下次結存又重複列出來
+  const checkedItems = [];
+  document.querySelectorAll(`.niis-adjitem[data-i="${i}"]`).forEach(cb=>{
+    if(cb.checked){
+      const j = Number(cb.dataset.j);
+      const x = r.autoAdjust[j];
+      if(x) checkedItems.push(x);
+    }
+  });
+  if(checkedItems.length){
+    try{
+      await Promise.all(checkedItems.map(x =>
+        sb.from('warehouse_transactions').update({ niis_adjusted: true })
+          .eq('campus','wh').eq('drug_code8', r.code8).eq('lot_no', r.lotNo)
+          .eq('direction', x.direction).eq('reason', x.reason).eq('qty', x.rawQty).eq('tx_date', x.tx_date)
+      ));
+    }catch(err){ console.warn('標記已套用失敗', err); }
+  }
 
   renderNiisMirror(lastNiisMirrorVmaster);
 }
