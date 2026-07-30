@@ -1707,7 +1707,7 @@ async function renderOverview(){
   document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#bbb">載入中...</td></tr>';
 
   // 撈全部 active 品項（不分院區）
-  const { data: items, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name)').eq('status','active');
+  const { data: items, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4)').eq('status','active');
   if(itemErr){
     document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${itemErr.message}</td></tr>`;
     return;
@@ -1742,9 +1742,9 @@ async function renderOverview(){
 
   const extraCodes = Object.keys(whComputedMap).filter(c=>!seenCodes.has(c));
   if(extraCodes.length){
-    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', extraCodes);
+    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').in('drug_code8', extraCodes);
     (extraMaster||[]).forEach(v=>{
-      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name}, _whOnly:true });
+      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4}, _whOnly:true });
       seenCodes.add(v.drug_code8);
     });
   }
@@ -1793,6 +1793,7 @@ async function renderOverview(){
   let dlOk=0, hwOk=0, whOk=0, errCount=0, rows='';
   for(const v of uniqueVaccines){
     const name = v.vaccine_master ? v.vaccine_master.tally_name : v.drug_code8;
+    const code4 = v.vaccine_master ? v.vaccine_master.stock_code4 : null;
     const dl = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'dl');
     const hw = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'hw');
     const wh = badgeFor(v.drug_code8, 'wh');
@@ -1802,7 +1803,7 @@ async function renderOverview(){
     if(dl.mismatch || hw.mismatch || wh.mismatch) errCount++;
     const note = noteMap[v.drug_code8] || '';
     rows += `<tr>
-      <td style="font-size:15px">${name}</td>
+      <td style="font-size:15px">${name}${code4?`<div style="font-size:12px;color:#999">${code4}</div>`:''}</td>
       <td class="c">${dl.tally===null?'—':dl.tally}</td>
       <td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td>
       <td class="c">${dl.badge}</td>
@@ -4197,7 +4198,7 @@ async function renderNiisList(){
   document.getElementById('niis-nextday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
   document.getElementById('niis-sameday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
 
-  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of').eq('niis_required', true);
+  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4').eq('niis_required', true);
   if(e1){
     const errHtml = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${e1.message}</td></tr>`;
     document.getElementById('niis-nextday-body').innerHTML = errHtml;
@@ -4281,6 +4282,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const items = vmaster.filter(v=>!v.alias_of).map(v=>({
     drug_code8: v.drug_code8,
     niis_name: v.niis_name,
+    stock_code4: v.stock_code4,
     target_date: v.niis_declare_timing==='same_day' ? date : prevDate
   }));
   const codes = [...new Set(vmaster.map(v=>v.drug_code8))];
@@ -4364,7 +4366,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   }).sort((a,b)=>(a.niis_name||'').localeCompare(b.niis_name||''));
 
   tbody.innerHTML = rows.map(r=>`<tr>
-    <td style="font-size:14px">${r.niis_name||r.drug_code8}</td>
+    <td style="font-size:14px">${r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}</td>
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
