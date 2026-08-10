@@ -4037,15 +4037,21 @@ async function renderUploadHistory(){
   const since30 = new Date(); since30.setDate(since30.getDate()-30);
   const since30Str = since30.toISOString().slice(0,10);
 
-  const [{data:usageRows}, {data:stockRows}, {data:whRows}] = await Promise.all([
-    sb.from('usage_uploads').select('upload_date,campus').gte('upload_date', sinceStr),
-    sb.from('stock_uploads').select('upload_date,station_code').gte('upload_date', sinceStr),
-    sb.from('warehouse_transactions').select('tx_date,direction,qty').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', since30Str)
+  const [{data:usageRows}, {data:stockRows}, {data:whRows}, {data:userRows}] = await Promise.all([
+    sb.from('usage_uploads').select('upload_date,campus,uploaded_by').gte('upload_date', sinceStr),
+    sb.from('stock_uploads').select('upload_date,station_code,uploaded_by').gte('upload_date', sinceStr),
+    sb.from('warehouse_transactions').select('tx_date,direction,qty,created_by').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', since30Str),
+    sb.from('users').select('emp_id,name')
   ]);
+  const nameMap = {}; (userRows||[]).forEach(u=>{ nameMap[u.emp_id] = u.name; });
+  const namesOf = empIdSet => [...empIdSet].filter(Boolean).map(id => nameMap[id] || id).join('、') || '—';
 
   const uMap = {};
+  const uByDate = {};
   (usageRows||[]).forEach(r=>{
     uMap[r.upload_date] = (uMap[r.upload_date]||0)+1;
+    if(!uByDate[r.upload_date]) uByDate[r.upload_date] = new Set();
+    uByDate[r.upload_date].add(r.uploaded_by);
   });
 
   // 提醒：近7天（不含今天，因今天的耗用資料通常隔天才會有）有哪幾天沒上傳全院耗用報表
@@ -4064,10 +4070,11 @@ async function renderUploadHistory(){
 
   const uDates = Object.keys(uMap).sort().reverse().slice(0,10);
   document.getElementById('usage-history-body').innerHTML = uDates.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th style="width:110px">日期</th><th class="c">品項筆數</th><th style="width:110px">操作</th></tr></thead>
+    <thead><tr><th style="width:110px">日期</th><th class="c">品項筆數</th><th style="width:140px">上傳人員</th><th style="width:110px">操作</th></tr></thead>
     <tbody>${uDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
       <td class="c">${uMap[d]}</td>
+      <td style="font-size:13px;color:#666">${namesOf(uByDate[d])}</td>
       <td>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteUsageDate('${d}')">刪除</button>
       </td>
@@ -4075,19 +4082,23 @@ async function renderUploadHistory(){
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
 
   const sMap = {};
+  const sByDate = {};
   (stockRows||[]).forEach(r=>{
     if(!sMap[r.upload_date]) sMap[r.upload_date] = {'6101':0,'6201':0,'6000':0};
     sMap[r.upload_date][r.station_code] = (sMap[r.upload_date][r.station_code]||0)+1;
+    if(!sByDate[r.upload_date]) sByDate[r.upload_date] = new Set();
+    sByDate[r.upload_date].add(r.uploaded_by);
   });
   const sDates = Object.keys(sMap).sort().reverse().slice(0,10);
 
   document.getElementById('stock-history-body').innerHTML = sDates.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th style="width:110px">日期</th><th class="c">斗六(6101)</th><th class="c">虎尾(6201)</th><th class="c">藥庫(6000)</th><th style="width:220px">操作</th></tr></thead>
+    <thead><tr><th style="width:110px">日期</th><th class="c">斗六(6101)</th><th class="c">虎尾(6201)</th><th class="c">藥庫(6000)</th><th style="width:140px">上傳人員</th><th style="width:220px">操作</th></tr></thead>
     <tbody>${sDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
       <td class="c">${sMap[d]['6101']||0}</td>
       <td class="c">${sMap[d]['6201']||0}</td>
       <td class="c">${sMap[d]['6000']||0}</td>
+      <td style="font-size:13px;color:#666">${namesOf(sByDate[d])}</td>
       <td>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteStockDate('${d}','6101')">刪斗六</button>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteStockDate('${d}','6201')">刪虎尾</button>
@@ -4097,22 +4108,26 @@ async function renderUploadHistory(){
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
 
   const whMap = {};
+  const whByDate = {};
   (whRows||[]).forEach(r=>{
     if(!whMap[r.tx_date]) whMap[r.tx_date] = {inCount:0,outCount:0,inQty:0,outQty:0};
     if(r.direction==='in'){ whMap[r.tx_date].inCount++; whMap[r.tx_date].inQty += Number(r.qty||0); }
     else { whMap[r.tx_date].outCount++; whMap[r.tx_date].outQty += Number(r.qty||0); }
+    if(!whByDate[r.tx_date]) whByDate[r.tx_date] = new Set();
+    whByDate[r.tx_date].add(r.created_by);
   });
   const whDates = Object.keys(whMap).sort().reverse();
 
   document.getElementById('whrecv-history-body').innerHTML = whDates.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th style="width:110px">領用日期</th><th class="c">進貨(向衛生所領)</th><th class="c">退貨(調回衛生所)</th><th style="width:100px">明細</th></tr></thead>
+    <thead><tr><th style="width:110px">領用日期</th><th class="c">進貨(向衛生所領)</th><th class="c">退貨(調回衛生所)</th><th style="width:140px">上傳人員</th><th style="width:100px">明細</th></tr></thead>
     <tbody>${whDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
       <td class="c">${whMap[d].inCount ? `${whMap[d].inCount}筆 / 共${whMap[d].inQty}劑` : '—'}</td>
       <td class="c">${whMap[d].outCount ? `${whMap[d].outCount}筆 / 共${whMap[d].outQty}劑` : '—'}</td>
+      <td style="font-size:13px;color:#666">${namesOf(whByDate[d])}</td>
       <td><button class="btn btn-sm" style="font-size:13px" onclick="toggleWhReceiveDetail('${d}')">查看/刪除</button></td>
     </tr>
-    <tr id="whrecv-detail-row-${d}" style="display:none"><td colspan="4" style="padding:0"><div id="whrecv-detail-${d}" style="padding:8px 12px;background:#fafaf8"></div></td></tr>`).join('')}</tbody></table></div>`
+    <tr id="whrecv-detail-row-${d}" style="display:none"><td colspan="5" style="padding:0"><div id="whrecv-detail-${d}" style="padding:8px 12px;background:#fafaf8"></div></td></tr>`).join('')}</tbody></table></div>`
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近30天尚無藥庫進出貨上傳紀錄</div>';
 }
 
@@ -4126,7 +4141,7 @@ async function toggleWhReceiveDetail(date){
   box.innerHTML = '載入中...';
 
   const { data, error } = await sb.from('warehouse_transactions')
-    .select('drug_code8,lot_no,direction,reason,qty,tx_date')
+    .select('drug_code8,lot_no,direction,reason,qty,tx_date,created_by')
     .eq('campus','wh').eq('tx_date', date).in('reason',['receive_import','return_import'])
     .order('direction');
   if(error){ box.innerHTML = `查詢失敗：${error.message}`; return; }
@@ -4135,16 +4150,21 @@ async function toggleWhReceiveDetail(date){
   // 不用embedded join（vaccine_master(tally_name)），因為warehouse_transactions跟vaccine_master之間
   // 目前資料庫沒有設定外鍵關聯，PostgREST抓不到關聯就會直接查詢失敗；改成分開查再自己對應
   const detailCodes = [...new Set(data.map(r=>r.drug_code8))];
-  const { data: vnames } = detailCodes.length ? await sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', detailCodes) : {data:[]};
+  const [{data:vnames}, {data:detailUsers}] = await Promise.all([
+    detailCodes.length ? sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', detailCodes) : Promise.resolve({data:[]}),
+    sb.from('users').select('emp_id,name')
+  ]);
   const vnameMap = {}; (vnames||[]).forEach(v=>{ vnameMap[v.drug_code8] = v.tally_name; });
+  const userNameMap = {}; (detailUsers||[]).forEach(u=>{ userNameMap[u.emp_id] = u.name; });
 
   box.innerHTML = `<table style="width:100%;font-size:13px">
-    <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">批號</th><th>方向</th><th>數量</th><th></th></tr></thead>
+    <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">批號</th><th>方向</th><th>數量</th><th>上傳人員</th><th></th></tr></thead>
     <tbody>${data.map(r=>`<tr>
       <td>${vnameMap[r.drug_code8] || r.drug_code8}</td>
       <td style="font-family:monospace">${r.lot_no}</td>
       <td style="text-align:center;color:${r.direction==='in'?'#1D9E75':'#A32D2D'}">${r.direction==='in'?'進貨':'退衛生所'}</td>
       <td style="text-align:center">${r.qty}</td>
+      <td style="text-align:center;color:#666">${userNameMap[r.created_by] || r.created_by || '—'}</td>
       <td style="text-align:center"><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteWhReceiveRow(${JSON.stringify({drug_code8:r.drug_code8,lot_no:r.lot_no,direction:r.direction,reason:r.reason,qty:r.qty,tx_date:r.tx_date})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
