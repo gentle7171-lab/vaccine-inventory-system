@@ -4198,7 +4198,7 @@ async function renderNiisList(){
   document.getElementById('niis-nextday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
   document.getElementById('niis-sameday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
 
-  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4').eq('niis_required', true);
+  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4').eq('niis_required', true).eq('status','active');
   if(e1){
     const errHtml = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${e1.message}</td></tr>`;
     document.getElementById('niis-nextday-body').innerHTML = errHtml;
@@ -5120,6 +5120,13 @@ async function renderMonthlyReport(){
     ...Object.keys(inByLot), ...Object.keys(outByLot), ...Object.keys(usageByLot),
     ...Object.keys(prevClosingMap), ...Object.keys(thisClosingMap)
   ]);
+
+  // 上個月結存剛好是0、這個月又完全沒有任何撥入/撥出/消耗、也還沒手動存過這個月的結存 → 視為這個批號已經用完停用，自動不再列出
+  [...allKeys].forEach(key=>{
+    if(prevClosingMap[key] === 0 && !(inByLot[key]) && !(outByLot[key]) && !(usageByLot[key]) && !thisClosingMap[key]){
+      allKeys.delete(key);
+    }
+  });
 
   // 只有在查詢「目前這個進行中的月份」時，系統即時庫存才有核對意義（月份已結束就不比較了）
   const todayYm = todayStr().slice(0,7);
