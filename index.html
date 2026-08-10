@@ -5049,19 +5049,17 @@ async function renderMonthlyReport(){
   }
   const niisSourceDate = niisSrcInput.value;
 
-  // 1. 全部批號（各站現況，僅用於「系統即時庫存」核對欄，非計算依據）
-  const { data: lots, error: lotsErr } = await sb.from('lot_details').select('drug_code8,campus,lot_no,current_qty,expiry_date');
+  // 1. 全部批號（用於取得各批號有效日期，以及還在用的藥品8碼清單）
+  const { data: lots, error: lotsErr } = await sb.from('lot_details').select('drug_code8,campus,lot_no,expiry_date');
   if(lotsErr){
     document.getElementById('mr-body').innerHTML = `<tr><td colspan="12" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${lotsErr.message}</td></tr>`;
     return;
   }
 
-  const nowBalanceMap = {};   // key: code8|lot_no -> 現在doses總和(跨wh/dl/hw)
   const expiryMap = {};
   const codeSet = new Set();
   (lots||[]).forEach(l=>{
     const key = l.drug_code8+'|'+l.lot_no;
-    nowBalanceMap[key] = (nowBalanceMap[key]||0) + Number(l.current_qty||0);
     if(l.expiry_date && !expiryMap[key]) expiryMap[key] = l.expiry_date;
     codeSet.add(l.drug_code8);
   });
@@ -5078,7 +5076,7 @@ async function renderMonthlyReport(){
     { data: monthEndTally },
     { data: niisLog }
   ] = await Promise.all([
-    codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
+    codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -5099,7 +5097,14 @@ async function renderMonthlyReport(){
   (vmaster||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
   const inByLot = {}, outByLot = {};
+  const correctionByLot = {}; // 起始庫存匯入時產生的一次性校正，不算進正式撥入撥出欄位(避免污染官方口徑)，但要讓批號能出現、並在備註提示
   (whTx||[]).forEach(t=>{
+    if(t.reason === 'correction'){
+      const key = t.drug_code8+'|'+t.lot_no;
+      const delta = t.direction==='in' ? Number(t.qty||0) : -Number(t.qty||0);
+      correctionByLot[key] = (correctionByLot[key]||0) + delta;
+      return;
+    }
     const key = t.drug_code8+'|'+t.lot_no;
     const map = t.direction==='in' ? inByLot : outByLot;
     map[key] = (map[key]||0) + Number(t.qty||0);
@@ -5138,19 +5143,15 @@ async function renderMonthlyReport(){
 
   const allKeys = new Set([
     ...Object.keys(inByLot), ...Object.keys(outByLot), ...Object.keys(usageByLot),
-    ...Object.keys(prevClosingMap), ...Object.keys(thisClosingMap)
+    ...Object.keys(prevClosingMap), ...Object.keys(thisClosingMap), ...Object.keys(correctionByLot)
   ]);
 
-  // 上個月結存剛好是0、這個月又完全沒有任何撥入/撥出/消耗、也還沒手動存過這個月的結存 → 視為這個批號已經用完停用，自動不再列出
+  // 上個月結存剛好是0、這個月又完全沒有任何撥入/撥出/消耗/起始庫存校正、也還沒手動存過這個月的結存 → 視為這個批號已經用完停用，自動不再列出
   [...allKeys].forEach(key=>{
-    if(prevClosingMap[key] === 0 && !(inByLot[key]) && !(outByLot[key]) && !(usageByLot[key]) && !thisClosingMap[key]){
+    if(prevClosingMap[key] === 0 && !(inByLot[key]) && !(outByLot[key]) && !(usageByLot[key]) && !(correctionByLot[key]) && !thisClosingMap[key]){
       allKeys.delete(key);
     }
   });
-
-  // 只有在查詢「目前這個進行中的月份」時，系統即時庫存才有核對意義（月份已結束就不比較了）
-  const todayYm = todayStr().slice(0,7);
-  const isCurrentOngoingMonth = (ym === todayYm);
 
   const results = [];
   for(const key of allKeys){
@@ -5178,6 +5179,9 @@ async function renderMonthlyReport(){
       else if(isSingleLotItem && tallyByCode[code8]!==undefined){ tallySuggested = tallyByCode[code8]; suggestSource = `盤點作業(${monthEnd})`; }
     }
 
+    const correctionDoses = correctionByLot[key] || 0;
+    const correctionNote = correctionDoses ? `本月有起始庫存校正淨額${correctionDoses>0?'+':''}${Math.round(correctionDoses/dosesPerVial)}瓶，請人工確認本月結存` : '';
+
     results.push({
       code8, lotNo,
       name: (vmap[code8] && vmap[code8].tally_name) || code8,
@@ -5192,9 +5196,8 @@ async function renderMonthlyReport(){
       endVials,
       tallySuggested,
       suggestSource,
-      note: saved ? (saved.note || '') : '',
+      note: saved ? (saved.note || '') : correctionNote,
       saved: !!saved,
-      nowVials: isCurrentOngoingMonth ? Math.round((nowBalanceMap[key]||0)/dosesPerVial) : null
     });
   }
 
@@ -5227,8 +5230,6 @@ async function renderMonthlyReport(){
     const statusBadge = r.saved
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
-    const checkNote = (r.nowVials!=null && r.endVials!=null && r.nowVials!==r.endVials)
-      ? `<div style="font-size:11px;color:#A32D2D">系統即時庫存 ${r.nowVials} 瓶</div>` : '';
     return `<tr data-key="${key}" data-name="${xEsc(r.name)}"
       ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent"` : ''}>
     ${nameCell}
@@ -5239,7 +5240,7 @@ async function renderMonthlyReport(){
     <td class="c">${r.outVials}</td>
     <td class="c">${r.consumedVials}</td>
     <td class="c">${r.vaccinated}</td>
-    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" style="width:70px;text-align:center;${r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':''}">${checkNote}${tallyHint}</td>
+    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" style="width:70px;text-align:center;${r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':''}">${tallyHint}</td>
     <td><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
     <td>${statusBadge}</td>
   </tr>`;
