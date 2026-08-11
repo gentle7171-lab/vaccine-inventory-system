@@ -211,7 +211,9 @@ tr:hover td{background:#fafaf8}
             </select>
             <input type="text" id="rec-drug-filter" class="inp" style="width:200px" placeholder="🔍 搜尋藥品名稱" oninput="applyRecFilterSort()">
             <button class="btn btn-primary btn-sm" onclick="renderRecords()">🔍 查詢</button>
+            <button class="btn btn-sm" onclick="openRecDateFixModal()">📅 整天日期更正</button>
           </div>
+          <div style="font-size:12px;color:#999;margin-bottom:8px">如果盤點日期整個打錯了（例如應該是今天卻存成昨天），用「整天日期更正」可以把某天整批盤點紀錄搬到正確日期，不用一筆一筆重新輸入</div>
           <div id="rec-empty" style="padding:48px;background:#fff;border-radius:12px;border:1px solid #e8e8e8;text-align:center;color:#bbb;font-size:15px">尚無盤點紀錄</div>
           <div id="rec-wrap" style="display:none">
             <div class="tbl-wrap">
@@ -1058,6 +1060,24 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- 整天盤點日期更正 modal -->
+<div class="modal-bg" id="modal-rec-date-fix">
+  <div class="modal">
+    <h3>整天日期更正</h3>
+    <div style="font-size:13px;color:#888;margin-bottom:14px">把「錯的日期」那一整天的盤點紀錄，整批搬到「對的日期」，不用一筆一筆重新輸入。如果對的日期本來就已經有盤點紀錄，會直接拒絕，避免覆蓋掉既有資料，請先手動處理那天的資料再更正。</div>
+    <div class="fg"><label>站點</label>
+      <select id="recfix-site" class="inp"><option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option></select>
+    </div>
+    <div class="fg"><label>錯的日期</label><input type="date" id="recfix-wrong-date" class="inp"></div>
+    <div class="fg"><label>對的日期</label><input type="date" id="recfix-correct-date" class="inp"></div>
+    <div id="recfix-msg" style="display:none" class="notice n-warn"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-rec-date-fix')">取消</button>
+      <button class="btn btn-primary" onclick="confirmRecDateFix()">確認搬移</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ══════════════ Supabase 設定 ══════════════ */
 if (typeof supabase === 'undefined') {
@@ -1696,6 +1716,45 @@ async function confirmRecEdit(){
 
   closeModal('modal-rec-edit');
   recEditPending = null;
+  renderRecords();
+}
+
+/* ── 整天盤點日期更正：把某天某站點整批盤點紀錄搬到正確日期 ── */
+function openRecDateFixModal(){
+  document.getElementById('recfix-site').value = recIsAdmin ? 'dl' : mySite();
+  document.getElementById('recfix-wrong-date').value = recSelDate || todayStr();
+  document.getElementById('recfix-correct-date').value = '';
+  document.getElementById('recfix-msg').style.display = 'none';
+  document.getElementById('modal-rec-date-fix').classList.add('open');
+}
+
+async function confirmRecDateFix(){
+  const site = document.getElementById('recfix-site').value;
+  const wrongDate = document.getElementById('recfix-wrong-date').value;
+  const correctDate = document.getElementById('recfix-correct-date').value;
+  const msgBox = document.getElementById('recfix-msg');
+  const showMsg = t => { msgBox.style.display=''; msgBox.textContent = t; };
+
+  if(!site || !wrongDate || !correctDate){ showMsg('請完整選擇站點、錯的日期、對的日期'); return; }
+  if(wrongDate === correctDate){ showMsg('錯的日期跟對的日期不能一樣'); return; }
+
+  const { data: wrongRows, error: wrongErr } = await sb.from('tally_records').select('record_id').eq('campus', site).eq('tally_date', wrongDate);
+  if(wrongErr){ showMsg('查詢失敗：'+wrongErr.message); return; }
+  if(!wrongRows || !wrongRows.length){ showMsg(`${wrongDate} 這天這個站點查無任何盤點紀錄`); return; }
+
+  const { data: correctRows, error: correctErr } = await sb.from('tally_records').select('record_id').eq('campus', site).eq('tally_date', correctDate);
+  if(correctErr){ showMsg('查詢失敗：'+correctErr.message); return; }
+  if(correctRows && correctRows.length){ showMsg(`${correctDate} 這天這個站點已經有盤點紀錄了（${correctRows.length}筆），為避免覆蓋，請先手動處理那天的資料後再更正`); return; }
+
+  const siteLabel = site==='dl'?'斗六院區':site==='hw'?'虎尾院區':'藥庫';
+  if(!confirm(`確定把「${siteLabel}」${wrongDate} 的 ${wrongRows.length} 筆盤點紀錄，全部搬到 ${correctDate} 嗎？`)) return;
+
+  const { error } = await sb.from('tally_records').update({ tally_date: correctDate }).eq('campus', site).eq('tally_date', wrongDate);
+  if(error){ showMsg('搬移失敗：'+error.message); return; }
+
+  alert(`✓ 已搬移 ${wrongRows.length} 筆盤點紀錄到 ${correctDate}`);
+  closeModal('modal-rec-date-fix');
+  document.getElementById('rec-date').value = correctDate;
   renderRecords();
 }
 
