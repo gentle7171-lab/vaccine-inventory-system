@@ -1060,6 +1060,26 @@ tr:hover td{background:#fafaf8}
   </div>
 </div>
 
+<!-- 刪除盤點紀錄確認 modal -->
+<div class="modal-bg" id="modal-rec-delete">
+  <div class="modal">
+    <h3>確認刪除盤點紀錄</h3>
+    <div style="background:#FCEBEB;border-radius:8px;padding:12px;margin-bottom:14px;font-size:15px;line-height:2">
+      <div>疫苗：<strong id="rdel-name"></strong></div>
+      <div>盤點日期：<span id="rdel-date"></span></div>
+      <div>盤點量：<strong id="rdel-qty" style="color:#A32D2D"></strong> 劑</div>
+    </div>
+    <div class="fg">
+      <label>刪除原因（必填）</label>
+      <input type="text" id="rdel-reason" placeholder="例：日期填錯，正確日期已另外補登">
+    </div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-rec-delete')">取消</button>
+      <button class="btn btn-primary" style="background:#A32D2D;border-color:#A32D2D" onclick="confirmRecDelete()">確認刪除</button>
+    </div>
+  </div>
+</div>
+
 <!-- 整天盤點日期更正 modal -->
 <div class="modal-bg" id="modal-rec-date-fix">
   <div class="modal">
@@ -1676,8 +1696,12 @@ function applyRecFilterSort(){
       <td style="font-size:15px">${r.name}</td>
       <td class="c"><strong>${r.tally_qty}</strong></td>
       <td style="font-size:13px;color:#888">${r.note||''}</td>
-      <td><button class="btn btn-sm" style="font-size:13px;background:#1B3A6B;color:#fff;border-color:#1B3A6B"
-        onclick="openRecEdit('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">✏️ 修改</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" style="font-size:13px;background:#1B3A6B;color:#fff;border-color:#1B3A6B"
+          onclick="openRecEdit('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">✏️ 修改</button>
+        <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0"
+          onclick="openRecDelete('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">🗑️ 刪除</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -1719,6 +1743,45 @@ async function confirmRecEdit(){
 
   closeModal('modal-rec-edit');
   recEditPending = null;
+  renderRecords();
+}
+
+let recDeletePending = null;
+function openRecDelete(recordId, vname, date, curQty){
+  recDeletePending = { recordId };
+  document.getElementById('rdel-name').textContent = vname;
+  document.getElementById('rdel-date').textContent = date;
+  document.getElementById('rdel-qty').textContent = curQty;
+  document.getElementById('rdel-reason').value = '';
+  document.getElementById('modal-rec-delete').classList.add('open');
+}
+
+async function confirmRecDelete(){
+  if(!recDeletePending) return;
+  const reason = document.getElementById('rdel-reason').value.trim();
+  if(!reason){
+    const r = document.getElementById('rdel-reason');
+    r.focus(); r.style.borderColor = '#dc2626';
+    setTimeout(()=>{ r.style.borderColor=''; }, 1500);
+    return;
+  }
+
+  const { data: rec } = await sb.from('tally_records').select('*').eq('record_id', recDeletePending.recordId).single();
+  if(!rec) return;
+
+  await sb.from('change_logs').insert({
+    record_id: rec.record_id,
+    action_type: 'delete',
+    old_qty: rec.tally_qty,
+    new_qty: null,
+    reason,
+    operator: me.emp_id
+  });
+  const { error } = await sb.from('tally_records').delete().eq('record_id', rec.record_id);
+  if(error){ alert('刪除失敗：'+error.message); return; }
+
+  closeModal('modal-rec-delete');
+  recDeletePending = null;
   renderRecords();
 }
 
