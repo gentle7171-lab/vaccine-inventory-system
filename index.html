@@ -1524,10 +1524,14 @@ function markChanged(el){
 }
 
 async function saveInv(){
+  const saveBtn = document.getElementById('inv-save-btn');
+  if(saveBtn.disabled) return; // 防止連點造成重複送出
+  saveBtn.disabled = true; saveBtn.textContent = '儲存中...';
+
   const site = mySite();
   const selDate = document.getElementById('inv-date').value || todayStr();
   const page = myPagesCache[currentSubtab];
-  if(!page) return;
+  if(!page){ saveBtn.disabled = false; saveBtn.textContent = '💾 儲存盤點'; return; }
 
   const items = myItemsCache.filter(it => it.page_id === page.page_id);
   const codes = items.map(it => it.drug_code8);
@@ -1537,6 +1541,7 @@ async function saveInv(){
 
   if(pendingItems.length === 0){
     alert(`⚠️「${page.page_name}」${selDate} 已完成盤點。\n如需修改，請至「盤點紀錄」頁面進行修改。`);
+    saveBtn.disabled = false; saveBtn.textContent = '💾 儲存盤點';
     renderInvList();
     return;
   }
@@ -1556,10 +1561,8 @@ async function saveInv(){
     };
   });
 
-  const saveBtn = document.getElementById('inv-save-btn');
-  saveBtn.disabled = true; saveBtn.textContent = '儲存中...';
-
-  const { data: inserted, error } = await sb.from('tally_records').insert(rows).select();
+  // 用upsert而不是單純insert：萬一連點或網路延遲造成同一筆重複送出，會變成更新而不是撞到unique constraint報錯
+  const { data: inserted, error } = await sb.from('tally_records').upsert(rows, { onConflict: 'drug_code8,campus,tally_date' }).select();
   if(error){
     alert('儲存失敗：' + error.message);
     saveBtn.disabled = false; saveBtn.textContent = '💾 儲存盤點';
