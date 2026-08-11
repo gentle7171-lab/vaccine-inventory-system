@@ -488,11 +488,6 @@ tr:hover td{background:#fafaf8}
           </select>
           <button class="btn btn-primary btn-sm" onclick="renderMonthlyReport()">📊 產生報表</button>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;font-size:13px;color:#888">
-          <span>自動帶入哪一天的NIIS結存當基準：</span>
-          <input type="date" id="mr-niis-source-date" class="inp" style="width:150px;font-size:13px" onchange="renderMonthlyReport()">
-          <span style="color:#bbb">（預設為當月最後一天；如果那天有些批號還沒結存，可以先改選前一天，等之後結存補上再改回來重新產生）</span>
-        </div>
 
         <div id="mr-report-1">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
@@ -5166,14 +5161,6 @@ async function renderMonthlyReport(){
   const lastDay = new Date(year, month, 0).getDate();
   const monthEnd = `${ym}-${String(lastDay).padStart(2,'0')}`;
 
-  // NIIS結存帶入日期：預設當月最後一天，但可以手動改選（例如同事還沒結存到月底，或想指定用哪天的結存當基準）
-  // 換月份時如果原本選的日期已經不屬於新選的月份，自動重設回新月份的月底
-  const niisSrcInput = document.getElementById('mr-niis-source-date');
-  if(!niisSrcInput.value || niisSrcInput.value < monthStart || niisSrcInput.value > monthEnd){
-    niisSrcInput.value = monthEnd;
-  }
-  const niisSourceDate = niisSrcInput.value;
-
   // 1. 全部批號（用於取得各批號有效日期，以及還在用的藥品8碼清單）
   const { data: lots, error: lotsErr } = await sb.from('lot_details').select('drug_code8,campus,lot_no,expiry_date');
   if(lotsErr){
@@ -5199,7 +5186,8 @@ async function renderMonthlyReport(){
     { data: thisClosing, error: thisErr },
     { data: vmaster },
     { data: monthEndTally },
-    { data: niisLog }
+    { data: priorWhTx },
+    { data: priorUsage }
   ] = await Promise.all([
     codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -5209,8 +5197,9 @@ async function renderMonthlyReport(){
     // 盤點作業是「每個疫苗品項」總量、不分批號，只有在該品項當時只有單一批號在用時，才能直接拿盤點總量當那個批號的月結存建議值；
     // 多批號品項系統不知道要怎麼拆，還是要人工判斷分批填寫
     codes.length ? sb.from('tally_records').select('drug_code8,campus,tally_qty').eq('tally_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
-    // NIIS申報輔助本來就是逐批號結存的，比盤點總量更精準（連多批號品項都能用），優先拿這個當建議值
-    codes.length ? sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock').in('drug_code8', codes).gte('declare_date', monthStart).lte('declare_date', niisSourceDate).order('declare_date',{ascending:false}) : Promise.resolve({data:[]})
+    // 用來判斷「這個批號是不是這個月才全新出現的」：這個月以前完全沒有撥入撥出/耗用紀錄，就代表是全新批號，上月結存直接視為0，不用人工盤點確認
+    codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no').eq('campus','wh').in('reason',['receive_import','return_import','correction']).lt('tx_date', monthStart).in('drug_code8', codes) : Promise.resolve({data:[]}),
+    codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', codes) : Promise.resolve({data:[]})
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
@@ -5253,18 +5242,9 @@ async function renderMonthlyReport(){
   const tallyByCode = {};
   (monthEndTally||[]).forEach(t=>{ tallyByCode[t.drug_code8] = (tallyByCode[t.drug_code8]||0) + Number(t.tally_qty||0); });
 
-  // NIIS結存紀錄本來就是逐批號的，取每個批號在「選定的NIIS結存帶入日期」(含)以前最新一筆結存(降序排列後第一筆命中的就是最符合的)，
-  // 如果那天剛好有結存就直接用那天；還沒結存到那天的批號，會退回用更早、最近的一筆
-  // 換算成瓶：有勾整瓶扣帳的品項NIIS結存本來就是瓶為單位，其他品項是劑，要除以每瓶劑量換算回瓶
-  const niisSuggestMap = {}; // key: code8|lot_no -> {vials, date}
-  (niisLog||[]).forEach(n=>{
-    const key = n.drug_code8+'|'+n.lot_no;
-    if(niisSuggestMap[key]) return; // 已排序過，第一筆遇到的就是最新的，之後同一批號的都跳過
-    const dosesPerVial = (vmap[n.drug_code8] && vmap[n.drug_code8].doses_per_vial) || 1;
-    const wholeVial = !!(vmap[n.drug_code8] && vmap[n.drug_code8].whole_vial_deduct);
-    const vials = wholeVial ? Number(n.closing_stock) : Number(n.closing_stock) / dosesPerVial;
-    niisSuggestMap[key] = { vials: Math.round(vials*100)/100, date: n.declare_date };
-  });
+  const hadPriorActivity = new Set();
+  (priorWhTx||[]).forEach(t=>hadPriorActivity.add(t.drug_code8+'|'+t.lot_no));
+  (priorUsage||[]).forEach(u=>hadPriorActivity.add(u.drug_code8+'|'+u.lot_no));
 
   const allKeys = new Set([
     ...Object.keys(inByLot), ...Object.keys(outByLot), ...Object.keys(usageByLot),
@@ -5288,20 +5268,22 @@ async function renderMonthlyReport(){
     const inVials = Math.round(inDoses/dosesPerVial);
     const outVials = Math.round(outDoses/dosesPerVial);
     const consumedVials = Math.ceil(usageDoses/dosesPerVial);
-    const hasBaseline = Object.prototype.hasOwnProperty.call(prevClosingMap, key);
-    const startVials = hasBaseline ? prevClosingMap[key] : null;
+
+    // 全新批號：這個月以前完全沒有任何撥入撥出/耗用紀錄，也沒有上月結存 → 直接視為上月結存=0，不用人工盤點確認
+    const isBrandNew = !Object.prototype.hasOwnProperty.call(prevClosingMap, key) && !hadPriorActivity.has(key);
+
+    const hasBaseline = Object.prototype.hasOwnProperty.call(prevClosingMap, key) || isBrandNew;
+    const startVials = hasBaseline ? (prevClosingMap[key] ?? 0) : null;
     const computedEnd = hasBaseline ? (startVials + inVials - outVials - consumedVials) : null;
     const saved = thisClosingMap[key] || null;
     const endVials = saved ? Number(saved.closing_qty) : computedEnd;
 
-    // 沒有上月基準（過渡月／新批號）時，優先用NIIS結存輔助這個月裡最新一筆已結存的資料當建議值——這個本來就是逐批號的，
-    // 多批號品項也能直接對得上號；只有這個批號完全沒有NIIS結存紀錄時，才退回用「盤點作業」的品項總量（僅限單批號品項才有意義）
-    const niisSuggest = niisSuggestMap[key] || null;
+    // 沒有上月基準、又不是全新批號（代表過去有紀錄但沒接續上，例如系統試用起始月的過渡情況）時，
+    // 才退回用「盤點作業」的品項總量當建議值（僅限該品項當時只有單一批號在用時才有意義，多批號無法自動拆分）
     const isSingleLotItem = (lotSetByCode[code8] && lotSetByCode[code8].size === 1);
     let tallySuggested = null, suggestSource = null;
     if(!hasBaseline && !saved){
-      if(niisSuggest){ tallySuggested = niisSuggest.vials; suggestSource = `NIIS結存(${niisSuggest.date})`; }
-      else if(isSingleLotItem && tallyByCode[code8]!==undefined){ tallySuggested = tallyByCode[code8]; suggestSource = `盤點作業(${monthEnd})`; }
+      if(isSingleLotItem && tallyByCode[code8]!==undefined){ tallySuggested = tallyByCode[code8]; suggestSource = `盤點作業(${monthEnd})`; }
     }
 
     const correctionDoses = correctionByLot[key] || 0;
