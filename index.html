@@ -5175,6 +5175,13 @@ async function renderMonthlyReport(){
   });
   const codes = [...codeSet];
 
+  // 找出所有「別名」品項(alias_of指向codes裡的某個8碼)，它們沒有自己的lot_details批號，
+  // 但耗用/進出貨紀錄仍然可能存在它們自己的8碼底下，要一併查出來，計算時再解析回正式管理批號
+  const { data: aliasRows } = codes.length ? await sb.from('vaccine_master').select('drug_code8,alias_of,doses_per_vial,whole_vial_deduct').in('alias_of', codes) : {data:[]};
+  const aliasCodes = (aliasRows||[]).map(a=>a.drug_code8);
+  const aliasMap = {}; (aliasRows||[]).forEach(a=>{ aliasMap[a.drug_code8] = a; }); // 別名自己的8碼 -> {alias_of, doses_per_vial, whole_vial_deduct}
+  const queryCodes = [...new Set([...codes, ...aliasCodes])];
+
   // 2. 本月藥庫撥入撥出（僅 receive_import=向衛生所領 / return_import=調回衛生所）＋本月耗用報表
   //    ＋上月已確認結存（本月結存基準）＋本月是否已儲存過結存（重新開啟報表時回填）
   const [
@@ -5187,8 +5194,8 @@ async function renderMonthlyReport(){
     { data: priorWhTx },
     { data: priorUsage }
   ] = await Promise.all([
-    codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
-    codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
+    queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
+    queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,special_report,report1_sort_order').in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -5196,8 +5203,8 @@ async function renderMonthlyReport(){
     // 多批號品項系統不知道要怎麼拆，還是要人工判斷分批填寫
     codes.length ? sb.from('tally_records').select('drug_code8,campus,tally_qty').eq('tally_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     // 用來判斷「這個批號是不是這個月才全新出現的」：這個月以前完全沒有撥入撥出/耗用紀錄，就代表是全新批號，上月結存直接視為0，不用人工盤點確認
-    codes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no').eq('campus','wh').in('reason',['receive_import','return_import','correction']).lt('tx_date', monthStart).in('drug_code8', codes) : Promise.resolve({data:[]}),
-    codes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', codes) : Promise.resolve({data:[]})
+    queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no').eq('campus','wh').in('reason',['receive_import','return_import','correction']).lt('tx_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
+    queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]})
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
@@ -5208,23 +5215,35 @@ async function renderMonthlyReport(){
   const vmap = {};
   (vmaster||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
+  // 別名解析：把別名自己8碼的紀錄，換算/併回正式管理批號的key；整瓶扣帳的別名品項(例如半劑瓶開了就整瓶報銷)要用「開了幾瓶」再乘上正式管理批號的每瓶劑量換算，跟耗用報表上傳/NIIS結存輔助用同一套公式，才會兜得起來
+  function resolveAliasKey(code8, lotNo, rawQty){
+    const a = aliasMap[code8];
+    if(!a) return { key: code8+'|'+lotNo, doses: rawQty };
+    if(a.whole_vial_deduct){
+      const ownDosesPerVial = a.doses_per_vial || 1;
+      const canonicalDosesPerVial = (vmap[a.alias_of] && vmap[a.alias_of].doses_per_vial) || ownDosesPerVial;
+      const vials = Math.ceil(rawQty / ownDosesPerVial);
+      return { key: a.alias_of+'|'+lotNo, doses: vials * canonicalDosesPerVial };
+    }
+    return { key: a.alias_of+'|'+lotNo, doses: rawQty };
+  }
+
   const inByLot = {}, outByLot = {};
   const correctionByLot = {}; // 起始庫存匯入時產生的一次性校正，不算進正式撥入撥出欄位(避免污染官方口徑)，但要讓批號能出現、並在備註提示
   (whTx||[]).forEach(t=>{
+    const { key, doses } = resolveAliasKey(t.drug_code8, t.lot_no, Number(t.qty||0));
     if(t.reason === 'correction'){
-      const key = t.drug_code8+'|'+t.lot_no;
-      const delta = t.direction==='in' ? Number(t.qty||0) : -Number(t.qty||0);
+      const delta = t.direction==='in' ? doses : -doses;
       correctionByLot[key] = (correctionByLot[key]||0) + delta;
       return;
     }
-    const key = t.drug_code8+'|'+t.lot_no;
     const map = t.direction==='in' ? inByLot : outByLot;
-    map[key] = (map[key]||0) + Number(t.qty||0);
+    map[key] = (map[key]||0) + doses;
   });
   const usageByLot = {};
   (usage||[]).forEach(u=>{
-    const key = u.drug_code8+'|'+u.lot_no;
-    usageByLot[key] = (usageByLot[key]||0) + Number(u.usage_qty||0);
+    const { key, doses } = resolveAliasKey(u.drug_code8, u.lot_no, Number(u.usage_qty||0));
+    usageByLot[key] = (usageByLot[key]||0) + doses;
   });
   const prevClosingMap = {};
   (prevClosing||[]).forEach(c=>{ prevClosingMap[c.drug_code8+'|'+c.lot_no] = Number(c.closing_qty); });
@@ -5241,8 +5260,8 @@ async function renderMonthlyReport(){
   (monthEndTally||[]).forEach(t=>{ tallyByCode[t.drug_code8] = (tallyByCode[t.drug_code8]||0) + Number(t.tally_qty||0); });
 
   const hadPriorActivity = new Set();
-  (priorWhTx||[]).forEach(t=>hadPriorActivity.add(t.drug_code8+'|'+t.lot_no));
-  (priorUsage||[]).forEach(u=>hadPriorActivity.add(u.drug_code8+'|'+u.lot_no));
+  (priorWhTx||[]).forEach(t=>hadPriorActivity.add(resolveAliasKey(t.drug_code8, t.lot_no, 0).key));
+  (priorUsage||[]).forEach(u=>hadPriorActivity.add(resolveAliasKey(u.drug_code8, u.lot_no, 0).key));
 
   const allKeys = new Set([
     ...Object.keys(inByLot), ...Object.keys(outByLot), ...Object.keys(usageByLot),
