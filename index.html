@@ -5192,7 +5192,8 @@ async function renderMonthlyReport(){
     { data: vmaster },
     { data: monthEndTally },
     { data: priorWhTx },
-    { data: priorUsage }
+    { data: priorUsage },
+    { data: niisLatest }
   ] = await Promise.all([
     queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
@@ -5204,7 +5205,9 @@ async function renderMonthlyReport(){
     codes.length ? sb.from('tally_records').select('drug_code8,campus,tally_qty').eq('tally_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
     // 用來判斷「這個批號是不是這個月才全新出現的」：這個月以前完全沒有撥入撥出/耗用紀錄，就代表是全新批號，上月結存直接視為0，不用人工盤點確認
     queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no').eq('campus','wh').in('reason',['receive_import','return_import','correction']).lt('tx_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
-    queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]})
+    queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
+    // NIIS結存輔助目前最新的結存數量，純粹當比對參考用，不影響任何計算
+    codes.length ? sb.from('niis_declare_log').select('drug_code8,lot_no,closing_stock,declare_date').in('drug_code8', codes).order('declare_date',{ascending:false}) : Promise.resolve({data:[]})
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
@@ -5214,6 +5217,17 @@ async function renderMonthlyReport(){
 
   const vmap = {};
   (vmaster||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
+
+  const niisLatestMap = {}; // key: code8|lot_no -> {vials, date}
+  (niisLatest||[]).forEach(n=>{
+    const key = n.drug_code8+'|'+n.lot_no;
+    if(niisLatestMap[key]) return; // 已依declare_date新到舊排序，第一筆遇到的就是最新
+    const dosesPerVial = (vmap[n.drug_code8] && vmap[n.drug_code8].doses_per_vial) || 1;
+    const wholeVial = !!(vmap[n.drug_code8] && vmap[n.drug_code8].whole_vial_deduct);
+    const vials = wholeVial ? Number(n.closing_stock) : Number(n.closing_stock) / dosesPerVial;
+    niisLatestMap[key] = { vials: Math.round(vials*100)/100, date: n.declare_date };
+  });
+
 
   // 別名解析：把別名自己8碼的紀錄，換算/併回正式管理批號的key；整瓶扣帳的別名品項(例如半劑瓶開了就整瓶報銷)要用「開了幾瓶」再乘上正式管理批號的每瓶劑量換算，跟耗用報表上傳/NIIS結存輔助用同一套公式，才會兜得起來
   function resolveAliasKey(code8, lotNo, rawQty){
@@ -5305,6 +5319,7 @@ async function renderMonthlyReport(){
 
     const correctionDoses = correctionByLot[key] || 0;
     const correctionNote = correctionDoses ? `本月有起始庫存校正淨額${correctionDoses>0?'+':''}${Math.round(correctionDoses/dosesPerVial)}瓶，請人工確認本月結存` : '';
+    const niisLatest = niisLatestMap[key] || null;
 
     results.push({
       code8, lotNo,
@@ -5321,6 +5336,7 @@ async function renderMonthlyReport(){
       tallySuggested,
       suggestSource,
       note: saved ? (saved.note || '') : correctionNote,
+      niisLatest,
       saved: !!saved,
     });
   }
@@ -5351,6 +5367,11 @@ async function renderMonthlyReport(){
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
     const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '');
     const tallyHint = r.tallySuggested!=null ? `<div style="font-size:11px;color:#1B7A4C">已帶入${r.suggestSource}：${r.tallySuggested}瓶，請確認後儲存</div>` : '';
+    const niisCompareNote = r.niisLatest
+      ? (endValue!=='' && Number(endValue)!==r.niisLatest.vials
+          ? `<div style="font-size:11px;color:#C77700">⚠ NIIS結存輔助（${r.niisLatest.date}）：${r.niisLatest.vials}瓶，對不上</div>`
+          : `<div style="font-size:11px;color:#bbb">NIIS結存輔助：${r.niisLatest.vials}瓶</div>`)
+      : '';
     const statusBadge = r.saved
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
@@ -5364,7 +5385,7 @@ async function renderMonthlyReport(){
     <td class="c">${r.outVials}</td>
     <td class="c">${r.consumedVials}</td>
     <td class="c">${r.vaccinated}</td>
-    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" style="width:70px;text-align:center;${r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':''}">${tallyHint}</td>
+    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" style="width:70px;text-align:center;${r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':''}">${tallyHint}${niisCompareNote}</td>
     <td><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
     <td>${statusBadge}</td>
   </tr>`;
