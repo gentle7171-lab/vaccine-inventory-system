@@ -779,15 +779,9 @@ tr:hover td{background:#fafaf8}
         <option value="bcg">卡介苗報表</option>
         <option value="hbig_ig">B肝報表－免疫球蛋白(H.B.I.G)</option>
         <option value="hbig_vaccine">B肝報表－遺傳工程疫苗</option>
+        <option value="exclude">不需要出現在疫苗消耗結存報表（不需申報的品項）</option>
       </select>
-      <div style="font-size:12px;color:#999;margin-top:2px">設定後，這個品項會額外出現在「報表→月報表」對應的專屬報表分頁裡（原本的疫苗消耗結存報表不受影響，一樣會出現）</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="vacc-exclude-report1" style="width:16px;height:16px">
-        不需要出現在「疫苗消耗結存報表」（月報表①）
-      </label>
-      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">勾選後，就算這個月有撥入/撥出/耗用紀錄，這個品項也不會出現在月報表①（例如不需要NIIS申報、也不用申報給衛生所的品項）</div>
+      <div style="font-size:12px;color:#999;margin-top:2px">設定後，這個品項會額外出現在「報表→月報表」對應的專屬報表分頁裡（原本的疫苗消耗結存報表不受影響，一樣會出現）；選「不需要出現」則相反，就算這個月有撥入/撥出/耗用紀錄，也不會出現在疫苗消耗結存報表</div>
     </div>
     <div class="fg" style="margin-top:6px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -2430,7 +2424,6 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
-      document.getElementById('vacc-exclude-report1').checked = !!data.exclude_from_report1;
     }
     document.getElementById('lot-drug-code').value = code8;
     if(data && data.alias_of){
@@ -2450,7 +2443,6 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
-    document.getElementById('vacc-exclude-report1').checked = false;
     document.getElementById('vacc-lots-placeholder').style.display = '';
     document.getElementById('vacc-lots-content').style.display = 'none';
   }
@@ -2471,7 +2463,6 @@ async function saveVaccine(){
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
-    exclude_from_report1: document.getElementById('vacc-exclude-report1').checked,
     status: 'active'
   };
   if(!row.drug_code8 || !row.tally_name){ alert('請填寫藥品8碼和盤點表名稱'); return; }
@@ -5209,7 +5200,7 @@ async function renderMonthlyReport(){
     queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
-    codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,special_report,report1_sort_order,exclude_from_report1').in('drug_code8', codes) : Promise.resolve({data:[]}),
+    codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,special_report,report1_sort_order').in('drug_code8', codes) : Promise.resolve({data:[]}),
     // 盤點作業是「每個疫苗品項」總量、不分批號，只有在該品項當時只有單一批號在用時，才能直接拿盤點總量當那個批號的月結存建議值；
     // 多批號品項系統不知道要怎麼拆，還是要人工判斷分批填寫
     codes.length ? sb.from('tally_records').select('drug_code8,campus,tally_qty').eq('tally_date', monthEnd).in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -5305,7 +5296,7 @@ async function renderMonthlyReport(){
   // 主檔維護裡勾選「不需要出現在疫苗消耗結存報表」的品項，不管這個月有沒有動靜都直接排除
   [...allKeys].forEach(key=>{
     const code8 = key.split('|')[0];
-    if(vmap[code8] && vmap[code8].exclude_from_report1) allKeys.delete(key);
+    if(vmap[code8] && vmap[code8].special_report === 'exclude') allKeys.delete(key);
   });
 
   const results = [];
