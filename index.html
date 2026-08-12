@@ -5255,9 +5255,12 @@ async function renderMonthlyReport(){
     map[key] = (map[key]||0) + doses;
   });
   const usageByLot = {};
+  const usageByLotByDate = {}; // key -> {date: doses}，整瓶扣帳品項要逐天各自算開了幾瓶再加總，不能整月人次加總後才算一次(每天各自開新瓶，不會跨天合併)
   (usage||[]).forEach(u=>{
     const { key, doses } = resolveAliasKey(u.drug_code8, u.lot_no, Number(u.usage_qty||0));
     usageByLot[key] = (usageByLot[key]||0) + doses;
+    if(!usageByLotByDate[key]) usageByLotByDate[key] = {};
+    usageByLotByDate[key][u.upload_date] = (usageByLotByDate[key][u.upload_date]||0) + doses;
   });
   const prevClosingMap = {};
   (prevClosing||[]).forEach(c=>{ prevClosingMap[c.drug_code8+'|'+c.lot_no] = Number(c.closing_qty); });
@@ -5298,7 +5301,10 @@ async function renderMonthlyReport(){
     const usageDoses = usageByLot[key] || 0;
     const inVials = Math.round(inDoses/dosesPerVial);
     const outVials = Math.round(outDoses/dosesPerVial);
-    const consumedVials = Math.ceil(usageDoses/dosesPerVial);
+    const isWholeVialItem = !!(vmap[code8] && vmap[code8].whole_vial_deduct);
+    const consumedVials = isWholeVialItem
+      ? Object.values(usageByLotByDate[key]||{}).reduce((sum,dayDoses)=> sum + Math.ceil(dayDoses/dosesPerVial), 0)
+      : Math.ceil(usageDoses/dosesPerVial);
 
     // 全新批號：這個月以前完全沒有任何撥入撥出/耗用紀錄，也沒有上月結存 → 直接視為上月結存=0，不用人工盤點確認
     const isBrandNew = !Object.prototype.hasOwnProperty.call(prevClosingMap, key) && !hadPriorActivity.has(key);
