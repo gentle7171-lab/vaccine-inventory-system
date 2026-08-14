@@ -1354,13 +1354,13 @@ async function loadMyItems(){
   const site = mySite();
   const { data, error } = await sb
     .from('vaccine_campus_items')
-    .select('*, vaccine_master(tally_name, product_name)')
+    .select('*, vaccine_master(tally_name, product_name, status)')
     .eq('campus', site)
     .eq('status', 'active')
     .not('page_id', 'is', null)
     .order('item_sort_order', {ascending:true, nullsFirst:false});
   if(error){ console.error(error); return []; }
-  return data || [];
+  return (data || []).filter(it => it.vaccine_master && it.vaccine_master.status === 'active');
 }
 
 async function renderInv(){
@@ -1826,11 +1826,12 @@ async function renderOverview(){
   document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#bbb">載入中...</td></tr>';
 
   // 撈全部 active 品項（不分院區）
-  const { data: items, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4)').eq('status','active');
+  const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status)').eq('status','active');
   if(itemErr){
     document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${itemErr.message}</td></tr>`;
     return;
   }
+  const items = (itemsRaw || []).filter(it => it.vaccine_master && it.vaccine_master.status === 'active');
 
   const unassigned = (items||[]).filter(it => !it.page_id);
   const unassignedBox = document.getElementById('ov-unassigned');
@@ -2491,9 +2492,11 @@ async function saveVaccine(){
 }
 
 async function toggleVaccStatus(code8, status){
-  const msg = status==='inactive' ? `確定停用此疫苗品項？` : `確定重新啟用此疫苗品項？`;
+  const msg = status==='inactive' ? `確定停用此疫苗品項？（盤點分頁、管理總覽等畫面將同步不再顯示）` : `確定重新啟用此疫苗品項？（盤點分頁、管理總覽等畫面將同步恢復顯示）`;
   if(!confirm(msg)) return;
   await sb.from('vaccine_master').update({status}).eq('drug_code8', code8);
+  // 同步更新分頁指派表的狀態，避免兩張表狀態不同步
+  await sb.from('vaccine_campus_items').update({status}).eq('drug_code8', code8);
   renderVaccines();
 }
 
@@ -2763,11 +2766,12 @@ function switchPageSite(site){
 
 async function renderPages(){
   const site = pageConfigSite;
-  const [{ data: pages }, { data: items }, { data: vaccines }] = await Promise.all([
+  const [{ data: pages }, { data: itemsRaw }, { data: vaccines }] = await Promise.all([
     sb.from('tally_pages').select('*').eq('campus', site).order('sort_order'),
-    sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name)').eq('campus', site).eq('status','active').order('item_sort_order', {ascending:true, nullsFirst:false}),
+    sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, status)').eq('campus', site).eq('status','active').order('item_sort_order', {ascending:true, nullsFirst:false}),
     sb.from('vaccine_master').select('drug_code8, tally_name').eq('status','active').order('tally_name')
   ]);
+  const items = (itemsRaw || []).filter(it => it.vaccine_master && it.vaccine_master.status === 'active');
 
   const unassigned = (items||[]).filter(it => !it.page_id);
   const wrap = document.getElementById('pages-config-wrap');
@@ -3760,7 +3764,8 @@ async function handleStockFile(input){
   for(const campus of ['dl','hw','wh']){
     if(!stationsInUpload.has(campus)) continue;
     const present = new Set(stockGrouped.filter(r=>r.campus===campus).map(r=>r.drug_code8));
-    const { data: campusItems } = await sb.from('vaccine_campus_items').select('drug_code8, vaccine_master(tally_name)').eq('campus',campus).eq('status','active');
+    const { data: campusItemsRaw } = await sb.from('vaccine_campus_items').select('drug_code8, vaccine_master(tally_name, status)').eq('campus',campus).eq('status','active');
+    const campusItems = (campusItemsRaw || []).filter(i => i.vaccine_master && i.vaccine_master.status === 'active');
     const missing = (campusItems||[]).filter(i=>!present.has(i.drug_code8));
     if(missing.length){
       missingCount += missing.length;
@@ -5389,7 +5394,7 @@ async function renderMonthlyReport(){
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
     return `<tr data-key="${key}" data-name="${xEsc(r.name)}"
-      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent"` : ''}>
+      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab;border-top:2px solid #ddd;border-bottom:2px solid transparent"` : ''}>
     ${nameCell}
     <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
     <td style="font-size:13px;color:#888">${r.expiry||'—'}</td>
@@ -5437,7 +5442,7 @@ function renderPcvReport(){
     const nameCell = isFirst ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle">${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle">${r.dosesPerVial}</td>` : '';
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
     const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '—');
-    return `<tr>${nameCell}
+    return `<tr style="${isFirst?'border-top:2px solid #ddd':''}">${nameCell}
       <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
       <td style="font-size:13px;color:#888">${r.expiry||'—'}</td>
       <td class="c">${startCell}</td>
