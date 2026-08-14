@@ -1862,7 +1862,7 @@ async function renderOverview(){
 
   const extraCodes = Object.keys(whComputedMap).filter(c=>!seenCodes.has(c));
   if(extraCodes.length){
-    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').in('drug_code8', extraCodes);
+    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').in('drug_code8', extraCodes).eq('status','active');
     (extraMaster||[]).forEach(v=>{
       uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4}, _whOnly:true });
       seenCodes.add(v.drug_code8);
