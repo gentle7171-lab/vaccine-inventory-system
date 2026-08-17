@@ -110,6 +110,9 @@ tr:hover td{background:#fafaf8}
 
 .loading{text-align:center;padding:40px;color:#bbb;font-size:15px}
 .err-banner{background:#FCEBEB;color:#A32D2D;padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
 </style>
 </head>
 <body>
@@ -1093,6 +1096,13 @@ tr:hover td{background:#fafaf8}
 </div>
 
 <script>
+/* 數字輸入框滾滑鼠滾輪時不要跟著改變數值（盤點頁面等最容易誤觸） */
+document.addEventListener('wheel', function(e){
+  if(document.activeElement && document.activeElement.tagName==='INPUT' && document.activeElement.type==='number'){
+    document.activeElement.blur();
+  }
+}, {passive:true});
+
 /* ══════════════ Supabase 設定 ══════════════ */
 if (typeof supabase === 'undefined') {
   document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:24px;background:#FCEBEB;border-radius:12px;text-align:center;font-family:sans-serif"><div style="font-size:17px;font-weight:600;color:#A32D2D;margin-bottom:8px">系統元件載入失敗</div><div style="font-size:14px;color:#666">網路可能擋掉了程式所需的外部資源（cdn.jsdelivr.net / unpkg.com），請確認網路連線後重新整理頁面，或聯絡管理員確認防火牆/網路設定是否允許連到這兩個網域。</div></div>';
