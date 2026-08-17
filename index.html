@@ -831,7 +831,6 @@ input[type=number]{-moz-appearance:textfield}
               <th style="width:150px">有效日期</th>
               <th style="width:90px">使用狀態</th>
               <th style="width:130px">院區</th>
-              <th style="width:90px">系統庫存</th>
               <th>備註</th>
               <th style="width:100px">最後修改</th>
               <th style="width:60px">刪除</th>
@@ -1918,7 +1917,7 @@ async function renderExpiryPanel(){
   body.innerHTML = `<div class="tbl-wrap"><table>
     <thead><tr>
       <th>疫苗名稱</th><th style="width:70px">院區</th><th style="width:100px">批號</th>
-      <th style="width:100px">效期</th><th style="width:90px">系統庫存</th><th style="width:110px">狀態</th>
+      <th style="width:100px">效期</th><th style="width:110px">狀態</th>
     </tr></thead>
     <tbody>${items.map(it=>{
       const statusText = it.expired ? `已過期 ${Math.abs(it.daysLeft)} 天` : `剩 ${it.daysLeft} 天`;
@@ -1928,7 +1927,6 @@ async function renderExpiryPanel(){
         <td>${CAMPUS_LABEL[it.campus]||it.campus}</td>
         <td style="font-family:monospace">${it.lot_no}</td>
         <td>${it.expiry_date}</td>
-        <td class="c">${it.current_qty}</td>
         <td style="color:${color};font-weight:600">${it.expired?'⚠️ ':'⏰ '}${statusText}</td>
       </tr>`;
     }).join('')}</tbody>
@@ -2803,7 +2801,7 @@ async function refreshLots(code8){
     groups[l.lot_no].push(l);
   });
   document.getElementById('lot-tbody').innerHTML = order.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
-    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">尚無批號，請按下方「新增批號」</td></tr>';
+    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">尚無批號，請按下方「新增批號」</td></tr>';
 }
 
 function buildLotRow(lotNo, rows, code8){
@@ -2816,10 +2814,6 @@ function buildLotRow(lotNo, rows, code8){
   const lotNoEsc = lotNo.replace(/'/g,"\\'");
   const lastModified = rows.reduce((max,r)=> r.updated_at && (!max || r.updated_at > max) ? r.updated_at : max, null);
   const lastModifiedText = lastModified ? lastModified.slice(0,10) : '—';
-  const totalQty = rows.reduce((s,r)=> s + Number(r.current_qty||0), 0);
-  const qtyCell = totalQty < 0
-    ? `<span style="color:#A32D2D;font-weight:600" title="系統計算出負庫存，可能是批號選錯或藥庫進出貨漏登，請檢查批號更正／藥庫進出貨紀錄">⚠️ ${totalQty}</span>`
-    : `<span style="color:#999">${totalQty}</span>`;
 
   return `<tr>
     <td style="font-size:14px;font-family:monospace">${lotNo}</td>
@@ -2832,7 +2826,6 @@ function buildLotRow(lotNo, rows, code8){
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${hwLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_hw',${hwLit},'${code8}')">虎尾</button>
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${whLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_wh',${whLit},'${code8}')">藥庫</button>
     </td>
-    <td class="c">${qtyCell}</td>
     <td><input type="text" value="${noteEsc}" class="inp" style="font-size:13px;padding:4px 8px" placeholder="備註（選填）" onblur="saveLotNote('${primary.lot_id}', this.value)"></td>
     <td style="font-size:12px;color:#999">${lastModifiedText}</td>
     <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteLotGroup('${lotNoEsc}','${code8}')">刪除</button></td>
