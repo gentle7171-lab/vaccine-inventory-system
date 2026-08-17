@@ -282,6 +282,21 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div id="ov-unassigned" style="display:none" class="notice n-warn"></div>
 
+      <div id="expiry-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleExpiryPanel()">
+            ⏰ 近效期清單 <span id="expiry-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+            <span id="expiry-toggle-arrow" style="font-size:12px;color:#999">▼</span>
+          </div>
+          <div id="expiry-settings" style="display:flex;align-items:center;gap:6px;font-size:13px;color:#666">
+            全院預設天數：
+            <input type="number" id="expiry-default-days" class="inp" style="width:70px;padding:4px 6px" value="90">
+            <button class="btn btn-sm" onclick="saveExpiryDefaultDays()">儲存</button>
+          </div>
+        </div>
+        <div id="expiry-panel-body" style="margin-top:10px"></div>
+      </div>
+
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <input type="date" id="ov-date" class="inp" style="width:160px">
         <button class="btn btn-primary btn-sm" onclick="renderOverview()">🔍 查詢</button>
@@ -770,6 +785,10 @@ input[type=number]{-moz-appearance:textfield}
       <div class="fg"><label>每瓶劑量</label><input type="number" id="vacc-doses-per-vial" placeholder="1" min="0.01" step="0.01" class="inp"></div>
     </div>
     <div class="fg" style="margin-top:6px">
+      <label>近效期預警天數（留空套用全院預設；只有這個品項效期特別短/長才需要填）</label>
+      <input type="number" id="vacc-expiry-alert-days" placeholder="留空＝套用全院預設" min="1" step="1" class="inp" style="width:200px">
+    </div>
+    <div class="fg" style="margin-top:6px">
       <label>共用批號庫存（別名，選填）</label>
       <input type="text" id="vacc-alias-of" placeholder="留空＝獨立管理批號庫存；填入另一個藥品8碼＝這個8碼視為它的別名，耗用/進出貨上傳會自動併入那個8碼的批號庫存扣帳" class="inp">
       <div style="font-size:12px;color:#999;margin-top:2px">用於「同一批貨、但要用不同8碼申報」的情況（例如公費/自費、不同對象但共用同一支疫苗）。設定後這個8碼不需要自己開批號，庫存全部算在被設定的那個8碼下。</div>
@@ -812,6 +831,7 @@ input[type=number]{-moz-appearance:textfield}
               <th style="width:150px">有效日期</th>
               <th style="width:90px">使用狀態</th>
               <th style="width:130px">院區</th>
+              <th style="width:90px">系統庫存</th>
               <th>備註</th>
               <th style="width:100px">最後修改</th>
               <th style="width:60px">刪除</th>
@@ -1276,6 +1296,7 @@ function showTab(id){
   if(id==='inv') switchInvMain(invMainSub);
   if(id==='overview'){
     renderOverview();
+    renderExpiryPanel();
   }
   if(id==='master') initMasterTab();
   if(id==='upload') initReportsTab();
@@ -1829,6 +1850,91 @@ async function confirmRecDateFix(){
 }
 
 /* ══════════════ 管理總覽 / 差異檢核 ══════════════ */
+/* ══════════════ 近效期管理 ══════════════ */
+let expiryDefaultDays = 90;
+let expiryPanelOpen = true;
+
+async function loadExpirySettings(){
+  const { data } = await sb.from('app_settings').select('value').eq('key','expiry_alert_days_default').maybeSingle();
+  expiryDefaultDays = data && data.value ? Number(data.value) : 90;
+  const inp = document.getElementById('expiry-default-days');
+  if(inp) inp.value = expiryDefaultDays;
+}
+
+async function saveExpiryDefaultDays(){
+  const val = parseInt(document.getElementById('expiry-default-days').value, 10);
+  if(!val || val <= 0){ alert('請輸入大於0的天數'); return; }
+  const { error } = await sb.from('app_settings').upsert({ key:'expiry_alert_days_default', value:String(val), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  if(error){ alert('儲存失敗：'+error.message+'\n請確認 app_settings 資料表已建立'); return; }
+  expiryDefaultDays = val;
+  alert('✓ 已儲存全院預設天數為 '+val+' 天');
+  renderExpiryPanel();
+}
+
+function toggleExpiryPanel(){
+  expiryPanelOpen = !expiryPanelOpen;
+  document.getElementById('expiry-panel-body').style.display = expiryPanelOpen ? '' : 'none';
+  document.getElementById('expiry-toggle-arrow').textContent = expiryPanelOpen ? '▼' : '▶';
+}
+
+const CAMPUS_LABEL = {dl:'斗六', hw:'虎尾', wh:'藥庫'};
+
+async function renderExpiryPanel(){
+  await loadExpirySettings();
+  const body = document.getElementById('expiry-panel-body');
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+
+  const [{ data: lots }, { data: vmasterRows }] = await Promise.all([
+    sb.from('lot_details').select('drug_code8,campus,lot_no,expiry_date,current_qty').eq('status','active').not('expiry_date','is',null),
+    sb.from('vaccine_master').select('drug_code8,tally_name,status,expiry_alert_days').eq('status','active')
+  ]);
+  const vmap = {};
+  (vmasterRows||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const items = (lots||[])
+    .filter(l => vmap[l.drug_code8]) // 排除已停用主檔的批號
+    .map(l=>{
+      const v = vmap[l.drug_code8];
+      const threshold = (v.expiry_alert_days!=null && v.expiry_alert_days>0) ? v.expiry_alert_days : expiryDefaultDays;
+      const expDate = new Date(l.expiry_date);
+      const daysLeft = Math.round((expDate - today) / 86400000);
+      return { ...l, name: v.tally_name, threshold, daysLeft, expired: daysLeft < 0 };
+    })
+    .filter(it => it.daysLeft <= it.threshold)
+    .sort((a,b) => a.daysLeft - b.daysLeft);
+
+  const badge = document.getElementById('expiry-count-badge');
+  badge.textContent = items.length ? `（${items.length}筆）` : '';
+
+  document.getElementById('expiry-panel-body').style.display = expiryPanelOpen ? '' : 'none';
+  document.getElementById('expiry-toggle-arrow').textContent = expiryPanelOpen ? '▼' : '▶';
+
+  if(!items.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有近效期或已過期的批號</div>';
+    return;
+  }
+
+  body.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>疫苗名稱</th><th style="width:70px">院區</th><th style="width:100px">批號</th>
+      <th style="width:100px">效期</th><th style="width:90px">系統庫存</th><th style="width:110px">狀態</th>
+    </tr></thead>
+    <tbody>${items.map(it=>{
+      const statusText = it.expired ? `已過期 ${Math.abs(it.daysLeft)} 天` : `剩 ${it.daysLeft} 天`;
+      const color = it.expired ? '#A32D2D' : '#C77700';
+      return `<tr>
+        <td>${it.name}<div style="font-size:11px;color:#999;font-family:monospace">${it.drug_code8}</div></td>
+        <td>${CAMPUS_LABEL[it.campus]||it.campus}</td>
+        <td style="font-family:monospace">${it.lot_no}</td>
+        <td>${it.expiry_date}</td>
+        <td class="c">${it.current_qty}</td>
+        <td style="color:${color};font-weight:600">${it.expired?'⚠️ ':'⏰ '}${statusText}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
 async function renderOverview(){
   const selDate = document.getElementById('ov-date').value || todayStr();
   document.getElementById('ov-date').value = selDate;
@@ -2432,6 +2538,7 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-product-name').value = data.product_name||'';
       document.getElementById('vacc-tally-name').value = data.tally_name||'';
       document.getElementById('vacc-doses-per-vial').value = data.doses_per_vial||1;
+      document.getElementById('vacc-expiry-alert-days').value = data.expiry_alert_days||'';
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
@@ -2451,6 +2558,7 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-niis-timing').value = 'next_day';
     document.getElementById('vacc-lots-placeholder').textContent = '請先儲存疫苗基本資料，即可在此新增批號';
     document.getElementById('vacc-doses-per-vial').value = 1;
+    document.getElementById('vacc-expiry-alert-days').value = '';
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
@@ -2462,6 +2570,8 @@ async function openVaccineModal(code8){
 
 async function saveVaccine(){
   const editCode = document.getElementById('vacc-edit-code').value;
+  const dosesRaw = document.getElementById('vacc-doses-per-vial').value.trim();
+  const dosesPerVial = parseFloat(dosesRaw);
   const row = {
     drug_code8: document.getElementById('vacc-code8').value.trim(),
     stock_code4: document.getElementById('vacc-code4').value.trim(),
@@ -2470,18 +2580,32 @@ async function saveVaccine(){
     niis_declare_timing: document.getElementById('vacc-niis-timing').value || 'next_day',
     product_name: document.getElementById('vacc-product-name').value.trim(),
     tally_name: document.getElementById('vacc-tally-name').value.trim(),
-    doses_per_vial: parseFloat(document.getElementById('vacc-doses-per-vial').value) || 1,
+    doses_per_vial: dosesPerVial,
+    expiry_alert_days: (function(){ const v = document.getElementById('vacc-expiry-alert-days').value.trim(); return v ? parseInt(v,10) : null; })(),
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
     status: 'active'
   };
   if(!row.drug_code8 || !row.tally_name){ alert('請填寫藥品8碼和盤點表名稱'); return; }
+  // ① 每瓶劑量必須是有效正數，不給用預設值悄悄蓋過去
+  if(dosesRaw === '' || isNaN(dosesPerVial) || dosesPerVial <= 0){
+    alert('每瓶劑量未填或格式錯誤，請填一個大於0的數字（例如 1 或 0.25）');
+    return;
+  }
+  // ② 勾了整瓶扣帳但每瓶劑量填1，通常代表忘了改成實際每瓶可打人數，跳確認但不擋
+  if(row.whole_vial_deduct && dosesPerVial === 1){
+    if(!confirm('這個品項勾選了「整瓶扣帳」，但每瓶劑量填的是1。\n整瓶扣帳通常代表多人瓶（一瓶可打多人），每瓶劑量應該大於1。\n\n確定每瓶劑量就是1、要繼續儲存嗎？')) return;
+  }
   if(row.alias_of && row.alias_of === row.drug_code8){ alert('共用批號庫存不能填自己本身的8碼'); return; }
   if(row.alias_of){
-    const { data: targetRow } = await sb.from('vaccine_master').select('drug_code8,alias_of').eq('drug_code8', row.alias_of).maybeSingle();
+    const { data: targetRow } = await sb.from('vaccine_master').select('drug_code8,alias_of,doses_per_vial').eq('drug_code8', row.alias_of).maybeSingle();
     if(!targetRow){ alert(`找不到藥品8碼「${row.alias_of}」，請確認主檔已有這個8碼`); return; }
     if(targetRow.alias_of){ alert(`「${row.alias_of}」本身也是別名（共用於「${targetRow.alias_of}」），請直接填最終那個正式管理批號的8碼，不要疊兩層`); return; }
+    // ③ 別名品項的每瓶劑量跟正式管理品項不一樣時提醒一下（有可能是刻意的，例如半劑瓶，不擋）
+    if(targetRow.doses_per_vial != null && Number(targetRow.doses_per_vial) !== dosesPerVial){
+      if(!confirm(`這個品項的每瓶劑量（${dosesPerVial}）跟共用批號的正式管理品項「${row.alias_of}」的每瓶劑量（${targetRow.doses_per_vial}）不一樣。\n\n如果是刻意設定（例如半劑瓶）請按確定繼續；如果是打錯了請取消修改。`)) return;
+    }
   }
   const { error } = editCode
     ? await sb.from('vaccine_master').update(row).eq('drug_code8', editCode)
@@ -2679,7 +2803,7 @@ async function refreshLots(code8){
     groups[l.lot_no].push(l);
   });
   document.getElementById('lot-tbody').innerHTML = order.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
-    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">尚無批號，請按下方「新增批號」</td></tr>';
+    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">尚無批號，請按下方「新增批號」</td></tr>';
 }
 
 function buildLotRow(lotNo, rows, code8){
@@ -2692,6 +2816,10 @@ function buildLotRow(lotNo, rows, code8){
   const lotNoEsc = lotNo.replace(/'/g,"\\'");
   const lastModified = rows.reduce((max,r)=> r.updated_at && (!max || r.updated_at > max) ? r.updated_at : max, null);
   const lastModifiedText = lastModified ? lastModified.slice(0,10) : '—';
+  const totalQty = rows.reduce((s,r)=> s + Number(r.current_qty||0), 0);
+  const qtyCell = totalQty < 0
+    ? `<span style="color:#A32D2D;font-weight:600" title="系統計算出負庫存，可能是批號選錯或藥庫進出貨漏登，請檢查批號更正／藥庫進出貨紀錄">⚠️ ${totalQty}</span>`
+    : `<span style="color:#999">${totalQty}</span>`;
 
   return `<tr>
     <td style="font-size:14px;font-family:monospace">${lotNo}</td>
@@ -2704,6 +2832,7 @@ function buildLotRow(lotNo, rows, code8){
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${hwLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_hw',${hwLit},'${code8}')">虎尾</button>
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${whLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_wh',${whLit},'${code8}')">藥庫</button>
     </td>
+    <td class="c">${qtyCell}</td>
     <td><input type="text" value="${noteEsc}" class="inp" style="font-size:13px;padding:4px 8px" placeholder="備註（選填）" onblur="saveLotNote('${primary.lot_id}', this.value)"></td>
     <td style="font-size:12px;color:#999">${lastModifiedText}</td>
     <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteLotGroup('${lotNoEsc}','${code8}')">刪除</button></td>
@@ -4736,7 +4865,7 @@ function renderNiisMirrorRows(){
           <div class="fg" style="margin:0"><label>消耗量${r.wholeVial?'（瓶）':''}${r.rawUsage!==undefined && r.usage!==r.rawUsage ? `<span style="font-weight:400;color:#C77700;font-size:11px">（實際施打${r.rawUsage}人，換算${r.usage}瓶）</span>` : ''}</label><input type="number" class="inp" id="niis-mirror-usage-${i}" value="${r.usage}" style="width:100px" oninput="updateNiisMirrorPreview(${i})"></div>
           <div class="fg" style="margin:0"><label>控留量</label><input type="number" class="inp" id="niis-mirror-hold-${i}" value="${r.hold}" style="width:100px"></div>
           <div class="fg" style="margin:0"><label>其他異動（退回衛生所等，正數＝扣掉、負數＝加回，例如撥入要填負數）</label><input type="number" class="inp" id="niis-mirror-adjust-${i}" value="${r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}" style="width:140px" oninput="updateNiisMirrorPreview(${i})"></div>
-          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;color:#1B3A6B;padding:7px 0">${r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}</div></div>
+          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;padding:7px 0${(r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?';color:#A32D2D':';color:#1B3A6B'}">${r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}</div><div id="niis-mirror-warn-${i}" style="font-size:11px;color:#A32D2D;${(r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?'':'display:none'}">⚠️ 結存後為負數，請檢查批號是否選錯或有無漏登藥庫進出貨</div></div>
           <button class="btn btn-primary btn-sm" onclick="confirmNiisDeclare(${i})">確認結存</button>
         </div>
         <div style="font-size:12px;color:#999;margin-top:6px">「其他異動」是給退回衛生所、藥庫進出貨、報廢、盤損等非耗用的庫存變動用的，只影響這裡的結存基準，不會被當成消耗量、也不會影響月報表</div>
@@ -4796,12 +4925,37 @@ function renderNiisHiddenList(){
   </tr>`).join('');
 }
 
+function checkMrEndNegative(inp){
+  const v = inp.value;
+  const isNeg = v!=='' && Number(v) < 0;
+  inp.style.color = isNeg ? '#A32D2D' : '';
+  inp.style.fontWeight = isNeg ? '600' : '';
+  inp.style.borderColor = isNeg ? '#A32D2D' : '';
+  let warn = inp.parentElement.querySelector('.mr-end-warn');
+  if(isNeg){
+    if(!warn){
+      warn = document.createElement('div');
+      warn.className = 'mr-end-warn';
+      warn.style.cssText = 'font-size:11px;color:#A32D2D;margin-top:2px';
+      warn.textContent = '⚠️ 負數，請檢查漏傳/批號';
+      inp.insertAdjacentElement('afterend', warn);
+    }
+  } else if(warn){
+    warn.remove();
+  }
+}
+
 function updateNiisMirrorPreview(i){
   const r = niisMirrorRows[i];
   if(!r) return;
   const usage = parseFloat(document.getElementById('niis-mirror-usage-'+i).value) || 0;
   const adjust = parseFloat(document.getElementById('niis-mirror-adjust-'+i)?.value) || 0;
-  document.getElementById('niis-mirror-preview-'+i).textContent = r.qty - usage - adjust;
+  const closing = r.qty - usage - adjust;
+  const previewEl = document.getElementById('niis-mirror-preview-'+i);
+  const warnEl = document.getElementById('niis-mirror-warn-'+i);
+  previewEl.textContent = closing;
+  previewEl.style.color = closing < 0 ? '#A32D2D' : '#1B3A6B';
+  if(warnEl) warnEl.style.display = closing < 0 ? '' : 'none';
 }
 
 function toggleNiisMirrorRow(i){
@@ -4831,7 +4985,10 @@ async function confirmNiisDeclare(i){
     }
   }
 
-  if(!confirm(`確認結存：\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n記錄後這批號會更新結存數字；如果沒有其他待結存的日期，列表會恢復原本顏色。實際申報仍要自行到政府NIIS系統輸入送出。`)) return;
+  const confirmMsg = closing < 0
+    ? `⚠️ 結存後庫存量為負數（${closing}）！\n\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n這通常代表：耗用報表批號選錯，或藥庫進出貨有漏登（撥入未登打）。建議先去「批號更正」或「藥庫進出貨」檢查後再結存。\n\n仍要照這個數字確認結存嗎？`
+    : `確認結存：\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n記錄後這批號會更新結存數字；如果沒有其他待結存的日期，列表會恢復原本顏色。實際申報仍要自行到政府NIIS系統輸入送出。`;
+  if(!confirm(confirmMsg)) return;
 
   const { error } = await sb.from('niis_declare_log').upsert({
     drug_code8: r.code8, lot_no: r.lotNo, declare_date: declareDate,
@@ -5413,7 +5570,7 @@ async function renderMonthlyReport(){
     <td class="c">${r.outVials}</td>
     <td class="c">${r.consumedVials}</td>
     <td class="c">${r.vaccinated}</td>
-    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" style="width:70px;text-align:center;${r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':''}">${tallyHint}${niisCompareNote}</td>
+    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" oninput="checkMrEndNegative(this)" style="width:70px;text-align:center;${(endValue!=='' && Number(endValue)<0) ? 'color:#A32D2D;font-weight:600;border-color:#A32D2D' : (r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':'')}">${(endValue!=='' && Number(endValue)<0) ? '<div style="font-size:11px;color:#A32D2D;margin-top:2px">⚠️ 負數，請檢查漏傳/批號</div>' : ''}${tallyHint}${niisCompareNote}</td>
     <td><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
     <td>${statusBadge}</td>
   </tr>`;
@@ -5924,7 +6081,9 @@ async function saveMonthlyClosing(){
     });
   });
   if(!rows.length){ alert('請先填寫本月結存數量'); return; }
-  if(!confirm(`確定要寫入 ${rows.length} 筆 ${ym} 結存紀錄嗎？若該批號已有本月結存紀錄將會被覆蓋，且會成為下個月試算的基準。`)) return;
+  const negRows = rows.filter(r=>r.closing_qty<0);
+  const negNote = negRows.length ? `\n\n⚠️ 其中 ${negRows.length} 筆本月結存為負數（${negRows.map(r=>r.drug_code8+' '+r.lot_no).join('、')}），建議先確認是否有耗用報表批號選錯或漏傳，仍可繼續儲存。` : '';
+  if(!confirm(`確定要寫入 ${rows.length} 筆 ${ym} 結存紀錄嗎？若該批號已有本月結存紀錄將會被覆蓋，且會成為下個月試算的基準。${negNote}`)) return;
   const { error } = await sb.from('lot_monthly_closing').upsert(rows, { onConflict: 'drug_code8,lot_no,year_month' });
   if(error){
     alert(`儲存失敗：${error.message}\n請確認 lot_monthly_closing 是否已建立 (drug_code8, lot_no, year_month) 的唯一鍵限制（unique constraint），例如：\nALTER TABLE lot_monthly_closing ADD CONSTRAINT lot_monthly_closing_uniq UNIQUE (drug_code8, lot_no, year_month);`);
@@ -5936,6 +6095,13 @@ async function saveMonthlyClosing(){
 
 async function exportMonthlyReportExcel(){
   if(!lastMonthlyReport.length){ alert('請先產生報表'); return; }
+  const negItems = lastMonthlyReport.filter(r=>{
+    const v = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : 0);
+    return Number(v) < 0;
+  });
+  if(negItems.length){
+    if(!confirm(`⚠️ 目前有 ${negItems.length} 筆本月結存為負數（${negItems.map(r=>r.name||r.code8||'').slice(0,5).join('、')}${negItems.length>5?' 等':''}），建議先確認耗用報表批號是否選錯或有無漏傳。\n\n仍要繼續匯出Excel嗎？`)) return;
+  }
   const ym = monthlyReportYm || getMrYm();
   const [yy, mm] = ym.split('-').map(Number);
   const rocYear = yy - 1911;
