@@ -113,6 +113,16 @@ tr:hover td{background:#fafaf8}
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 input[type=number]{-moz-appearance:textfield}
+.dropzone{border:2px dashed #c9d3e0;border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;background:#fafbfd;transition:all .15s;min-width:260px}
+.dropzone:hover{border-color:#1B3A6B;background:#f3f6fb}
+.dropzone.dropzone-over{border-color:#1B3A6B;background:#eaf0fa}
+.dropzone-lg{padding:44px 16px;width:100%}
+.dropzone-lg .dropzone-icon{font-size:38px}
+.dropzone-lg .dropzone-text{font-size:16px}
+.dropzone-icon{font-size:26px;line-height:1}
+.dropzone-text{font-size:14px;color:#1B3A6B;margin-top:6px;font-weight:500}
+.dropzone-hint{font-size:12px;color:#999;margin-top:2px}
+.dropzone-filename{font-size:13px;color:#1D9E75;margin-top:6px;font-weight:600;word-break:break-all}
 </style>
 </head>
 <body>
@@ -331,9 +341,18 @@ input[type=number]{-moz-appearance:textfield}
         </div>
 
         <div id="rpt-panel-usage">
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
-            <div class="fg" style="margin:0"><label>施打日期（僅檔案內無法自動辨識日期時，作為備用手動日期）</label><input type="date" id="usage-date" class="inp"></div>
-            <div class="fg" style="margin:0"><label>選擇檔案（Excel）</label><input type="file" id="usage-file" class="inp" accept=".xlsx,.xls" onchange="handleUsageFile(this)"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-width:520px">
+            <div class="fg" style="margin:0"><label>施打日期（僅檔案內無法自動辨識日期時，作為備用手動日期）</label><input type="date" id="usage-date" class="inp" style="width:200px"></div>
+            <div class="fg" style="margin:0">
+              <label>選擇檔案（Excel）</label>
+              <div class="dropzone dropzone-lg" id="usage-dropzone" onclick="document.getElementById('usage-file').click()">
+                <div class="dropzone-icon">📁</div>
+                <div class="dropzone-text">點擊或拖放 Excel 檔案至此處</div>
+                <div class="dropzone-hint">支援 .xlsx / .xls</div>
+                <div class="dropzone-filename" id="usage-dropzone-filename"></div>
+              </div>
+              <input type="file" id="usage-file" style="display:none" accept=".xlsx,.xls" onchange="handleUsageFile(this)">
+            </div>
           </div>
           <div id="usage-preview-wrap" style="display:none">
             <div class="cards" style="grid-template-columns:repeat(3,minmax(0,1fr))">
@@ -365,9 +384,18 @@ input[type=number]{-moz-appearance:textfield}
         </div>
 
         <div id="rpt-panel-stock" style="display:none">
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
-            <div class="fg" style="margin:0"><label>庫存代表日期（非下載日，例如7/3下載到的是7/2庫存就填7/2）</label><input type="date" id="stock-date" class="inp"></div>
-            <div class="fg" style="margin:0"><label>選擇檔案（Excel或TSV，斗六／虎尾／藥庫可分次上傳同一天，或同一份檔案內含多站別）</label><input type="file" id="stock-file" class="inp" accept=".xlsx,.xls,.tsv,.txt" onchange="handleStockFile(this)"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-width:520px">
+            <div class="fg" style="margin:0"><label>庫存代表日期（非下載日，例如7/3下載到的是7/2庫存就填7/2）</label><input type="date" id="stock-date" class="inp" style="width:200px"></div>
+            <div class="fg" style="margin:0">
+              <label>選擇檔案（Excel或TSV，斗六／虎尾／藥庫可分次上傳同一天，或同一份檔案內含多站別）</label>
+              <div class="dropzone dropzone-lg" id="stock-dropzone" onclick="document.getElementById('stock-file').click()">
+                <div class="dropzone-icon">📁</div>
+                <div class="dropzone-text">點擊或拖放 Excel/TSV 檔案至此處</div>
+                <div class="dropzone-hint">支援 .xlsx / .xls / .tsv / .txt</div>
+                <div class="dropzone-filename" id="stock-dropzone-filename"></div>
+              </div>
+              <input type="file" id="stock-file" style="display:none" accept=".xlsx,.xls,.tsv,.txt" onchange="handleStockFile(this)">
+            </div>
           </div>
           <div id="stock-preview-wrap" style="display:none">
             <div class="cards" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -395,8 +423,17 @@ input[type=number]{-moz-appearance:textfield}
 
         <div id="rpt-panel-wh-receive" style="display:none">
 
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
-            <div class="fg" style="margin:0"><label>選擇檔案（Excel）</label><input type="file" id="whrecv-file" class="inp" accept=".xlsx,.xls" onchange="handleWhReceiveFile(this)"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-width:520px">
+            <div class="fg" style="margin:0">
+              <label>選擇檔案（Excel）</label>
+              <div class="dropzone dropzone-lg" id="whrecv-dropzone" onclick="document.getElementById('whrecv-file').click()">
+                <div class="dropzone-icon">📁</div>
+                <div class="dropzone-text">點擊或拖放 Excel 檔案至此處</div>
+                <div class="dropzone-hint">支援 .xlsx / .xls</div>
+                <div class="dropzone-filename" id="whrecv-dropzone-filename"></div>
+              </div>
+              <input type="file" id="whrecv-file" style="display:none" accept=".xlsx,.xls" onchange="handleWhReceiveFile(this)">
+            </div>
           </div>
           <div id="whrecv-preview-wrap" style="display:none">
             <div class="cards" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -1286,6 +1323,34 @@ async function initApp(){
   if(document.getElementById('log-to')) document.getElementById('log-to').value = todayStr();
 
   showTab(tabs[0].id);
+  setupDropzones();
+}
+
+/* ══════════════ 拖曳上傳（耗用/庫存/藥庫進出貨） ══════════════ */
+function setupDropzones(){
+  [
+    {zone:'usage-dropzone', input:'usage-file', name:'usage-dropzone-filename'},
+    {zone:'stock-dropzone', input:'stock-file', name:'stock-dropzone-filename'},
+    {zone:'whrecv-dropzone', input:'whrecv-file', name:'whrecv-dropzone-filename'}
+  ].forEach(cfg=>{
+    const zone = document.getElementById(cfg.zone);
+    const input = document.getElementById(cfg.input);
+    const nameEl = document.getElementById(cfg.name);
+    if(!zone || !input) return;
+    zone.addEventListener('dragover', e=>{ e.preventDefault(); e.stopPropagation(); zone.classList.add('dropzone-over'); });
+    zone.addEventListener('dragleave', e=>{ e.preventDefault(); e.stopPropagation(); zone.classList.remove('dropzone-over'); });
+    zone.addEventListener('drop', e=>{
+      e.preventDefault(); e.stopPropagation();
+      zone.classList.remove('dropzone-over');
+      if(e.dataTransfer.files && e.dataTransfer.files.length){
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+    input.addEventListener('change', ()=>{
+      if(nameEl) nameEl.textContent = input.files[0] ? '✓ '+input.files[0].name : '';
+    });
+  });
 }
 
 function showTab(id){
