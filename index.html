@@ -453,6 +453,10 @@ input[type=number]{-moz-appearance:textfield}
               <button class="btn btn-primary" onclick="commitWhReceive()">💾 確認寫入資料庫</button>
             </div>
           </div>
+          <div style="margin-top:14px">
+            <button class="btn btn-sm" onclick="openWhLotFixModal()">🔧 批號更正（上傳時批號打錯時使用）</button>
+            <div style="font-size:12px;color:#999;margin-top:4px">如果某天某筆藥庫進出貨被記到錯的批號，用這裡把那筆紀錄搬到對的批號，庫存量跟月報表會自動一起連動修正，不用先刪除再重新上傳</div>
+          </div>
           <div style="margin-top:20px">
             <div style="font-size:14px;font-weight:600;color:#888;margin-bottom:8px">近期上傳紀錄（30天內）— 全院庫存核對數量兜不起來時，可以來這裡查該天有沒有進出貨</div>
             <div id="whrecv-history-body"></div>
@@ -1029,6 +1033,29 @@ input[type=number]{-moz-appearance:textfield}
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-lot-fix')">取消</button>
       <button class="btn btn-primary" onclick="commitLotFix()">確認更正</button>
+    </div>
+  </div>
+</div>
+
+<!-- 藥庫進出貨批號更正 modal -->
+<div class="modal-bg" id="modal-wh-lot-fix">
+  <div class="modal">
+    <h3>藥庫進出貨批號更正</h3>
+    <div style="font-size:13px;color:#888;margin-bottom:10px">把某天某筆藥庫進出貨紀錄「錯的批號」搬到「對的批號」，庫存量跟月報表會自動一起連動修正，不需要先刪除再重新上傳</div>
+    <div class="fg"><label>日期</label><input type="date" id="whlotfix-date" class="inp" onchange="loadWhLotFixCandidates()"></div>
+    <div class="fg"><label>藥品8碼</label>
+      <select id="whlotfix-code8" class="inp" onchange="loadWhLotFixCandidates()"><option value="">請選擇</option></select>
+    </div>
+    <div class="fg"><label>錯的那一筆紀錄</label>
+      <select id="whlotfix-wrong-tx" class="inp"><option value="">請先選日期＋8碼</option></select>
+    </div>
+    <div class="fg"><label>對的批號</label>
+      <select id="whlotfix-correct-lot" class="inp"><option value="">請先選藥品8碼</option></select>
+    </div>
+    <div id="whlotfix-msg" style="display:none" class="notice n-warn"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-wh-lot-fix')">取消</button>
+      <button class="btn btn-primary" onclick="commitWhLotFix()">確認更正</button>
     </div>
   </div>
 </div>
@@ -2502,17 +2529,17 @@ function buildVaccRow(v, lots){
   return `<tr draggable="true" data-code8="${v.drug_code8}"
     ondragstart="vaccMasterDragStart(event)" ondragover="vaccMasterDragOver(event)"
     ondragleave="vaccMasterDragLeave(event)" ondrop="vaccMasterDrop(event)" ondragend="vaccMasterDragEnd(event)"
-    style="cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent">
-    <td><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
-    <td style="font-size:15px"><span style="color:#bbb;margin-right:4px">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
-    <td style="font-size:14px;color:#666">${v.product_name||'—'}</td>
-    <td style="font-size:14px;color:#666">${v.niis_name||'—'}</td>
-    <td style="font-size:13px;color:#888">${v.drug_code8||''}</td>
-    <td style="font-size:13px;color:#888">${v.stock_code4||'—'}</td>
-    <td style="font-size:13px">${v.niis_code||'—'}</td>
-    <td style="font-size:13px">${v.alias_of?`<span style="color:#B8860B">別名，批號庫存共用於 ${v.alias_of}</span>`:lotsHtml}</td>
-    <td class="c">${v.niis_required ? '<span title="需NIIS申報" style="color:#1D9E75;font-weight:700;font-size:16px">✓</span>' : '<span style="font-size:13px;color:#ddd">—</span>'}</td>
-    <td>
+    style="cursor:grab">
+    <td style="border-top:1px solid #dde3ec"><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
+    <td style="font-size:15px;border-top:1px solid #dde3ec"><span style="color:#bbb;margin-right:4px">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
+    <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.product_name||'—'}</td>
+    <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.niis_name||'—'}</td>
+    <td style="font-size:13px;color:#888;border-top:1px solid #dde3ec">${v.drug_code8||''}</td>
+    <td style="font-size:13px;color:#888;border-top:1px solid #dde3ec">${v.stock_code4||'—'}</td>
+    <td style="font-size:13px;border-top:1px solid #dde3ec">${v.niis_code||'—'}</td>
+    <td style="font-size:13px;border-top:1px solid #dde3ec">${v.alias_of?`<span style="color:#B8860B">別名，批號庫存共用於 ${v.alias_of}</span>`:lotsHtml}</td>
+    <td class="c" style="border-top:1px solid #dde3ec">${v.niis_required ? '<span title="需NIIS申報" style="color:#1D9E75;font-weight:700;font-size:16px">✓</span>' : '<span style="font-size:13px;color:#ddd">—</span>'}</td>
+    <td style="border-top:1px solid #dde3ec">
       <button class="btn btn-sm" style="font-size:13px" onclick="openVaccineModal('${v.drug_code8}')">編輯</button>
       <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="toggleVaccStatus('${v.drug_code8}','inactive')">停用</button>
       <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
@@ -3858,6 +3885,102 @@ async function commitLotFix(){
 
   alert('批號更正完成，月報表與NIIS結存輔助已同步反映最新資料');
   closeModal('modal-lot-fix');
+  renderUploadHistory();
+}
+
+/* ── 藥庫進出貨批號更正：把某天某筆進出貨紀錄「錯的批號」搬到「對的批號」，
+   跟耗用報表批號更正不同的地方是：warehouse_transactions沒有唯一id可以直接鎖定單一筆，
+   同一天同品項可能有多筆（分次進貨等），所以用「日期+8碼+方向+原因+數量+上傳人員」這組合鎖定要搬的那一筆，
+   搬動時也要同步反向處理舊批號的current_qty（加回/扣掉），並套用到新批號上，維持庫存正確 ── */
+let whLotfixCandidates = [];
+async function openWhLotFixModal(){
+  document.getElementById('whlotfix-date').value = todayStr();
+  document.getElementById('whlotfix-correct-lot').innerHTML = '<option value="">請先選藥品8碼</option>';
+  document.getElementById('whlotfix-msg').style.display = 'none';
+  const { data: vmaster } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
+  const sel = document.getElementById('whlotfix-code8');
+  sel.innerHTML = '<option value="">請選擇</option>' + (vmaster||[]).map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+  document.getElementById('whlotfix-wrong-tx').innerHTML = '<option value="">請先選日期＋8碼</option>';
+  document.getElementById('modal-wh-lot-fix').classList.add('open');
+}
+
+async function loadWhLotFixCandidates(){
+  const date = document.getElementById('whlotfix-date').value;
+  const code8 = document.getElementById('whlotfix-code8').value;
+  const txSel = document.getElementById('whlotfix-wrong-tx');
+  const correctSel = document.getElementById('whlotfix-correct-lot');
+  if(code8){
+    const { data: lots } = await sb.from('lot_details').select('lot_no').eq('drug_code8', code8).eq('campus','wh').eq('status','active');
+    const uniqLots = [...new Set((lots||[]).map(l=>l.lot_no))];
+    correctSel.innerHTML = uniqLots.length
+      ? '<option value="">請選擇</option>' + uniqLots.map(l=>`<option value="${l}">${l}</option>`).join('')
+      : '<option value="">藥庫目前查無這個品項的批號，請先去主檔維護新增批號</option>';
+  } else {
+    correctSel.innerHTML = '<option value="">請先選藥品8碼</option>';
+  }
+  if(!date || !code8){ txSel.innerHTML = '<option value="">請先選日期＋8碼</option>'; return; }
+  const { data } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date,created_by')
+    .eq('campus','wh').eq('tx_date', date).eq('drug_code8', code8).in('reason',['receive_import','return_import']);
+  if(!data || !data.length){ txSel.innerHTML = '<option value="">這天這個品項查無藥庫進出貨紀錄</option>'; return; }
+  whLotfixCandidates = data;
+  txSel.innerHTML = '<option value="">請選擇</option>' + data.map((r,i)=>
+    `<option value="${i}">批號 ${r.lot_no}　${r.direction==='in'?'進貨':'退衛生所'} ${r.qty}瓶　（${r.created_by||'—'}上傳）</option>`
+  ).join('');
+}
+
+async function commitWhLotFix(){
+  const date = document.getElementById('whlotfix-date').value;
+  const code8 = document.getElementById('whlotfix-code8').value;
+  const txIdx = document.getElementById('whlotfix-wrong-tx').value;
+  const correctLot = document.getElementById('whlotfix-correct-lot').value.trim();
+  const msgBox = document.getElementById('whlotfix-msg');
+  if(!date || !code8 || txIdx===''  || !correctLot){
+    msgBox.style.display=''; msgBox.textContent = '請完整填寫日期／8碼／錯的那一筆紀錄／對的批號'; return;
+  }
+  const tx = whLotfixCandidates[Number(txIdx)];
+  if(!tx){ msgBox.style.display=''; msgBox.textContent = '查無這筆紀錄，可能已經被更正過，請關閉重開再確認一次'; return; }
+  if(tx.lot_no === correctLot){
+    msgBox.style.display=''; msgBox.textContent = '錯的批號跟對的批號不能一樣'; return;
+  }
+  if(!confirm(`確定把 ${date}「${tx.direction==='in'?'進貨':'退衛生所'} ${tx.qty}瓶」這筆紀錄，從批號「${tx.lot_no}」搬到「${correctLot}」？\n（庫存量會自動同步調整）`)) return;
+
+  // 找出符合這筆紀錄所有欄位的資料列，鎖定要搬的那一筆（沒有唯一id，所以用完整欄位比對）
+  const { data: matched } = await sb.from('warehouse_transactions').select('*')
+    .eq('campus','wh').eq('drug_code8', code8).eq('lot_no', tx.lot_no)
+    .eq('direction', tx.direction).eq('reason', tx.reason).eq('qty', tx.qty).eq('tx_date', tx.tx_date);
+  if(!matched || !matched.length){ msgBox.style.display=''; msgBox.textContent = '查無這筆紀錄，可能已經被更正過，請關閉重開再確認一次'; return; }
+  if(matched.length > 1 && !confirm(`⚠️ 資料庫裡有 ${matched.length} 筆完全相同的紀錄（同批號/方向/數量/日期），無法精準分辨是哪一筆，這次會全部一起搬到對的批號。\n\n確定要繼續嗎？`)) return;
+
+  // 反向處理舊批號的庫存（進貨要扣回去、退衛生所要加回來），乘上這次總共要搬的筆數
+  const delta = (tx.direction==='in' ? -tx.qty : tx.qty) * matched.length;
+  const { data: wrongLotRow } = await sb.from('lot_details').select('*').eq('drug_code8', code8).eq('campus','wh').eq('lot_no', tx.lot_no).maybeSingle();
+  if(wrongLotRow){
+    await sb.from('lot_details').update({
+      initial_qty: Number(wrongLotRow.initial_qty||0) + delta,
+      current_qty: Number(wrongLotRow.current_qty||0) + delta
+    }).eq('lot_id', wrongLotRow.lot_id);
+  }
+
+  // 套用到對的批號（方向相反的加減）
+  const applyDelta = -delta;
+  const { data: correctLotRow } = await sb.from('lot_details').select('*').eq('drug_code8', code8).eq('campus','wh').eq('lot_no', correctLot).maybeSingle();
+  if(correctLotRow){
+    await sb.from('lot_details').update({
+      initial_qty: Number(correctLotRow.initial_qty||0) + applyDelta,
+      current_qty: Number(correctLotRow.current_qty||0) + applyDelta
+    }).eq('lot_id', correctLotRow.lot_id);
+  } else {
+    await sb.from('lot_details').insert({ drug_code8:code8, campus:'wh', lot_no:correctLot, status:'active', initial_qty:applyDelta, current_qty:applyDelta });
+  }
+
+  // 把符合的warehouse_transactions資料列的批號改成對的批號
+  const { error } = await sb.from('warehouse_transactions').update({ lot_no: correctLot })
+    .eq('campus','wh').eq('drug_code8', code8).eq('lot_no', tx.lot_no)
+    .eq('direction', tx.direction).eq('reason', tx.reason).eq('qty', tx.qty).eq('tx_date', tx.tx_date);
+  if(error){ msgBox.style.display=''; msgBox.textContent = '批號欄位更新失敗：'+error.message; return; }
+
+  alert(`批號更正完成（共搬動 ${matched.length} 筆），庫存與月報表已同步反映最新資料`);
+  closeModal('modal-wh-lot-fix');
   renderUploadHistory();
 }
 
@@ -5605,7 +5728,8 @@ async function renderMonthlyReport(){
     const isFirstOfName = !seenName.has(r.name);
     seenName.add(r.name);
     const rowspan = nameCounts[r.name];
-    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle"><span style="color:#bbb;margin-right:4px">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle">${r.dosesPerVial}</td>` : '';
+    const groupBorderCss = isFirstOfName ? ';border-top:1px solid #dde3ec' : '';
+    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle${groupBorderCss}"><span style="color:#bbb;margin-right:4px">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle${groupBorderCss}">${r.dosesPerVial}</td>` : '';
     const key = r.code8+'|'+r.lotNo;
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
     const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '');
@@ -5619,18 +5743,18 @@ async function renderMonthlyReport(){
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
     return `<tr data-key="${key}" data-name="${xEsc(r.name)}"
-      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab;border-top:2px solid #ddd;border-bottom:2px solid transparent"` : ''}>
+      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab"` : ''}>
     ${nameCell}
-    <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
-    <td style="font-size:13px;color:#888">${r.expiry||'—'}</td>
-    <td class="c">${startCell}</td>
-    <td class="c">${r.inVials}</td>
-    <td class="c">${r.outVials}</td>
-    <td class="c">${r.consumedVials}</td>
-    <td class="c">${r.vaccinated}</td>
-    <td class="c"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" oninput="checkMrEndNegative(this)" style="width:70px;text-align:center;${(endValue!=='' && Number(endValue)<0) ? 'color:#A32D2D;font-weight:600;border-color:#A32D2D' : (r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':'')}">${(endValue!=='' && Number(endValue)<0) ? '<div style="font-size:11px;color:#A32D2D;margin-top:2px">⚠️ 負數，請檢查漏傳/批號</div>' : ''}${tallyHint}${niisCompareNote}</td>
-    <td><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
-    <td>${statusBadge}</td>
+    <td style="font-size:14px;font-family:monospace${groupBorderCss}">${r.lotNo}</td>
+    <td style="font-size:13px;color:#888${groupBorderCss}">${r.expiry||'—'}</td>
+    <td class="c" style="${groupBorderCss}">${startCell}</td>
+    <td class="c" style="${groupBorderCss}">${r.inVials}</td>
+    <td class="c" style="${groupBorderCss}">${r.outVials}</td>
+    <td class="c" style="${groupBorderCss}">${r.consumedVials}</td>
+    <td class="c" style="${groupBorderCss}">${r.vaccinated}</td>
+    <td class="c" style="${groupBorderCss}"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" oninput="checkMrEndNegative(this)" style="width:70px;text-align:center;${(endValue!=='' && Number(endValue)<0) ? 'color:#A32D2D;font-weight:600;border-color:#A32D2D' : (r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':'')}">${(endValue!=='' && Number(endValue)<0) ? '<div style="font-size:11px;color:#A32D2D;margin-top:2px">⚠️ 負數，請檢查漏傳/批號</div>' : ''}${tallyHint}${niisCompareNote}</td>
+    <td style="${groupBorderCss}"><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
+    <td style="${groupBorderCss}">${statusBadge}</td>
   </tr>`;
   }).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:#bbb">該月份查無任何批號結存或異動資料</td></tr>';
 
