@@ -879,7 +879,8 @@ input[type=number]{-moz-appearance:textfield}
             <tbody id="lot-tbody"></tbody>
           </table>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <a href="javascript:void(0)" id="lot-inactive-link" style="font-size:13px;color:#888;display:none" onclick="openInactiveLotsModal(document.getElementById('lot-drug-code').value)">查看已停用批號</a>
           <button class="btn btn-primary btn-sm" onclick="addNewLot(document.getElementById('lot-drug-code').value)">＋ 新增批號</button>
         </div>
       </div>
@@ -1033,6 +1034,31 @@ input[type=number]{-moz-appearance:textfield}
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-lot-fix')">取消</button>
       <button class="btn btn-primary" onclick="commitLotFix()">確認更正</button>
+    </div>
+  </div>
+</div>
+
+<!-- 已停用批號 modal -->
+<div class="modal-bg" id="modal-inactive-lots">
+  <div class="modal" style="max-width:700px">
+    <h3>已停用批號</h3>
+    <div style="font-size:13px;color:#888;margin-bottom:10px">這裡列出的批號目前是「已停用」狀態，不會出現在盤點、結存、月報表等畫面。需要的話可以在這裡重新啟用。</div>
+    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th style="width:120px">批號</th>
+          <th style="width:150px">有效日期</th>
+          <th style="width:90px">使用狀態</th>
+          <th style="width:130px">院區</th>
+          <th>備註</th>
+          <th style="width:100px">最後修改</th>
+          <th style="width:60px">刪除</th>
+        </tr></thead>
+        <tbody id="lot-inactive-tbody"></tbody>
+      </table>
+    </div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-inactive-lots')">關閉</button>
     </div>
   </div>
 </div>
@@ -2884,6 +2910,8 @@ async function doVaccBatch(){
    數量只透過「起始庫存匯入」一次性設定，日常靠管理總覽的實品盤點vs電腦庫存報表核對。
    跨院區查詢並依批號分組顯示，避免匯入時建在dl/hw的批號在這裡看不到；
    每個批號挑一筆「代表列」(優先wh，其次dl，再來hw)存放狀態/備註/斗六虎尾亮燈，其餘同批號的列僅供顯示效期備援。 ── */
+let lotGroupsCache = { code8: null, order: [], groups: {} };
+
 async function refreshLots(code8){
   const { data } = await sb.from('lot_details').select('*').eq('drug_code8', code8).order('expiry_date', {ascending:true, nullsFirst:false});
   const groups = {};
@@ -2892,8 +2920,41 @@ async function refreshLots(code8){
     if(!groups[l.lot_no]){ groups[l.lot_no] = []; order.push(l.lot_no); }
     groups[l.lot_no].push(l);
   });
-  document.getElementById('lot-tbody').innerHTML = order.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
-    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">尚無批號，請按下方「新增批號」</td></tr>';
+  lotGroupsCache = { code8, order, groups };
+
+  const activeOrder = order.filter(lotNo => {
+    const rows = groups[lotNo];
+    const primary = rows.find(r=>r.campus==='wh') || rows.find(r=>r.campus==='dl') || rows[0];
+    return primary.status === 'active';
+  });
+  const inactiveOrder = order.filter(lotNo => !activeOrder.includes(lotNo));
+
+  document.getElementById('lot-tbody').innerHTML = activeOrder.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
+    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">尚無使用中的批號，請按下方「新增批號」</td></tr>';
+
+  const link = document.getElementById('lot-inactive-link');
+  if(inactiveOrder.length){
+    link.style.display = '';
+    link.textContent = `查看已停用批號（${inactiveOrder.length}筆）`;
+  } else {
+    link.style.display = 'none';
+  }
+
+  if(document.getElementById('modal-inactive-lots').classList.contains('open')){
+    openInactiveLotsModal(code8);
+  }
+}
+
+function openInactiveLotsModal(code8){
+  if(lotGroupsCache.code8 !== code8) return; // 資料還沒載入，理論上不會發生（連結只有在有已停用批號時才會顯示）
+  const inactiveOrder = lotGroupsCache.order.filter(lotNo => {
+    const rows = lotGroupsCache.groups[lotNo];
+    const primary = rows.find(r=>r.campus==='wh') || rows.find(r=>r.campus==='dl') || rows[0];
+    return primary.status !== 'active';
+  });
+  document.getElementById('lot-inactive-tbody').innerHTML = inactiveOrder.map(lotNo => buildLotRow(lotNo, lotGroupsCache.groups[lotNo], code8)).join('')
+    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">目前沒有已停用的批號</td></tr>';
+  document.getElementById('modal-inactive-lots').classList.add('open');
 }
 
 function buildLotRow(lotNo, rows, code8){
@@ -2918,14 +2979,19 @@ function buildLotRow(lotNo, rows, code8){
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${hwLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_hw',${hwLit},'${code8}')">虎尾</button>
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${whLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_wh',${whLit},'${code8}')">藥庫</button>
     </td>
-    <td><input type="text" value="${noteEsc}" class="inp" style="font-size:13px;padding:4px 8px" placeholder="備註（選填）" onblur="saveLotNote('${primary.lot_id}', this.value)"></td>
+    <td><input type="text" value="${noteEsc}" class="inp" style="font-size:13px;padding:4px 8px" placeholder="備註（選填）" onblur="saveLotNote('${primary.lot_id}','${code8}', this.value)"></td>
     <td style="font-size:12px;color:#999">${lastModifiedText}</td>
     <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteLotGroup('${lotNoEsc}','${code8}')">刪除</button></td>
   </tr>`;
 }
 
 async function toggleLotStatus(lotId, newStatus, code8){
-  const { error } = await sb.from('lot_details').update({status:newStatus}).eq('lot_id', lotId);
+  // 批號的「使用狀態」是整個批號共用的屬性，不是各院區各自獨立的，
+  // 所以要把同一個批號在斗六/虎尾/藥庫的所有資料列都一起改，只改按鈕所在那一筆（代表列）的話，
+  // 其他院區還留著active的殘留列，別的地方查「這個批號還有沒有在用」還是會撈到，等於沒停用乾淨
+  const { data: row } = await sb.from('lot_details').select('lot_no').eq('lot_id', lotId).maybeSingle();
+  if(!row){ alert('查無此批號資料'); return; }
+  const { error } = await sb.from('lot_details').update({status:newStatus}).eq('drug_code8', code8).eq('lot_no', row.lot_no);
   if(error){ alert('更新失敗：'+error.message); return; }
   await refreshLots(code8);
   renderVaccines();
@@ -2940,13 +3006,17 @@ async function toggleLotCampusFlag(lotId, field, current, code8){
 }
 
 async function saveLotExpiry(lotId, code8, value){
-  const { error } = await sb.from('lot_details').update({expiry_date: value || null}).eq('lot_id', lotId);
+  const { data: row } = await sb.from('lot_details').select('lot_no').eq('lot_id', lotId).maybeSingle();
+  if(!row){ alert('查無此批號資料'); return; }
+  const { error } = await sb.from('lot_details').update({expiry_date: value || null}).eq('drug_code8', code8).eq('lot_no', row.lot_no);
   if(error){ alert('更新失敗：'+error.message); return; }
   await refreshLots(code8);
 }
 
-async function saveLotNote(lotId, value){
-  await sb.from('lot_details').update({lot_note: value.trim() || null}).eq('lot_id', lotId);
+async function saveLotNote(lotId, code8, value){
+  const { data: row } = await sb.from('lot_details').select('lot_no').eq('lot_id', lotId).maybeSingle();
+  if(!row) return;
+  await sb.from('lot_details').update({lot_note: value.trim() || null}).eq('drug_code8', code8).eq('lot_no', row.lot_no);
 }
 
 async function addNewLot(code8){
@@ -4755,13 +4825,30 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const earliestNeeded = shiftDate(targetDates.reduce((a,b)=>a<b?a:b), -LOOKBACK_DAYS);
   const latestNeeded = targetDates.reduce((a,b)=>a>b?a:b);
 
-  const [{data:stockRows}, {data:usageRows}, {data:txRows}, {data:noteRows}] = await Promise.all([
+  const [{data:stockRows}, {data:usageRows}, {data:txRows}, {data:noteRows}, {data:lotFlagRows}] = await Promise.all([
     sb.from('stock_uploads').select('drug_code8,station_code,upload_date,stock_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded),
-    sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded)
+    sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded),
+    sb.from('lot_details').select('drug_code8,used_dl,used_hw,used_wh').eq('status','active').in('drug_code8', codes)
   ]);
   const noteMap = {}; (noteRows||[]).forEach(n=>{ noteMap[n.drug_code8+'|'+n.note_date] = n.note; });
+
+  // 每個品項實際需要比對「哪幾站」，用批號管理裡的斗六/虎尾/藥庫燈號決定，不是每個品項都固定要三站都有資料
+  // （例如猴痘疫苗這種只有藥庫在管理的品項，斗六/虎尾本來就不會有庫存報表，不能永遠要求三站齊全）
+  const requiredStationsByCode = {};
+  (lotFlagRows||[]).forEach(l=>{
+    const code = l.drug_code8;
+    if(!requiredStationsByCode[code]) requiredStationsByCode[code] = new Set();
+    if(l.used_dl) requiredStationsByCode[code].add('6101');
+    if(l.used_hw) requiredStationsByCode[code].add('6201');
+    if(l.used_wh) requiredStationsByCode[code].add('6000');
+  });
+  function requiredStationsFor(code8){
+    const set = requiredStationsByCode[code8];
+    // 沒有任何批號標記院區旗標時，保守起見還是要求三站都有（維持原本行為，避免誤判成「已齊全」漏掉真正的異常）
+    return (set && set.size) ? set : new Set(['6101','6201','6000']);
+  }
 
   const stockSum = {}, stockStations = {};
   (stockRows||[]).forEach(r=>{
@@ -4784,12 +4871,14 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     target[r.drug_code8][r.tx_date] = (target[r.drug_code8][r.tx_date]||0) + Number(r.qty||0);
   });
 
-  // 往前找「最近一次三站庫存報表都齊全」的日期（不是機械式抓前一天，因為週末沒人傳報表但住院病人仍有耗用）
+  // 往前找「最近一次該品項需要的站點庫存報表都齊全」的日期（不是機械式抓前一天，因為週末沒人傳報表但住院病人仍有耗用）
   function findBaseDate(code8, td){
+    const required = requiredStationsFor(code8);
     let d = shiftDate(td, -1);
     for(let i=0; i<LOOKBACK_DAYS; i++){
       const key = d+'|'+code8;
-      if((stockStations[key]?.size||0) === 3) return d;
+      const have = stockStations[key];
+      if(have && [...required].every(s=>have.has(s))) return d;
       d = shiftDate(d, -1);
     }
     return null;
@@ -4798,7 +4887,9 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const rows = items.map(it=>{
     const td = it.target_date;
     const curKey = td+'|'+it.drug_code8;
-    const curComplete = (stockStations[curKey]?.size||0) === 3;
+    const required = requiredStationsFor(it.drug_code8);
+    const curHave = stockStations[curKey];
+    const curComplete = !!(curHave && [...required].every(s=>curHave.has(s)));
     const curTotal = curComplete ? stockSum[curKey] : null;
     const baseDate = findBaseDate(it.drug_code8, td);
     const baseKey = baseDate ? baseDate+'|'+it.drug_code8 : null;
