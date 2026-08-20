@@ -2526,12 +2526,11 @@ function buildVaccRow(v, lots){
         return `<span style="font-family:monospace">${lotNo}</span><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">${tags.join('')}</div>`;
       }).join('<div style="height:8px"></div>')
     : '<span style="color:#bbb;font-size:13px">尚無使用中批號</span>';
-  return `<tr draggable="true" data-code8="${v.drug_code8}"
+  return `<tr draggable="false" data-code8="${v.drug_code8}"
     ondragstart="vaccMasterDragStart(event)" ondragover="vaccMasterDragOver(event)"
-    ondragleave="vaccMasterDragLeave(event)" ondrop="vaccMasterDrop(event)" ondragend="vaccMasterDragEnd(event)"
-    style="cursor:grab">
+    ondragleave="vaccMasterDragLeave(event)" ondrop="vaccMasterDrop(event)" ondragend="vaccMasterDragEnd(event)">
     <td style="border-top:1px solid #dde3ec"><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
-    <td style="font-size:15px;border-top:1px solid #dde3ec"><span style="color:#bbb;margin-right:4px">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
+    <td style="font-size:15px;border-top:1px solid #dde3ec"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
     <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.product_name||'—'}</td>
     <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.niis_name||'—'}</td>
     <td style="font-size:13px;color:#888;border-top:1px solid #dde3ec">${v.drug_code8||''}</td>
@@ -2600,9 +2599,10 @@ async function vaccMasterDrop(e){
 }
 function vaccMasterDragEnd(){
   vaccMasterDragFromCode8 = null;
-  document.querySelectorAll('#vacc-active-body tr[draggable="true"]').forEach(r=>{
+  document.querySelectorAll('#vacc-active-body tr').forEach(r=>{
     r.style.borderTopColor = 'transparent';
     r.style.borderBottomColor = 'transparent';
+    r.setAttribute('draggable','false');
   });
 }
 
@@ -4602,9 +4602,10 @@ async function toggleWhReceiveDetail(date){
   const userNameMap = {}; (detailUsers||[]).forEach(u=>{ userNameMap[u.emp_id] = u.name; });
 
   box.innerHTML = `<table style="width:100%;font-size:13px">
-    <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">批號</th><th>方向</th><th>數量</th><th>上傳人員</th><th></th></tr></thead>
+    <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">8碼</th><th style="text-align:left">批號</th><th>方向</th><th>數量</th><th>上傳人員</th><th></th></tr></thead>
     <tbody>${data.map(r=>`<tr>
       <td>${vnameMap[r.drug_code8] || r.drug_code8}</td>
+      <td style="font-family:monospace;font-size:12px;color:#888">${r.drug_code8}</td>
       <td style="font-family:monospace">${r.lot_no}</td>
       <td style="text-align:center;color:${r.direction==='in'?'#1D9E75':'#A32D2D'}">${r.direction==='in'?'進貨':'退衛生所'}</td>
       <td style="text-align:center">${r.qty}</td>
@@ -5027,11 +5028,11 @@ function renderNiisMirrorRows(){
   rows.forEach((r,i)=>{
     const hasPending = r.pendingCount > 0;
     const hasAutoAdjust = !!(r.autoAdjust && r.autoAdjust.length);
-    html += `<tr draggable="true" data-code8="${r.code8}"
+    html += `<tr draggable="false" data-code8="${r.code8}"
       ondragstart="niisMainDragStart(event)" ondragover="niisMainDragOver(event)"
       ondragleave="niisMainDragLeave(event)" ondrop="niisMainDrop(event)" ondragend="niisMainDragEnd(event)"
-      style="${hasPending?'background:#FFF6DA;':(hasAutoAdjust?'background:#EAF6F0;':'')}cursor:grab;border-top:2px solid transparent;border-bottom:2px solid transparent">
-      <td style="font-size:14px"><span style="color:#bbb;margin-right:4px">☰</span>${r.niis_code||'—'}</td>
+      style="${hasPending?'background:#FFF6DA;':(hasAutoAdjust?'background:#EAF6F0;':'')}border-top:2px solid transparent;border-bottom:2px solid transparent">
+      <td style="font-size:14px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${r.niis_code||'—'}</td>
       <td style="font-size:15px">${r.niis_name}${hasPending?` <span style="color:#B8860B;font-size:12px">●有耗用待結存${r.pendingCount>1?'（'+r.pendingCount+'天）':''}</span>`:''}${(!hasPending && hasAutoAdjust)?` <span style="color:#1D9E75;font-size:12px">●藥庫有進出待校正</span>`:''}</td>
       <td style="font-size:14px;font-family:monospace">${r.lotNo}</td>
       <td class="c">${r.qty}${r.wholeVial?'瓶':''}</td>
@@ -5350,9 +5351,10 @@ async function niisMainDrop(e){
 
 function niisMainDragEnd(){
   niisMainDragFromCode8 = null;
-  document.querySelectorAll('#niis-mirror-body tr[draggable="true"]').forEach(r=>{
+  document.querySelectorAll('#niis-mirror-body tr').forEach(r=>{
     r.style.borderTopColor = 'transparent';
     r.style.borderBottomColor = 'transparent';
+    r.setAttribute('draggable','false');
   });
 }
 
@@ -5732,7 +5734,7 @@ async function renderMonthlyReport(){
     seenName.add(r.name);
     const rowspan = nameCounts[r.name];
     const groupBorderCss = isFirstOfName ? ';border-top:1px solid #dde3ec' : '';
-    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle${groupBorderCss}"><span style="color:#bbb;margin-right:4px">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle${groupBorderCss}">${r.dosesPerVial}</td>` : '';
+    const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle${groupBorderCss}"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle${groupBorderCss}">${r.dosesPerVial}</td>` : '';
     const key = r.code8+'|'+r.lotNo;
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
     const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '');
@@ -5746,7 +5748,7 @@ async function renderMonthlyReport(){
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
       : (r.hasBaseline ? `<span style="color:#888;font-size:12px">待確認</span>` : `<span style="color:#A32D2D;font-size:12px">無上月基準<br>需實盤登錄</span>`);
     return `<tr data-key="${key}" data-name="${xEsc(r.name)}"
-      ${isFirstOfName ? `draggable="true" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)" style="cursor:grab"` : ''}>
+      ${isFirstOfName ? `draggable="false" ondragstart="report1DragStart(event)" ondragover="report1DragOver(event)" ondragleave="report1DragLeave(event)" ondrop="report1Drop(event)" ondragend="report1DragEnd(event)"` : ''}>
     ${nameCell}
     <td style="font-size:14px;font-family:monospace${groupBorderCss}">${r.lotNo}</td>
     <td style="font-size:13px;color:#888${groupBorderCss}">${r.expiry||'—'}</td>
@@ -6242,9 +6244,10 @@ async function report1Drop(e){
 }
 function report1DragEnd(){
   report1DragFromName = null;
-  document.querySelectorAll('#mr-body tr[draggable="true"]').forEach(r=>{
+  document.querySelectorAll('#mr-body tr').forEach(r=>{
     r.style.borderTopColor = 'transparent';
     r.style.borderBottomColor = 'transparent';
+    r.setAttribute('draggable','false');
   });
 }
 
