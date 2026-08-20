@@ -5659,8 +5659,11 @@ async function renderMonthlyReport(){
     const inDoses = inByLot[key] || 0;
     const outDoses = outByLot[key] || 0;
     const usageDoses = usageByLot[key] || 0;
-    const inVials = Math.round(inDoses/dosesPerVial);
-    const outVials = Math.round(outDoses/dosesPerVial);
+    // 藥庫進出貨（撥入/撥出/起始庫存校正）的數量，本來就是「瓶數」單位，直接對應lot_details.current_qty的加減，
+    // 不像耗用報表(usage_uploads)是「劑數」單位才需要除以每瓶劑量換算成瓶數，這裡不能再除一次，
+    // 否則每瓶劑量不是1的品項，撥入/撥出瓶數會被錯誤縮小（四捨五入甚至可能變成0）
+    const inVials = inDoses;
+    const outVials = outDoses;
     const isWholeVialItem = !!(vmap[code8] && vmap[code8].whole_vial_deduct);
     const consumedVials = isWholeVialItem
       ? Object.values(usageByLotByDate[key]||{}).reduce((sum,dayDoses)=> sum + Math.ceil(dayDoses/dosesPerVial), 0)
@@ -5684,7 +5687,7 @@ async function renderMonthlyReport(){
     }
 
     const correctionDoses = correctionByLot[key] || 0;
-    const correctionNote = correctionDoses ? `本月有起始庫存校正淨額${correctionDoses>0?'+':''}${Math.round(correctionDoses/dosesPerVial)}瓶，請人工確認本月結存` : '';
+    const correctionNote = correctionDoses ? `本月有起始庫存校正淨額${correctionDoses>0?'+':''}${Math.round(correctionDoses)}瓶，請人工確認本月結存` : '';
     const niisLatest = niisLatestMap[key] || null;
 
     results.push({
