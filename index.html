@@ -668,6 +668,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="subtab" id="mst-sub-pages" onclick="switchMasterSub('pages')">📑 分頁設定</div>
         <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理</div>
         <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')">🎯 起始庫存匯入</div>
+        <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心</div>
       </div>
 
       <div id="master-panel-vaccines">
@@ -797,6 +798,38 @@ input[type=number]{-moz-appearance:textfield}
           </div>
         </div>
       </div>
+
+      <div id="master-panel-reminders" style="display:none">
+        <div id="hissetup-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleHisSetupPanel()">
+            🆕 待設定批號（院內系統） <span id="hissetup-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+            <span id="hissetup-toggle-arrow" style="font-size:12px;color:#999">▼</span>
+          </div>
+          <div style="font-size:12px;color:#999;margin-top:4px">新批號要到院內系統設定好，調劑端才能選到。這裡列出目前使用中、但還沒標記「已設定」的批號；設定完就按右邊的按鈕標記完成。</div>
+          <div id="hissetup-panel-body" style="margin-top:10px"></div>
+        </div>
+
+        <div id="multilot-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleMultiLotPanel()">
+            ⚠️ 同品項多批號 <span id="multilot-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+            <span id="multilot-toggle-arrow" style="font-size:12px;color:#999">▼</span>
+          </div>
+          <div style="font-size:12px;color:#999;margin-top:4px">同一個品項目前同時有一個以上使用中的批號，列出來方便控管（例如確認是否要優先使用效期較早的批號）。</div>
+          <div id="multilot-panel-body" style="margin-top:10px"></div>
+        </div>
+
+        <div id="restock-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleRestockPanel()">
+              📦 斗六撥補建議 <span id="restock-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+              <span id="restock-toggle-arrow" style="font-size:12px;color:#999">▼</span>
+            </div>
+            <div id="restock-asof" style="font-size:12px;color:#999"></div>
+          </div>
+          <div style="font-size:12px;color:#999;margin-top:4px">依下方「疫苗主檔」編輯品項時設定的斗六安全庫存/回補目標，比對最近一次上傳的斗六庫存報表，低於安全庫存就會列在這裡並建議撥補量。尚未設定安全庫存的品項不會出現。</div>
+          <div id="restock-panel-body" style="margin-top:10px"></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -805,7 +838,7 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- 新增/編輯疫苗 modal -->
 <div class="modal-bg" id="modal-vaccine">
-  <div class="modal" style="width:760px;max-width:95vw;max-height:90vh;overflow-y:auto">
+  <div class="modal" style="width:960px;max-width:96vw;max-height:90vh;overflow-y:auto">
     <h3 id="vacc-modal-title">新增疫苗</h3>
     <input type="hidden" id="vacc-edit-code">
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -828,6 +861,17 @@ input[type=number]{-moz-appearance:textfield}
     <div class="fg" style="margin-top:6px">
       <label>近效期預警天數（留空套用全院預設；只有這個品項效期特別短/長才需要填）</label>
       <input type="number" id="vacc-expiry-alert-days" placeholder="留空＝套用全院預設" min="1" step="1" class="inp" style="width:200px">
+    </div>
+    <div class="fg" style="margin-top:6px">
+      <label>斗六撥補建議（留空＝這個品項不出現在管理總覽的撥補建議清單）</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;color:#666">低於
+          <input type="number" id="vacc-dl-reorder-point" placeholder="安全庫存" min="0" step="1" class="inp" style="width:100px;display:inline-block">
+          就提醒撥補，建議補到
+          <input type="number" id="vacc-dl-par-level" placeholder="回補目標(選填)" min="0" step="1" class="inp" style="width:120px;display:inline-block">
+        </span>
+      </div>
+      <div style="font-size:12px;color:#999;margin-top:2px">依據最近一次上傳的「斗六庫存報表」數字比對，不是即時庫存，請留意報表日期是否夠新</div>
     </div>
     <div class="fg" style="margin-top:6px">
       <label>共用批號庫存（別名，選填）</label>
@@ -865,16 +909,17 @@ input[type=number]{-moz-appearance:textfield}
 
       <div id="vacc-lots-content" style="display:none">
 
-        <div class="tbl-wrap" style="margin-bottom:12px;max-height:260px;overflow-y:auto">
-          <table>
+        <div class="tbl-wrap" style="margin-bottom:12px;max-height:280px;overflow-y:auto;overflow-x:auto">
+          <table style="min-width:880px">
             <thead><tr>
-              <th style="width:120px">批號</th>
+              <th style="width:110px">批號</th>
               <th style="width:150px">有效日期</th>
-              <th style="width:90px">使用狀態</th>
-              <th style="width:130px">院區</th>
-              <th>備註</th>
-              <th style="width:100px">最後修改</th>
-              <th style="width:60px">刪除</th>
+              <th style="width:80px">使用狀態</th>
+              <th style="width:90px">院內系統</th>
+              <th style="width:170px">院區</th>
+              <th style="width:170px">備註</th>
+              <th style="width:90px">最後修改</th>
+              <th style="width:55px">刪除</th>
             </tr></thead>
             <tbody id="lot-tbody"></tbody>
           </table>
@@ -1040,19 +1085,20 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- 已停用批號 modal -->
 <div class="modal-bg" id="modal-inactive-lots">
-  <div class="modal" style="max-width:700px">
+  <div class="modal" style="width:900px;max-width:96vw;max-height:90vh;overflow-y:auto">
     <h3>已停用批號</h3>
     <div style="font-size:13px;color:#888;margin-bottom:10px">這裡列出的批號目前是「已停用」狀態，不會出現在盤點、結存、月報表等畫面。需要的話可以在這裡重新啟用。</div>
-    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto">
-      <table>
+    <div class="tbl-wrap" style="max-height:400px;overflow-y:auto;overflow-x:auto">
+      <table style="min-width:820px">
         <thead><tr>
-          <th style="width:120px">批號</th>
+          <th style="width:110px">批號</th>
           <th style="width:150px">有效日期</th>
-          <th style="width:90px">使用狀態</th>
-          <th style="width:130px">院區</th>
-          <th>備註</th>
-          <th style="width:100px">最後修改</th>
-          <th style="width:60px">刪除</th>
+          <th style="width:80px">使用狀態</th>
+          <th style="width:90px">院內系統</th>
+          <th style="width:170px">院區</th>
+          <th style="width:150px">備註</th>
+          <th style="width:90px">最後修改</th>
+          <th style="width:55px">刪除</th>
         </tr></thead>
         <tbody id="lot-inactive-tbody"></tbody>
       </table>
@@ -2002,14 +2048,14 @@ async function renderExpiryPanel(){
   body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
 
   const [{ data: lots }, { data: vmasterRows }] = await Promise.all([
-    sb.from('lot_details').select('drug_code8,campus,lot_no,expiry_date,current_qty').eq('status','active').not('expiry_date','is',null),
+    sb.from('lot_details').select('drug_code8,campus,lot_no,status,expiry_date,current_qty').not('expiry_date','is',null),
     sb.from('vaccine_master').select('drug_code8,tally_name,status,expiry_alert_days').eq('status','active')
   ]);
   const vmap = {};
   (vmasterRows||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const items = (lots||[])
+  const items = activeLotGroupsFromRows(lots)
     .filter(l => vmap[l.drug_code8]) // 排除已停用主檔的批號
     .map(l=>{
       const v = vmap[l.drug_code8];
@@ -2049,6 +2095,276 @@ async function renderExpiryPanel(){
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
+}
+
+/* ══════════════ 待設定批號（院內系統） ══════════════ */
+let hisSetupPanelOpen = true;
+
+function toggleHisSetupPanel(){
+  hisSetupPanelOpen = !hisSetupPanelOpen;
+  document.getElementById('hissetup-panel-body').style.display = hisSetupPanelOpen ? '' : 'none';
+  document.getElementById('hissetup-toggle-arrow').textContent = hisSetupPanelOpen ? '▼' : '▶';
+}
+
+async function renderHisSetupPanel(){
+  const body = document.getElementById('hissetup-panel-body');
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+
+  const [{ data: lots, error: lotErr }, { data: vmasterRows }] = await Promise.all([
+    sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup'),
+    sb.from('vaccine_master').select('drug_code8,tally_name,status').eq('status','active')
+  ]);
+  const badge = document.getElementById('hissetup-count-badge');
+
+  if(lotErr){
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">尚未建立 his_setup 欄位，請先執行 ALTER TABLE lot_details ADD COLUMN his_setup boolean DEFAULT false;（${lotErr.message}）</div>`;
+    badge.textContent = '';
+    return;
+  }
+
+  const vmap = {};
+  (vmasterRows||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
+
+  // 同一批號可能同時存在斗六/虎尾/藥庫多筆列，只要任何一筆是 his_setup=true 就算已設定完成
+  const groups = {};
+  activeLotGroupsFromRows(lots).forEach(l=>{
+    if(!vmap[l.drug_code8]) return; // 排除已停用主檔
+    const key = l.drug_code8+'|'+l.lot_no;
+    if(!groups[key]) groups[key] = { drug_code8:l.drug_code8, lot_no:l.lot_no, done:false, lot_ids:[] };
+    if(l.his_setup) groups[key].done = true;
+  });
+  const pending = Object.values(groups).filter(g=>!g.done).sort((a,b)=> (vmap[a.drug_code8]?.tally_name||'').localeCompare(vmap[b.drug_code8]?.tally_name||''));
+
+  badge.textContent = pending.length ? `（${pending.length}筆）` : '';
+  body.style.display = hisSetupPanelOpen ? '' : 'none';
+  document.getElementById('hissetup-toggle-arrow').textContent = hisSetupPanelOpen ? '▼' : '▶';
+
+  if(!pending.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待設定的批號</div>';
+    return;
+  }
+
+  body.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th style="width:140px">批號</th><th style="width:110px">操作</th></tr></thead>
+    <tbody>${pending.map(g=>{
+      const v = vmap[g.drug_code8];
+      return `<tr>
+        <td>${v ? v.tally_name : ''}</td>
+        <td style="font-family:monospace">${g.drug_code8}</td>
+        <td style="font-family:monospace">${g.lot_no}</td>
+        <td><button class="btn btn-sm" style="font-size:12px;color:#1D9E75;border-color:#9FE1CB" onclick="markHisSetupDone('${g.drug_code8}','${g.lot_no.replace(/'/g,"\\'")}')">✓ 已設定</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+async function markHisSetupDone(code8, lotNo){
+  // 跟批號狀態同步邏輯一樣：同一批號在各院區都有各自一筆資料列，全部一起標記
+  const { error } = await sb.from('lot_details').update({his_setup:true}).eq('drug_code8', code8).eq('lot_no', lotNo);
+  if(error){ alert('更新失敗：'+error.message); return; }
+  renderHisSetupPanel();
+}
+
+// 批號管理視窗裡的「院內系統」按鈕也共用同一套同步邏輯
+async function toggleLotHisSetup(lotId, current, code8){
+  const { data: row } = await sb.from('lot_details').select('lot_no').eq('lot_id', lotId).maybeSingle();
+  if(!row){ alert('查無此批號資料'); return; }
+  const { error } = await sb.from('lot_details').update({his_setup: !current}).eq('drug_code8', code8).eq('lot_no', row.lot_no);
+  if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
+  await refreshLots(code8);
+  renderVaccines();
+}
+
+/* ══════════════ 同品項多批號 ══════════════ */
+let multiLotPanelOpen = true;
+
+function toggleMultiLotPanel(){
+  multiLotPanelOpen = !multiLotPanelOpen;
+  document.getElementById('multilot-panel-body').style.display = multiLotPanelOpen ? '' : 'none';
+  document.getElementById('multilot-toggle-arrow').textContent = multiLotPanelOpen ? '▼' : '▶';
+}
+
+async function renderMultiLotPanel(){
+  const body = document.getElementById('multilot-panel-body');
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+
+  const [{ data: lots }, { data: vmasterRows }] = await Promise.all([
+    sb.from('lot_details').select('drug_code8,lot_no,campus,status,expiry_date'),
+    sb.from('vaccine_master').select('drug_code8,tally_name,status,alias_of').eq('status','active')
+  ]);
+  const vmap = {};
+  (vmasterRows||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
+
+  // 去重：同一批號在多院區各有一筆列，先併成「品項+批號」再算每個品項有幾個不同批號
+  const lotSet = {}; // drug_code8 -> { lot_no -> expiry_date }
+  activeLotGroupsFromRows(lots).forEach(l=>{
+    if(!vmap[l.drug_code8]) return;
+    if(!lotSet[l.drug_code8]) lotSet[l.drug_code8] = {};
+    if(l.expiry_date && !lotSet[l.drug_code8][l.lot_no]) lotSet[l.drug_code8][l.lot_no] = l.expiry_date;
+    else if(!(l.lot_no in lotSet[l.drug_code8])) lotSet[l.drug_code8][l.lot_no] = l.expiry_date || null;
+  });
+
+  const multi = Object.keys(lotSet)
+    .filter(code8 => Object.keys(lotSet[code8]).length > 1)
+    .map(code8 => {
+      const lotEntries = Object.entries(lotSet[code8]).sort((a,b)=> (a[1]||'9999') < (b[1]||'9999') ? -1 : 1);
+      return { code8, name: vmap[code8].tally_name, lots: lotEntries };
+    })
+    .sort((a,b)=> a.name.localeCompare(b.name));
+
+  const badge = document.getElementById('multilot-count-badge');
+  badge.textContent = multi.length ? `（${multi.length}項）` : '';
+  body.style.display = multiLotPanelOpen ? '' : 'none';
+  document.getElementById('multilot-toggle-arrow').textContent = multiLotPanelOpen ? '▼' : '▶';
+
+  if(!multi.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有同時使用中多批號的品項</div>';
+    return;
+  }
+
+  body.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th>使用中批號（依效期排序）</th><th style="width:80px">編輯</th></tr></thead>
+    <tbody>${multi.map(m=>`<tr>
+      <td>${m.name}</td>
+      <td style="font-family:monospace">${m.code8}</td>
+      <td style="font-size:13px">${m.lots.map(([lotNo,exp])=>`<span style="display:inline-block;margin:2px 8px 2px 0;padding:2px 8px;background:#f2f5fa;border-radius:6px;font-family:monospace">${lotNo}${exp?`（${exp}）`:'（無效期）'}</span>`).join('')}</td>
+      <td><button class="btn btn-sm" style="font-size:12px" onclick="openVaccineModal('${m.code8}')">編輯</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+/* ══════════════ 斗六撥補建議 ══════════════ */
+let restockPanelOpen = true;
+
+function toggleRestockPanel(){
+  restockPanelOpen = !restockPanelOpen;
+  document.getElementById('restock-panel-body').style.display = restockPanelOpen ? '' : 'none';
+  document.getElementById('restock-toggle-arrow').textContent = restockPanelOpen ? '▼' : '▶';
+}
+
+async function renderRestockPanel(){
+  const body = document.getElementById('restock-panel-body');
+  const asof = document.getElementById('restock-asof');
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+  asof.textContent = '';
+
+  const { data: vmasterRows, error: vErr } = await sb.from('vaccine_master')
+    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of')
+    .eq('status','active').not('dl_reorder_point','is',null);
+
+  if(vErr){
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">尚未建立 dl_reorder_point / dl_par_level 欄位，請先執行 ALTER TABLE vaccine_master ADD COLUMN dl_par_level numeric, ADD COLUMN dl_reorder_point numeric;（${vErr.message}）</div>`;
+    document.getElementById('restock-count-badge').textContent = '';
+    return;
+  }
+
+  if(!vmasterRows || !vmasterRows.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">尚未設定任何品項的斗六安全庫存，請在下方「疫苗主檔」編輯品項時設定</div>';
+    document.getElementById('restock-count-badge').textContent = '';
+    return;
+  }
+
+  const codes = vmasterRows.map(v=>v.drug_code8);
+  // 找出這些品項在斗六（station_code=6101）最近一次上傳的庫存報表日期
+  const { data: allUploads } = await sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code','6101').in('drug_code8', codes).order('upload_date',{ascending:false});
+  const latestQtyMap = {}; // drug_code8 -> {qty, date}
+  let latestDateOverall = null;
+  (allUploads||[]).forEach(u=>{
+    if(!latestQtyMap[u.drug_code8]){ latestQtyMap[u.drug_code8] = { qty:Number(u.stock_qty||0), date:u.upload_date }; }
+    if(!latestDateOverall || u.upload_date > latestDateOverall) latestDateOverall = u.upload_date;
+  });
+
+  const rows = vmasterRows.map(v=>{
+    const rec = latestQtyMap[v.drug_code8];
+    // 別名品項的批號庫存實際掛在 alias_of 那個8碼底下，撥補要看的是那邊的藥庫批號
+    const effCode8 = v.alias_of || v.drug_code8;
+    return { ...v, effCode8, currentQty: rec ? rec.qty : null, uploadDate: rec ? rec.date : null };
+  });
+
+  const needRestock = rows
+    .filter(r => r.currentQty !== null && r.currentQty <= Number(r.dl_reorder_point))
+    .sort((a,b)=> a.currentQty - b.currentQty);
+  const noData = rows.filter(r => r.currentQty === null);
+
+  // 撈需要撥補的品項在「藥庫」目前使用中的批號（依代表列邏輯排除已停用殘留列），依效期排序（先進先出）
+  const effCodes = [...new Set(needRestock.map(r=>r.effCode8))];
+  let whLotMap = {};
+  if(effCodes.length){
+    const { data: whLotsRaw } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,expiry_date,current_qty').in('drug_code8', effCodes);
+    const activeWhLots = activeLotGroupsFromRows(whLotsRaw).filter(l=>l.campus==='wh');
+    activeWhLots.forEach(l=>{
+      if(!whLotMap[l.drug_code8]) whLotMap[l.drug_code8] = [];
+      whLotMap[l.drug_code8].push(l);
+    });
+    Object.keys(whLotMap).forEach(code8=>{
+      whLotMap[code8].sort((a,b)=>{
+        if(!a.expiry_date) return 1;
+        if(!b.expiry_date) return -1;
+        return a.expiry_date < b.expiry_date ? -1 : 1;
+      });
+    });
+  }
+
+  // 依先進先出（效期最早優先）把建議撥補量分配到藥庫各批號
+  function allocateFefo(code8, needQty){
+    const lots = whLotMap[code8] || [];
+    let remaining = needQty;
+    const plan = [];
+    for(const lot of lots){
+      if(remaining <= 0) break;
+      const avail = Number(lot.current_qty||0);
+      if(avail <= 0) continue;
+      const take = Math.min(avail, remaining);
+      plan.push({ lot_no: lot.lot_no, expiry_date: lot.expiry_date, take, avail });
+      remaining -= take;
+    }
+    return { plan, shortfall: Math.max(remaining, 0), lotCount: lots.length };
+  }
+
+  document.getElementById('restock-count-badge').textContent = needRestock.length ? `（${needRestock.length}項）` : '';
+  asof.textContent = latestDateOverall ? `參考庫存報表日期最新至 ${latestDateOverall}` : '';
+  body.style.display = restockPanelOpen ? '' : 'none';
+  document.getElementById('restock-toggle-arrow').textContent = restockPanelOpen ? '▼' : '▶';
+
+  let html = '';
+  if(needRestock.length){
+    html += `<div class="tbl-wrap"><table>
+      <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th class="c" style="width:80px">斗六目前庫存</th><th class="c" style="width:70px">安全庫存</th><th class="c" style="width:70px">回補目標</th><th class="c" style="width:80px">建議撥補量</th><th style="width:220px">藥庫批號分配建議（先進先出）</th><th style="width:90px">報表日期</th></tr></thead>
+      <tbody>${needRestock.map(r=>{
+        const suggest = r.dl_par_level!=null ? Math.max(Number(r.dl_par_level) - r.currentQty, 0) : null;
+        let fefoHtml = '<span style="color:#bbb;font-size:12px">—</span>';
+        if(suggest!=null && suggest>0){
+          const { plan, shortfall, lotCount } = allocateFefo(r.effCode8, suggest);
+          if(!lotCount){
+            fefoHtml = '<span style="color:#A32D2D;font-size:12px">⚠️ 藥庫查無使用中批號</span>';
+          } else {
+            const multiNote = lotCount>1 ? `<div style="font-size:11px;color:#C77700;margin-bottom:3px">⚠️ 藥庫有 ${lotCount} 個批號，已依效期排序，請先出效期較早的</div>` : '';
+            const planHtml = plan.map(p=>`<div style="font-size:12px;font-family:monospace">${p.lot_no}${p.expiry_date?`（效期${p.expiry_date}）`:'（無效期）'}：撥 <b>${p.take}</b>（該批號藥庫尚有${p.avail}）</div>`).join('');
+            const shortHtml = shortfall>0 ? `<div style="font-size:11px;color:#A32D2D;margin-top:3px">⚠️ 藥庫所有批號合計仍不足 ${shortfall}，請確認藥庫庫存或調整撥補量</div>` : '';
+            fefoHtml = multiNote + planHtml + shortHtml;
+          }
+        } else if(suggest === 0){
+          fefoHtml = '<span style="color:#bbb;font-size:12px">已達回補目標</span>';
+        }
+        return `<tr>
+          <td>${r.tally_name}</td>
+          <td style="font-family:monospace">${r.drug_code8}</td>
+          <td class="c" style="color:#A32D2D;font-weight:600">${r.currentQty}</td>
+          <td class="c">${r.dl_reorder_point}</td>
+          <td class="c">${r.dl_par_level!=null?r.dl_par_level:'—'}</td>
+          <td class="c" style="font-weight:600;color:#1B3A6B">${suggest!=null?suggest:'（未設定回補目標）'}</td>
+          <td>${fefoHtml}</td>
+          <td style="font-size:12px;color:#999">${r.uploadDate||'—'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  } else {
+    html += '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有低於安全庫存的品項</div>';
+  }
+  if(noData.length){
+    html += `<div style="margin-top:8px;font-size:12px;color:#C77700">⚠️ 以下品項已設定安全庫存，但目前查無斗六庫存報表資料，無法比對：${noData.map(r=>r.tally_name).join('、')}</div>`;
+  }
+  body.innerHTML = html;
 }
 
 async function renderOverview(){
@@ -2518,12 +2834,31 @@ async function deleteSelectedVaccines(){
   renderVaccines();
 }
 
+// 共用工具：從一批 lot_details 原始列（可能混雜多個院區、含已停用殘留列）篩出「代表列狀態為 active」的批號，
+// 回傳這些批號在各院區的所有列。跟批號管理視窗（refreshLots/buildLotRow）用同一套「代表列」判斷邏輯，
+// 避免舊資料裡某個院區的殘留列還卡在 active，導致其他畫面誤判成「還在使用」。
+function activeLotGroupsFromRows(rows){
+  const byKey = {};
+  (rows||[]).forEach(l=>{
+    const key = l.drug_code8+'|'+l.lot_no;
+    if(!byKey[key]) byKey[key] = [];
+    byKey[key].push(l);
+  });
+  const out = [];
+  Object.values(byKey).forEach(group=>{
+    const primary = group.find(r=>r.campus==='wh') || group.find(r=>r.campus==='dl') || group[0];
+    if(primary.status === 'active') out.push(...group);
+  });
+  return out;
+}
+
 async function fetchActiveLotsMap(codes){
   const uniq = [...new Set(codes)].filter(Boolean);
   if(!uniq.length) return {};
-  const { data } = await sb.from('lot_details').select('drug_code8,campus,lot_no,used_dl,used_hw,used_wh').eq('status','active').in('drug_code8', uniq);
+  const { data } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,used_dl,used_hw,used_wh').in('drug_code8', uniq);
+  const activeRows = activeLotGroupsFromRows(data);
   const map = {};
-  (data||[]).forEach(l=>{
+  activeRows.forEach(l=>{
     if(!map[l.drug_code8]) map[l.drug_code8] = [];
     map[l.drug_code8].push(l);
   });
@@ -2655,6 +2990,8 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-tally-name').value = data.tally_name||'';
       document.getElementById('vacc-doses-per-vial').value = data.doses_per_vial||1;
       document.getElementById('vacc-expiry-alert-days').value = data.expiry_alert_days||'';
+      document.getElementById('vacc-dl-reorder-point').value = data.dl_reorder_point!=null ? data.dl_reorder_point : '';
+      document.getElementById('vacc-dl-par-level').value = data.dl_par_level!=null ? data.dl_par_level : '';
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
@@ -2675,6 +3012,8 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-lots-placeholder').textContent = '請先儲存疫苗基本資料，即可在此新增批號';
     document.getElementById('vacc-doses-per-vial').value = 1;
     document.getElementById('vacc-expiry-alert-days').value = '';
+    document.getElementById('vacc-dl-reorder-point').value = '';
+    document.getElementById('vacc-dl-par-level').value = '';
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
@@ -2698,6 +3037,8 @@ async function saveVaccine(){
     tally_name: document.getElementById('vacc-tally-name').value.trim(),
     doses_per_vial: dosesPerVial,
     expiry_alert_days: (function(){ const v = document.getElementById('vacc-expiry-alert-days').value.trim(); return v ? parseInt(v,10) : null; })(),
+    dl_reorder_point: (function(){ const v = document.getElementById('vacc-dl-reorder-point').value.trim(); return v ? parseFloat(v) : null; })(),
+    dl_par_level: (function(){ const v = document.getElementById('vacc-dl-par-level').value.trim(); return v ? parseFloat(v) : null; })(),
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
@@ -2930,7 +3271,7 @@ async function refreshLots(code8){
   const inactiveOrder = order.filter(lotNo => !activeOrder.includes(lotNo));
 
   document.getElementById('lot-tbody').innerHTML = activeOrder.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
-    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">尚無使用中的批號，請按下方「新增批號」</td></tr>';
+    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">尚無使用中的批號，請按下方「新增批號」</td></tr>';
 
   const link = document.getElementById('lot-inactive-link');
   if(inactiveOrder.length){
@@ -2953,7 +3294,7 @@ function openInactiveLotsModal(code8){
     return primary.status !== 'active';
   });
   document.getElementById('lot-inactive-tbody').innerHTML = inactiveOrder.map(lotNo => buildLotRow(lotNo, lotGroupsCache.groups[lotNo], code8)).join('')
-    || '<tr><td colspan="7" style="text-align:center;padding:16px;color:#bbb">目前沒有已停用的批號</td></tr>';
+    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">目前沒有已停用的批號</td></tr>';
   document.getElementById('modal-inactive-lots').classList.add('open');
 }
 
@@ -2964,6 +3305,7 @@ function buildLotRow(lotNo, rows, code8){
   const isActive = primary.status === 'active';
   const noteEsc = (primary.lot_note||'').replace(/"/g,'&quot;');
   const dlLit = !!primary.used_dl, hwLit = !!primary.used_hw, whLit = !!primary.used_wh;
+  const hisDone = rows.some(r=>r.his_setup);
   const lotNoEsc = lotNo.replace(/'/g,"\\'");
   const lastModified = rows.reduce((max,r)=> r.updated_at && (!max || r.updated_at > max) ? r.updated_at : max, null);
   const lastModifiedText = lastModified ? lastModified.slice(0,10) : '—';
@@ -2973,6 +3315,9 @@ function buildLotRow(lotNo, rows, code8){
     <td><input type="date" value="${expiry}" class="inp" style="font-size:13px;padding:4px 6px" onchange="saveLotExpiry('${primary.lot_id}','${code8}', this.value)"></td>
     <td>
       <button class="btn btn-sm" style="font-size:12px;${isActive?'background:#1D9E75;color:#fff;border-color:#1D9E75':''}" onclick="toggleLotStatus('${primary.lot_id}','${isActive?'inactive':'active'}','${code8}')">${isActive?'使用中':'已停用'}</button>
+    </td>
+    <td>
+      <button class="btn btn-sm" style="font-size:12px;${hisDone?'background:#1D9E75;color:#fff;border-color:#1D9E75':'color:#A32D2D;border-color:#f0c0c0'}" onclick="toggleLotHisSetup('${primary.lot_id}',${hisDone},'${code8}')">${hisDone?'✓ 已設定':'尚未設定'}</button>
     </td>
     <td>
       <button class="btn btn-sm" style="font-size:12px;${dlLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_dl',${dlLit},'${code8}')">斗六</button>
@@ -3617,13 +3962,18 @@ function findColIdx(header, keywords){
    主檔維護（疫苗主檔／分頁設定／帳號管理）
 ══════════════════════════════════════════ */
 function switchMasterSub(tab){
-  ['vaccines','pages','accounts','init-stock'].forEach(t=>{
+  ['vaccines','pages','accounts','init-stock','reminders'].forEach(t=>{
     document.getElementById('mst-sub-'+t).classList.toggle('active', t===tab);
     document.getElementById('master-panel-'+t).style.display = t===tab?'':'none';
   });
   if(tab==='vaccines') renderVaccines();
   if(tab==='pages') renderPages();
   if(tab==='accounts') renderAccounts();
+  if(tab==='reminders'){
+    renderHisSetupPanel();
+    renderMultiLotPanel();
+    renderRestockPanel();
+  }
 }
 
 function initMasterTab(){
@@ -3963,11 +4313,13 @@ async function commitLotFix(){
    同一天同品項可能有多筆（分次進貨等），所以用「日期+8碼+方向+原因+數量+上傳人員」這組合鎖定要搬的那一筆，
    搬動時也要同步反向處理舊批號的current_qty（加回/扣掉），並套用到新批號上，維持庫存正確 ── */
 let whLotfixCandidates = [];
+let whLotfixVmap = {};
 async function openWhLotFixModal(){
   document.getElementById('whlotfix-date').value = todayStr();
   document.getElementById('whlotfix-correct-lot').innerHTML = '<option value="">請先選藥品8碼</option>';
   document.getElementById('whlotfix-msg').style.display = 'none';
-  const { data: vmaster } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
+  const { data: vmaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct').eq('status','active').order('tally_name');
+  whLotfixVmap = {}; (vmaster||[]).forEach(v=>{ whLotfixVmap[v.drug_code8] = v; });
   const sel = document.getElementById('whlotfix-code8');
   sel.innerHTML = '<option value="">請選擇</option>' + (vmaster||[]).map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
   document.getElementById('whlotfix-wrong-tx').innerHTML = '<option value="">請先選日期＋8碼</option>';
@@ -4022,7 +4374,12 @@ async function commitWhLotFix(){
   if(matched.length > 1 && !confirm(`⚠️ 資料庫裡有 ${matched.length} 筆完全相同的紀錄（同批號/方向/數量/日期），無法精準分辨是哪一筆，這次會全部一起搬到對的批號。\n\n確定要繼續嗎？`)) return;
 
   // 反向處理舊批號的庫存（進貨要扣回去、退衛生所要加回來），乘上這次總共要搬的筆數
-  const delta = (tx.direction==='in' ? -tx.qty : tx.qty) * matched.length;
+  // 藥庫進出貨數量是「瓶數」，但整瓶扣帳品項的 current_qty 是用「劑」記錄，要先換算才能直接加減
+  const vmForFix = whLotfixVmap[code8];
+  const dosesPerVialFix = (vmForFix && vmForFix.doses_per_vial) || 1;
+  const wholeVialFix = !!(vmForFix && vmForFix.whole_vial_deduct);
+  const qtyInStockUnitFix = wholeVialFix ? tx.qty * dosesPerVialFix : tx.qty;
+  const delta = (tx.direction==='in' ? -qtyInStockUnitFix : qtyInStockUnitFix) * matched.length;
   const { data: wrongLotRow } = await sb.from('lot_details').select('*').eq('drug_code8', code8).eq('campus','wh').eq('lot_no', tx.lot_no).maybeSingle();
   if(wrongLotRow){
     await sb.from('lot_details').update({
@@ -4248,7 +4605,7 @@ async function handleWhReceiveFile(input){
   });
 
   const codes = [...new Set(flat.map(r=>r.drug_code8))];
-  const { data: vmaster } = codes.length ? await sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', codes) : {data:[]};
+  const { data: vmaster } = codes.length ? await sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct').in('drug_code8', codes) : {data:[]};
   const vmap = {}; (vmaster||[]).forEach(v=>vmap[v.drug_code8]=v);
 
   const matched = flat.filter(r=>vmap[r.drug_code8]);
@@ -4302,13 +4659,21 @@ async function commitWhReceive(){
   if(!confirm(`確定寫入 ${toWrite.length} 筆藥庫進出貨紀錄？系統會自動更新藥庫批號庫存。`)) return;
 
   for(const r of toWrite){
+    // 藥庫進出貨的數量永遠是「瓶數（實際到貨支數）」，但 lot_details.current_qty 對「藥庫領用即整瓶扣帳」
+    // 的品項（例如卡介苗）是用「劑」為單位在記（跟耗用扣帳、起始庫存匯入同一套換算），
+    // 所以這裡要先把瓶數換算成等效劑數，才能直接加減 current_qty，不然會跟其他地方對不起來
+    const vm = vmap[r.drug_code8];
+    const dosesPerVial = (vm && vm.doses_per_vial) || 1;
+    const wholeVial = !!(vm && vm.whole_vial_deduct);
+    const qtyInStockUnit = wholeVial ? r.qty * dosesPerVial : r.qty;
+
     const { data: whLot } = await sb.from('lot_details').select('*').eq('drug_code8', r.drug_code8).eq('campus','wh').eq('lot_no', r.lot_no).maybeSingle();
     if(whLot){
-      const newInitial = Number(whLot.initial_qty||0) + r.qty;
-      const newCurrent = Number(whLot.current_qty||0) + r.qty;
+      const newInitial = Number(whLot.initial_qty||0) + qtyInStockUnit;
+      const newCurrent = Number(whLot.current_qty||0) + qtyInStockUnit;
       await sb.from('lot_details').update({ initial_qty: newInitial, current_qty: newCurrent, expiry_date: r.expiry_date || whLot.expiry_date }).eq('lot_id', whLot.lot_id);
     } else if(r.qty>0){
-      await sb.from('lot_details').insert({ drug_code8:r.drug_code8, campus:'wh', lot_no:r.lot_no, status:'active', initial_qty:r.qty, current_qty:r.qty, expiry_date:r.expiry_date||null });
+      await sb.from('lot_details').insert({ drug_code8:r.drug_code8, campus:'wh', lot_no:r.lot_no, status:'active', initial_qty:qtyInStockUnit, current_qty:qtyInStockUnit, expiry_date:r.expiry_date||null });
     }
     // 若是負數(退回衛生所)但藥庫沒有這個批號，仍留紀錄提醒，但沒有批號可扣，不建立負庫存的批號
     await sb.from('warehouse_transactions').insert({
@@ -4692,7 +5057,11 @@ async function deleteWhReceiveRow(tx){
 
   const { data: whLot } = await sb.from('lot_details').select('*').eq('drug_code8', tx.drug_code8).eq('campus','wh').eq('lot_no', tx.lot_no).maybeSingle();
   if(whLot){
-    const delta = tx.direction==='in' ? -tx.qty : tx.qty;
+    // 藥庫進出貨數量是「瓶數」，整瓶扣帳品項的 current_qty 用「劑」記錄，還原時要用同一套換算
+    const { data: vmDel } = await sb.from('vaccine_master').select('doses_per_vial,whole_vial_deduct').eq('drug_code8', tx.drug_code8).maybeSingle();
+    const dosesPerVialDel = (vmDel && vmDel.doses_per_vial) || 1;
+    const qtyInStockUnitDel = (vmDel && vmDel.whole_vial_deduct) ? tx.qty * dosesPerVialDel : tx.qty;
+    const delta = tx.direction==='in' ? -qtyInStockUnitDel : qtyInStockUnitDel;
     await sb.from('lot_details').update({
       initial_qty: Number(whLot.initial_qty||0) + delta,
       current_qty: Number(whLot.current_qty||0) + delta
@@ -5020,9 +5389,9 @@ async function renderNiisMirror(vmaster){
   (whTx||[]).forEach(t=>{
     const key = canon(t.drug_code8)+'|'+t.lot_no;
     if(!lastDeclareMap[key]) return; // 從沒結存過的批號，起始庫存本來就直接抓藥庫現有量(已經包含這些進出貨)，不用再疊加
-    const wv = vmap[canon(t.drug_code8)];
-    const dosesPerVial = wv ? (wv.doses_per_vial || 1) : 1;
-    const qty = wv && wv.whole_vial_deduct ? Number(t.qty||0) / dosesPerVial : Number(t.qty||0);
+    // 藥庫進出貨的數量（warehouse_transactions.qty）永遠是「瓶數」，這裡的 r.qty(起始庫存量) 也已經統一換算成「瓶」，
+    // 兩邊單位一致，不需要再除以每瓶劑量（之前這裡誤除，會讓卡介苗這類整瓶扣帳品項算出奇怪的小數）
+    const qty = Number(t.qty||0);
     if(!autoAdjustMap[key]) autoAdjustMap[key] = [];
     autoAdjustMap[key].push({ direction: t.direction, qty, rawQty: t.qty, tx_date: t.tx_date, reason: t.reason });
   });
