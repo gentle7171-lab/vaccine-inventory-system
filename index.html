@@ -4620,7 +4620,10 @@ async function handleWhReceiveFile(input){
     const direction = r.qty>0 ? 'in' : 'out';
     const absQty = Math.abs(r.qty);
     const dupKey = `${r.drug_code8}|${r.lot_no}|${r.tx_date}|${absQty}|${direction}`;
-    return { ...r, tally_name: vmap[r.drug_code8].tally_name, direction, absQty, isDup: existSet.has(dupKey) };
+    return { ...r, tally_name: vmap[r.drug_code8].tally_name,
+      doses_per_vial: vmap[r.drug_code8].doses_per_vial || 1,
+      whole_vial_deduct: !!vmap[r.drug_code8].whole_vial_deduct,
+      direction, absQty, isDup: existSet.has(dupKey) };
   });
 
   const dupCount = whrecvGrouped.filter(r=>r.isDup).length;
@@ -4662,9 +4665,8 @@ async function commitWhReceive(){
     // 藥庫進出貨的數量永遠是「瓶數（實際到貨支數）」，但 lot_details.current_qty 對「藥庫領用即整瓶扣帳」
     // 的品項（例如卡介苗）是用「劑」為單位在記（跟耗用扣帳、起始庫存匯入同一套換算），
     // 所以這裡要先把瓶數換算成等效劑數，才能直接加減 current_qty，不然會跟其他地方對不起來
-    const vm = vmap[r.drug_code8];
-    const dosesPerVial = (vm && vm.doses_per_vial) || 1;
-    const wholeVial = !!(vm && vm.whole_vial_deduct);
+    const dosesPerVial = r.doses_per_vial || 1;
+    const wholeVial = !!r.whole_vial_deduct;
     const qtyInStockUnit = wholeVial ? r.qty * dosesPerVial : r.qty;
 
     const { data: whLot } = await sb.from('lot_details').select('*').eq('drug_code8', r.drug_code8).eq('campus','wh').eq('lot_no', r.lot_no).maybeSingle();
