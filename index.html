@@ -2249,7 +2249,7 @@ async function renderRestockPanel(){
   asof.textContent = '';
 
   const { data: vmasterRows, error: vErr } = await sb.from('vaccine_master')
-    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct')
+    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct,stock_code4')
     .eq('status','active').not('dl_reorder_point','is',null);
 
   if(vErr){
@@ -2305,7 +2305,7 @@ async function renderRestockPanel(){
     });
   }
 
-  // 依先進先出（效期最早優先）把建議撥補量分配到藥庫各批號
+// 依先進先出（效期最早優先）把建議撥補量分配到藥庫各批號
   function allocateFefo(code8, needQty){
     const lots = whLotMap[code8] || [];
     let remaining = needQty;
@@ -2347,7 +2347,7 @@ async function renderRestockPanel(){
           fefoHtml = '<span style="color:#bbb;font-size:12px">已達回補目標</span>';
         }
         return `<tr>
-          <td>${r.tally_name}</td>
+          <td>${r.tally_name}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}</td>
           <td style="font-family:monospace">${r.drug_code8}</td>
           <td class="c" style="color:#A32D2D;font-weight:600">${r.currentQty}</td>
           <td class="c">${r.dl_reorder_point}</td>
