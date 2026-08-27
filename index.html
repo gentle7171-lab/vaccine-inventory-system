@@ -2249,7 +2249,7 @@ async function renderRestockPanel(){
   asof.textContent = '';
 
   const { data: vmasterRows, error: vErr } = await sb.from('vaccine_master')
-    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of')
+    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct')
     .eq('status','active').not('dl_reorder_point','is',null);
 
   if(vErr){
@@ -2339,7 +2339,7 @@ async function renderRestockPanel(){
             fefoHtml = '<span style="color:#A32D2D;font-size:12px">⚠️ 藥庫查無使用中批號</span>';
           } else {
             const multiNote = lotCount>1 ? `<div style="font-size:11px;color:#C77700;margin-bottom:3px">⚠️ 藥庫有 ${lotCount} 個批號，已依效期排序，請先出效期較早的</div>` : '';
-            const planHtml = plan.map(p=>`<div style="font-size:12px;font-family:monospace">${p.lot_no}${p.expiry_date?`（效期${p.expiry_date}）`:'（無效期）'}：撥 <b>${p.take}</b>（該批號藥庫尚有${p.avail}）</div>`).join('');
+            const planHtml = plan.map(p=>`<div style="font-size:12px;font-family:monospace">${p.lot_no}${p.expiry_date?`（效期${p.expiry_date}）`:'（無效期）'}：撥 <b>${p.take}</b></div>`).join('');
             const shortHtml = shortfall>0 ? `<div style="font-size:11px;color:#A32D2D;margin-top:3px">⚠️ 藥庫所有批號合計仍不足 ${shortfall}，請確認藥庫庫存或調整撥補量</div>` : '';
             fefoHtml = multiNote + planHtml + shortHtml;
           }
