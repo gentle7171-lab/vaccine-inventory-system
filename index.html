@@ -6366,7 +6366,7 @@ async function exportBcgReportExcel(){
   const [ny,nm,nd] = nextMonthFirst.split('-').map(Number);
 
   let xml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
-  xml += '<cols><col width="18.125" customWidth="1" min="1" max="1"/><col width="15.625" customWidth="1" min="2" max="2"/><col width="17.125" customWidth="1" min="3" max="3"/><col width="19.625" customWidth="1" min="7" max="7"/><col width="12.125" customWidth="1" min="8" max="8"/></cols>';
+  xml += '<cols><col width="20.7109375" customWidth="1" min="1" max="1"/><col width="17.85546875" customWidth="1" min="2" max="2"/><col width="19.5703125" customWidth="1" min="3" max="3"/><col width="22.42578125" customWidth="1" min="7" max="7"/><col width="13.85546875" customWidth="1" min="8" max="8"/></cols>';
   xml += '<sheetData>';
   xml += `<row r="1" ht="27.75" customHeight="1">${xStr('A1',1,`斗六市醫療院所卡介苗消耗報表      ${rocYear}年${mm}月`)}</row>`;
   xml += `<row r="2" ht="30.75" customHeight="1"></row>`;
@@ -6376,7 +6376,7 @@ async function exportBcgReportExcel(){
   rows.forEach(rw=>{
     const returnNote = rw.outVials>0 ? `本月另有退回衛生所${rw.outVials}支` : '';
     const noteFull = [returnNote, rw.note||''].filter(Boolean).join('；');
-    xml += `<row r="${r}" ht="28.5" customHeight="1">`;
+    xml += `<row r="${r}" ht="42" customHeight="1">`;
     xml += xStr('A'+r,5,'台大醫院雲林分院');
     xml += xStr('B'+r,6, rw.lotNo + (rw.expiry?('\n'+rw.expiry):''));
     xml += rw.hasBaseline ? xNum('C'+r,7,rw.startVials) : xEmpty('C'+r,7);
@@ -6397,8 +6397,8 @@ async function exportBcgReportExcel(){
 
   xml += '</sheetData>';
   xml += `<mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="F${footerRow}:H${footerRow}"/></mergeCells>`;
-  xml += '<pageMargins left="0.25" right="0.25" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>';
-  xml += '<pageSetup paperSize="9" orientation="landscape"/>';
+  xml += '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>';
+  xml += '<pageSetup paperSize="9" orientation="portrait"/>';
   xml += '</worksheet>';
 
   await downloadXlsxFromTemplate(REPORT4_TEMPLATE_B64, xml, `${rocYear}年${mm}月_卡介苗消耗報表.xlsx`);
