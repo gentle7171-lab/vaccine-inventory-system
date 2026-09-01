@@ -6397,6 +6397,8 @@ async function exportBcgReportExcel(){
 
   xml += '</sheetData>';
   xml += `<mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="F${footerRow}:H${footerRow}"/></mergeCells>`;
+  xml += '<pageMargins left="0.25" right="0.25" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>';
+  xml += '<pageSetup paperSize="9" orientation="landscape"/>';
   xml += '</worksheet>';
 
   await downloadXlsxFromTemplate(REPORT4_TEMPLATE_B64, xml, `${rocYear}年${mm}月_卡介苗消耗報表.xlsx`);
