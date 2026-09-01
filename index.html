@@ -6492,6 +6492,7 @@ async function renderHbigReport(){
             <tr><td>核銷及賠償(劑)</td><td class="c">${mfield('vaccine_writeoff','',80)}</td></tr>
             <tr><td>本月結存量(劑)</td><td class="c" style="font-weight:600">${vacRows.reduce((a,r)=>a+endOf(r),0)}</td></tr>
           </tbody></table>
+          <div id="hbig-dose-warning" style="margin-top:8px"></div>
         ` : `<div style="color:#bbb;font-size:13px">尚未在主檔維護把遺傳工程B肝疫苗品項設定為「B肝報表－遺傳工程疫苗」分類</div>`}
       </div>
     </div>
@@ -6500,6 +6501,26 @@ async function renderHbigReport(){
       <button class="btn btn-primary btn-sm" onclick="saveHbigManual()">💾 儲存手動填寫欄位</button>
     </div>
   `;
+
+  hbigVacConsumed = sum(vacRows,'consumedVials');
+  document.querySelectorAll('.hbig-manual[data-key^="dose"]').forEach(inp=>{
+    inp.addEventListener('input', checkHbigDoseSum);
+  });
+  checkHbigDoseSum();
+}
+
+let hbigVacConsumed = 0;
+function checkHbigDoseSum(){
+  const box = document.getElementById('hbig-dose-warning');
+  if(!box) return;
+  let doseSum = 0;
+  document.querySelectorAll('.hbig-manual[data-key^="dose"]').forEach(inp=>{ doseSum += Number(inp.value)||0; });
+  if(doseSum !== hbigVacConsumed){
+    const diff = Math.abs(hbigVacConsumed - doseSum);
+    box.innerHTML = `<div style="font-size:12px;color:#A32D2D;background:#FBEAEA;border-radius:6px;padding:6px 8px">⚠️ 耗用報表本月實際消耗共 ${hbigVacConsumed} 劑，但第一~四劑合計只有 ${doseSum} 劑，差 ${diff} 劑。可能是某幾筆耗用紀錄沒有「疫苗劑別代碼」或代碼不在1~4範圍，系統抓不到、被算成0，請人工核對耗用報表後直接修正上面的數字。</div>`;
+  } else {
+    box.innerHTML = `<div style="font-size:12px;color:#1D9E75">✓ 第一~四劑合計（${doseSum}）與本月實際消耗（${hbigVacConsumed}）一致</div>`;
+  }
 }
 
 async function saveHbigManual(){
