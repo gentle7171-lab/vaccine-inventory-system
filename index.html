@@ -1687,8 +1687,6 @@ function fillPrevDay(code8){
       if(!data){ alert('前一日查無盤點紀錄，無法帶入'); return; }
       el.value = data.tally_qty;
       el.classList.add('changed','carried');
-      const noteEl = document.getElementById('inv-note-'+code8);
-      if(noteEl && !noteEl.value.trim()) noteEl.value = '假日未開診，同前一日';
       document.getElementById('inv-status').textContent = '有未儲存的變更（含帶入資料，請確認後儲存）';
     });
 }
@@ -1717,8 +1715,6 @@ async function fillAllPrevDay(){
     if(!el) return;
     el.value = prevMap[code8];
     el.classList.add('changed','carried');
-    const noteEl = document.getElementById('inv-note-'+code8);
-    if(noteEl && !noteEl.value.trim()) noteEl.value = '假日未開診，同前一日';
     filled++;
   });
 
