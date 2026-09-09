@@ -1236,7 +1236,7 @@ input[type=number]{-moz-appearance:textfield}
 <div class="modal-bg" id="modal-rec-date-fix">
   <div class="modal">
     <h3>整天日期更正</h3>
-    <div style="font-size:13px;color:#888;margin-bottom:14px">把「錯的日期」那一整天的盤點紀錄，整批搬到「對的日期」，不用一筆一筆重新輸入。如果對的日期本來就已經有盤點紀錄，會直接拒絕，避免覆蓋掉既有資料，請先手動處理那天的資料再更正。</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px">把「錯的日期」那一整天的盤點紀錄，搬到「對的日期」，不用一筆一筆重新輸入。只有「同一個品項在兩天都有盤點紀錄」才算衝突，這幾筆不會搬、會留在原本的日期請自行處理；其他不衝突的品項會正常搬過去，不會因為對的日期已經有別的品項紀錄就整批擋下來。</div>
     <div class="fg"><label>站點</label>
       <select id="recfix-site" class="inp"><option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option></select>
     </div>
@@ -1992,21 +1992,41 @@ async function confirmRecDateFix(){
   if(!site || !wrongDate || !correctDate){ showMsg('請完整選擇站點、錯的日期、對的日期'); return; }
   if(wrongDate === correctDate){ showMsg('錯的日期跟對的日期不能一樣'); return; }
 
-  const { data: wrongRows, error: wrongErr } = await sb.from('tally_records').select('record_id').eq('campus', site).eq('tally_date', wrongDate);
+  const { data: wrongRows, error: wrongErr } = await sb.from('tally_records').select('record_id,drug_code8').eq('campus', site).eq('tally_date', wrongDate);
   if(wrongErr){ showMsg('查詢失敗：'+wrongErr.message); return; }
   if(!wrongRows || !wrongRows.length){ showMsg(`${wrongDate} 這天這個站點查無任何盤點紀錄`); return; }
 
-  const { data: correctRows, error: correctErr } = await sb.from('tally_records').select('record_id').eq('campus', site).eq('tally_date', correctDate);
+  const { data: correctRows, error: correctErr } = await sb.from('tally_records').select('record_id,drug_code8').eq('campus', site).eq('tally_date', correctDate);
   if(correctErr){ showMsg('查詢失敗：'+correctErr.message); return; }
-  if(correctRows && correctRows.length){ showMsg(`${correctDate} 這天這個站點已經有盤點紀錄了（${correctRows.length}筆），為避免覆蓋，請先手動處理那天的資料後再更正`); return; }
+
+  // 只有「同一個品項在錯的日期跟對的日期都有盤點紀錄」才是真的衝突（搬過去會不知道該用哪筆）；
+  // 不同品項不衝突，可以直接搬，不用因為對的日期那天已經有別的品項紀錄就整批擋下來
+  const correctCodeSet = new Set((correctRows||[]).map(r=>r.drug_code8));
+  const conflictRows = wrongRows.filter(r => correctCodeSet.has(r.drug_code8));
+  const moveRows = wrongRows.filter(r => !correctCodeSet.has(r.drug_code8));
+
+  if(!moveRows.length){
+    showMsg(`${wrongDate} 這天所有品項在 ${correctDate} 都已經有盤點紀錄了，沒有可以搬的，請先手動處理那天的資料`);
+    return;
+  }
+
+  let conflictNote = '';
+  if(conflictRows.length){
+    const codes = [...new Set(conflictRows.map(r=>r.drug_code8))];
+    const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', codes);
+    const nameMap = {}; (vrows||[]).forEach(v=>nameMap[v.drug_code8]=v.tally_name);
+    const names = codes.map(c=>nameMap[c]||c).join('、');
+    conflictNote = `\n\n有 ${conflictRows.length} 筆「${names}」這幾個品項，${correctDate} 當天也已經有盤點紀錄，這幾筆不會搬，會留在 ${wrongDate}，請自行手動核對處理。`;
+  }
 
   const siteLabel = site==='dl'?'斗六院區':site==='hw'?'虎尾院區':'藥庫';
-  if(!confirm(`確定把「${siteLabel}」${wrongDate} 的 ${wrongRows.length} 筆盤點紀錄，全部搬到 ${correctDate} 嗎？`)) return;
+  if(!confirm(`確定把「${siteLabel}」${wrongDate} 的 ${moveRows.length} 筆盤點紀錄，搬到 ${correctDate} 嗎？${conflictNote}`)) return;
 
-  const { error } = await sb.from('tally_records').update({ tally_date: correctDate }).eq('campus', site).eq('tally_date', wrongDate);
+  const moveIds = moveRows.map(r=>r.record_id);
+  const { error } = await sb.from('tally_records').update({ tally_date: correctDate }).in('record_id', moveIds);
   if(error){ showMsg('搬移失敗：'+error.message); return; }
 
-  alert(`✓ 已搬移 ${wrongRows.length} 筆盤點紀錄到 ${correctDate}`);
+  alert(`✓ 已搬移 ${moveRows.length} 筆盤點紀錄到 ${correctDate}${conflictRows.length ? `（另有 ${conflictRows.length} 筆因為品項衝突，留在 ${wrongDate} 沒有搬）` : ''}`);
   closeModal('modal-rec-date-fix');
   document.getElementById('rec-date').value = correctDate;
   renderRecords();
