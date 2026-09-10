@@ -1412,7 +1412,7 @@ async function initApp(){
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
-    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}</div>`
+    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}${t.id==='master'?' <span id="tab-badge-master" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span>':''}</div>`
   ).join('');
 
   document.getElementById('inv-date').value = todayStr();
@@ -1423,6 +1423,7 @@ async function initApp(){
 
   showTab(tabs[0].id);
   setupDropzones();
+  if(isManager) refreshMasterTabBadge();
 }
 
 /* ══════════════ 拖曳上傳（耗用/庫存/藥庫進出貨） ══════════════ */
@@ -2154,24 +2155,50 @@ async function renderHisSetupPanel(){
   badge.textContent = pending.length ? `（${pending.length}筆）` : '';
   body.style.display = hisSetupPanelOpen ? '' : 'none';
   document.getElementById('hissetup-toggle-arrow').textContent = hisSetupPanelOpen ? '▼' : '▶';
+  refreshMasterTabBadge(pending.length);
 
   if(!pending.length){
     body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待設定的批號</div>';
     return;
   }
 
-  body.innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th style="width:140px">批號</th><th style="width:110px">操作</th></tr></thead>
+  body.innerHTML = `<div class="tbl-wrap" style="display:inline-block"><table style="width:auto">
+    <thead><tr><th style="width:220px">商品名</th><th style="width:110px">藥品8碼</th><th style="width:150px">批號</th><th style="width:170px">狀況</th></tr></thead>
     <tbody>${pending.map(g=>{
       const v = vmap[g.drug_code8];
       return `<tr>
         <td>${v ? v.tally_name : ''}</td>
         <td style="font-family:monospace">${g.drug_code8}</td>
         <td style="font-family:monospace">${g.lot_no}</td>
-        <td><button class="btn btn-sm" style="font-size:12px;color:#1D9E75;border-color:#9FE1CB" onclick="markHisSetupDone('${g.drug_code8}','${g.lot_no.replace(/'/g,"\\'")}')">✓ 已設定</button></td>
+        <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="markHisSetupDone('${g.drug_code8}','${g.lot_no.replace(/'/g,"\\'")}')">尚未設定，設定好點我</button></td>
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
+}
+
+// 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
+async function refreshMasterTabBadge(count){
+  const badgeEl = document.getElementById('tab-badge-master');
+  if(!badgeEl) return;
+  if(count===undefined){
+    const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
+    const { data: vmasterRows } = await sb.from('vaccine_master').select('drug_code8,status').eq('status','active');
+    const vset = new Set((vmasterRows||[]).map(v=>v.drug_code8));
+    const groups = {};
+    activeLotGroupsFromRows(lots||[]).forEach(l=>{
+      if(!vset.has(l.drug_code8)) return;
+      const key = l.drug_code8+'|'+l.lot_no;
+      if(!groups[key]) groups[key] = false;
+      if(l.his_setup) groups[key] = true;
+    });
+    count = Object.values(groups).filter(done=>!done).length;
+  }
+  if(count>0){
+    badgeEl.textContent = count;
+    badgeEl.style.display = '';
+  } else {
+    badgeEl.style.display = 'none';
+  }
 }
 
 async function markHisSetupDone(code8, lotNo){
