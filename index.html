@@ -2162,15 +2162,15 @@ async function renderHisSetupPanel(){
     return;
   }
 
-  body.innerHTML = `<div class="tbl-wrap" style="display:inline-block"><table style="width:auto">
-    <thead><tr><th style="width:220px">商品名</th><th style="width:110px">藥品8碼</th><th style="width:150px">批號</th><th style="width:170px">狀況</th></tr></thead>
+  body.innerHTML = `<div class="tbl-wrap"><table style="font-size:15px">
+    <thead><tr><th style="width:220px;font-size:14px">商品名</th><th style="width:110px;font-size:14px">藥品8碼</th><th style="width:150px;font-size:14px">批號</th><th style="width:170px;font-size:14px">狀況</th></tr></thead>
     <tbody>${pending.map(g=>{
       const v = vmap[g.drug_code8];
       return `<tr>
-        <td>${v ? v.tally_name : ''}</td>
-        <td style="font-family:monospace">${g.drug_code8}</td>
-        <td style="font-family:monospace">${g.lot_no}</td>
-        <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="markHisSetupDone('${g.drug_code8}','${g.lot_no.replace(/'/g,"\\'")}')">尚未設定，設定好點我</button></td>
+        <td style="font-size:16px">${v ? v.tally_name : ''}</td>
+        <td style="font-family:monospace;font-size:15px">${g.drug_code8}</td>
+        <td style="font-family:monospace;font-size:15px">${g.lot_no}</td>
+        <td><button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="markHisSetupDone('${g.drug_code8}','${g.lot_no.replace(/'/g,"\\'")}')">尚未設定，設定好點我</button></td>
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
