@@ -28,22 +28,22 @@ body{font-family:'Microsoft JhengHei','PingFang TC',system-ui,-apple-system,sans
 .btn-login:disabled{opacity:0.6;cursor:default}
 
 .app{display:flex;flex-direction:column;min-height:100vh}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;border-bottom:1px solid #e8e8e8;background:#fff;position:sticky;top:0;z-index:10}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;background:#1B3A6B;position:sticky;top:0;z-index:10}
 .topbar-l{display:flex;align-items:center;gap:8px}
-.topbar-l h1{font-size:16px;font-weight:600}
+.topbar-l h1{font-size:16px;font-weight:600;color:#fff}
 .site-pill{padding:2px 10px;border-radius:99px;font-size:13px;font-weight:500;white-space:nowrap;display:inline-block}
 .pill-dl{background:#FAE0E8;color:#7A1A40}
 .pill-hw{background:#D6E4F7;color:#1B3A6B}
 .pill-wh{background:#FDECC8;color:#7A5B0B}
 .pill-wh{background:#E8E4D8;color:#6B5B1B}
 .pill-admin{background:#1B3A6B;color:#fff}
-.btn-out{padding:4px 11px;font-size:14px;border-radius:8px;border:1px solid #e0e0e0;background:transparent;color:#888;cursor:pointer}
-.btn-out:hover{background:#f5f5f3}
+.btn-out{padding:4px 11px;font-size:14px;border-radius:8px;border:1px solid rgba(255,255,255,0.35);background:transparent;color:#fff;cursor:pointer}
+.btn-out:hover{background:rgba(255,255,255,0.12)}
 
-.tabs{display:flex;border-bottom:1px solid #e8e8e8;background:#fff;overflow-x:auto}
-.tab{padding:10px 18px;font-size:15px;cursor:pointer;border-bottom:2px solid transparent;color:#888;white-space:nowrap}
-.tab.active{color:#1B3A6B;border-bottom-color:#1B3A6B;font-weight:500}
-.tab:hover:not(.active){background:#f8f8f8}
+.tabs{display:flex;border-bottom:1px solid rgba(255,255,255,0.15);background:#1B3A6B;overflow-x:auto}
+.tab{padding:10px 18px;font-size:15px;cursor:pointer;border-bottom:2px solid transparent;color:rgba(255,255,255,0.65);white-space:nowrap}
+.tab.active{color:#fff;border-bottom-color:#fff;font-weight:500}
+.tab:hover:not(.active){background:rgba(255,255,255,0.08);color:#fff}
 
 .content{flex:1;padding:16px;width:100%;max-width:1180px;margin:0 auto}
 .sec{display:none}.sec.active{display:block}
@@ -130,31 +130,38 @@ input[type=number]{-moz-appearance:textfield}
 <div class="screen active" id="s-login">
 <div class="login-wrap">
   <div style="width:100%;max-width:320px;">
-    <div style="text-align:center;margin-bottom:24px;">
-      <div style="display:inline-flex;align-items:center;gap:8px;">
-        <div class="logo-icon">💉</div>
-        <span style="font-size:20px;font-weight:700;">疫苗盤點管理系統</span>
-      </div>
-      <div style="font-size:14px;color:#6b7280;margin-top:4px;">斗六院區 ／ 虎尾院區</div>
-    </div>
-    <div class="login-card" style="padding:20px;">
-      <div class="field">
-        <label class="lbl">員工編號</label>
-        <input class="inp" type="text" id="u-user" placeholder="請輸入員編" autocomplete="off">
-      </div>
-      <div class="field">
-        <label class="lbl">密碼</label>
-        <div style="position:relative">
-          <input type="password" class="inp" id="u-pass" placeholder="請輸入密碼" autocomplete="current-password" style="padding-right:36px">
-          <button type="button" onclick="togglePwd()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:#9ca3af;padding:0;display:flex" title="顯示/隱藏密碼">
-            <svg id="pwd-eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
+    <div class="login-card" style="padding:0;overflow:hidden;border-radius:14px">
+      <div style="background:#1B3A6B;padding:28px 20px 22px;display:flex;flex-direction:column;align-items:center">
+        <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,0.16);display:flex;align-items:center;justify-content:center;margin-bottom:10px">
+          <span style="font-size:26px;line-height:1">💉</span>
+        </div>
+        <div style="font-size:17px;font-weight:600;color:#fff">疫苗盤點管理系統</div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <div style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:15px">📋</div>
+          <div style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:15px">🛡️</div>
+          <div style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:15px">🏥</div>
+          <div style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:15px">📊</div>
         </div>
       </div>
-      <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
-      <button class="btn-login" id="login-btn" onclick="login()">登入</button>
+      <div style="padding:22px 20px 24px">
+        <div class="field">
+          <label class="lbl">員工編號</label>
+          <input class="inp" type="text" id="u-user" placeholder="請輸入員編" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="lbl">密碼</label>
+          <div style="position:relative">
+            <input type="password" class="inp" id="u-pass" placeholder="請輸入密碼" autocomplete="current-password" style="padding-right:36px">
+            <button type="button" onclick="togglePwd()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:#9ca3af;padding:0;display:flex" title="顯示/隱藏密碼">
+              <svg id="pwd-eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
+        <button class="btn-login" id="login-btn" onclick="login()" style="background:#1B3A6B">登入</button>
+        <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:14px;">密碼預設為員編，如需重設請聯絡管理員</p>
+      </div>
     </div>
-    <p style="text-align:center;font-size:13px;color:#9ca3af;margin-top:10px;">密碼預設為員編，如需重設請聯絡管理員</p>
   </div>
 </div>
 </div>
@@ -168,8 +175,8 @@ input[type=number]{-moz-appearance:textfield}
       <span class="site-pill" id="topbar-pill"></span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:14px;color:#888" id="topbar-name"></span>
-      <button class="btn btn-sm" onclick="openMyPwModal()">🔑 修改密碼</button>
+      <span style="font-size:14px;color:rgba(255,255,255,0.8)" id="topbar-name"></span>
+      <button class="btn btn-sm" onclick="openMyPwModal()" style="background:rgba(255,255,255,0.9)">🔑 修改密碼</button>
       <button class="btn-out" onclick="logout()">登出</button>
     </div>
   </div>
@@ -191,11 +198,13 @@ input[type=number]{-moz-appearance:textfield}
             <div class="subtab" id="inv-sw-wh" onclick="switchInvSite('wh')">📦 藥庫</div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
           <input type="date" id="inv-date" class="inp" style="width:160px" onchange="renderInv()">
           <button class="btn btn-primary btn-sm" onclick="renderInv()">🔍 查詢</button>
           <button class="btn btn-sm" id="inv-fillprev-btn" style="background:#FFF8EC;border-color:#C77700;color:#C77700;font-weight:600" onclick="fillAllPrevDay()">🔄 全部帶入前一日數量</button>
+          <button class="btn btn-sm" onclick="jumpToUnrecordedDate(true)">📅 跳到未盤點日期</button>
         </div>
+        <div id="inv-autojump-note" style="display:none;font-size:12px;color:#C77700;background:#FFF8EC;border-radius:6px;padding:6px 10px;margin-bottom:12px"></div>
         <div class="subtabs" id="inv-subtabs"></div>
         <div id="inv-loading" class="loading" style="display:none">載入中...</div>
         <div class="inv-wrap" id="inv-wrap"></div>
@@ -1487,7 +1496,7 @@ function switchInvMain(tab){
   document.getElementById('inv-main-sub-records').classList.toggle('active', tab==='records');
   document.getElementById('inv-panel-input').style.display = tab==='input' ? '' : 'none';
   document.getElementById('inv-panel-records').style.display = tab==='records' ? '' : 'none';
-  if(tab==='input') renderInv();
+  if(tab==='input') jumpToUnrecordedDate();
   if(tab==='records'){
     const isManager = me.role==='admin'||me.role==='warehouse';
     document.getElementById('rec-site').style.display = isManager?'':'none';
@@ -1534,6 +1543,49 @@ function switchInvSite(site){
   document.getElementById('inv-sw-dl').classList.toggle('active', site==='dl');
   document.getElementById('inv-sw-hw').classList.toggle('active', site==='hw');
   document.getElementById('inv-sw-wh').classList.toggle('active', site==='wh');
+  jumpToUnrecordedDate();
+}
+
+// 找出「今天往前推」最舊的一段連續沒有盤點紀錄的日期（最多往前找30天，遇到已經有盤點紀錄的那天就停）
+async function findUnrecordedDate(site){
+  const maxDays = 30;
+  const candidates = [];
+  for(let i=0;i<maxDays;i++) candidates.push(shiftDate(todayStr(), -i));
+
+  const { data, error } = await sb.from('tally_records').select('tally_date').eq('campus', site).in('tally_date', candidates);
+  if(error){ console.error(error); return null; }
+  const recorded = new Set((data||[]).map(r=>r.tally_date));
+
+  let oldestGap = null;
+  for(const ds of candidates){
+    if(recorded.has(ds)) break; // 遇到已經盤過的日期就停，代表再更早以前應該都已經處理過了
+    oldestGap = ds;
+  }
+  return oldestGap; // 今天本身沒紀錄的話至少會回傳今天；今天已經盤過就回傳 null
+}
+
+// manual=true 表示是使用者自己按「跳到未盤點日期」按鈕觸發，manual=false（或省略）是自動觸發（例如切換院區、剛登入時）
+let invAutoJumpChecked = new Set();
+async function jumpToUnrecordedDate(manual){
+  const site = mySite();
+  if(!manual){
+    if(invAutoJumpChecked.has(site)){ renderInv(); return; } // 同一次登入、同一個院區只自動跳一次，避免使用者自己改了日期又被跳回去
+    invAutoJumpChecked.add(site);
+  }
+  const note = document.getElementById('inv-autojump-note');
+  const target = await findUnrecordedDate(site);
+  const today = todayStr();
+  if(target && target !== today){
+    document.getElementById('inv-date').value = target;
+    if(note){ note.style.display=''; note.textContent = `⚠️ 已自動跳到最近未盤點的日期（${target}），今天以前有連續沒盤點的日子，處理完這天記得繼續往後補`; }
+  } else {
+    document.getElementById('inv-date').value = today;
+    if(note){
+      if(target === today){ note.style.display=''; note.textContent = '今天還沒有盤點紀錄'; }
+      else { note.style.display='none'; }
+    }
+    if(manual && !target){ alert('最近30天都已經有盤點紀錄了，沒有找到未盤點的日期'); }
+  }
   renderInv();
 }
 
