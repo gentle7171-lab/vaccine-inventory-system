@@ -316,9 +316,15 @@ input[type=number]{-moz-appearance:textfield}
         <div id="expiry-panel-body" style="margin-top:10px"></div>
       </div>
 
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <input type="date" id="ov-date" class="inp" style="width:160px">
         <button class="btn btn-primary btn-sm" onclick="renderOverview()">🔍 查詢</button>
+        <input type="text" id="ov-search" class="inp" style="width:200px" placeholder="搜尋疫苗名稱／8碼／庫存碼" oninput="renderOverviewRows()">
+        <select id="ov-status-filter" class="inp" style="width:170px" onchange="renderOverviewRows()">
+          <option value="all">全部</option>
+          <option value="mismatch">只看不吻合</option>
+          <option value="pending">只看尚未盤點/未上傳報表</option>
+        </select>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -545,8 +551,9 @@ input[type=number]{-moz-appearance:textfield}
           <div class="subtab" id="mr-rep-tab-2" onclick="switchMrReport('2')">② 肺炎鏈球菌報表</div>
           <div class="subtab" id="mr-rep-tab-3" onclick="switchMrReport('3')">③ B肝報表</div>
           <div class="subtab" id="mr-rep-tab-4" onclick="switchMrReport('4')">④ 卡介苗報表</div>
+          <div class="subtab" id="mr-rep-tab-5" onclick="switchMrReport('5')">📈 品項耗用查詢</div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
+        <div id="mr-shared-controls" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
           <select id="mr-year" class="inp" style="width:100px" onchange="renderMonthlyReport()"></select>
           <select id="mr-month" class="inp" style="width:90px" onchange="renderMonthlyReport()">
             <option value="01">1月</option><option value="02">2月</option><option value="03">3月</option>
@@ -666,6 +673,33 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div style="font-size:13px;color:#666;margin-top:16px">填表人:＿＿＿＿＿＿＿＿＿＿</div>
       </div>
+
+      <div id="mr-report-5" style="display:none">
+        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <select id="uq-item" class="inp" style="width:220px;max-width:100%"><option value="">請選擇品項...</option></select>
+            <div class="subtabs" style="margin-bottom:0">
+              <div class="subtab active" id="uq-mode-daily" onclick="switchUsageQueryMode('daily')">每日</div>
+              <div class="subtab" id="uq-mode-monthly" onclick="switchUsageQueryMode('monthly')">每月</div>
+            </div>
+          </div>
+          <div id="uq-range-daily" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <input type="date" id="uq-daily-from" class="inp" style="width:150px">
+            <span style="color:#999">至</span>
+            <input type="date" id="uq-daily-to" class="inp" style="width:150px">
+            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+          </div>
+          <div id="uq-range-monthly" style="display:none;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <input type="month" id="uq-monthly-from" class="inp" style="width:150px">
+            <span style="color:#999">至</span>
+            <input type="month" id="uq-monthly-to" class="inp" style="width:150px">
+            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+          </div>
+          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院（斗六＋虎尾＋藥庫）合計的耗用劑數，直接來自耗用報表原始資料，不做整瓶進位等換算。</div>
+          <div id="uq-chart" style="margin-bottom:16px"></div>
+          <div id="uq-table"></div>
+        </div>
+      </div>
       </div>
     </div>
 
@@ -686,6 +720,9 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn btn-sm" id="btn-del-vacc" style="display:none;color:#A32D2D;border-color:#f0c0c0" onclick="deleteSelectedVaccines()">🗑 刪除勾選</button>
           <button class="btn btn-primary btn-sm" onclick="openVaccineModal()">＋ 新增疫苗</button>
           <button class="btn btn-sm" onclick="openVaccineBatch()">📋 批次匯入</button>
+        </div>
+        <div style="margin-bottom:12px">
+          <input type="text" id="vacc-search" class="inp" style="width:280px" placeholder="搜尋盤點表名稱／商品名／NIIS名稱／8碼／庫存碼／疫苗代碼" oninput="renderActiveVaccTable();renderInactiveVaccTable()">
         </div>
         <!-- 啟用中 -->
         <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px">啟用中品項 <span style="font-size:12px;font-weight:400;color:#999">🔀 可直接拖曳整列調整顯示順序（只影響這份清單，不影響其他畫面）</span></div>
@@ -2513,6 +2550,7 @@ async function renderOverview(){
   }
 
   if(uniqueVaccines.length === 0){
+    ovRowsCache = [];
     document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">尚無資料</td></tr>';
     ['ov-total','ov-dl-ok','ov-hw-ok','ov-wh-ok','ov-err'].forEach(id => document.getElementById(id).textContent = 0);
     return;
@@ -2553,7 +2591,8 @@ async function renderOverview(){
     return { tally, stock, match, mismatch, badge };
   }
 
-  let dlOk=0, hwOk=0, whOk=0, errCount=0, rows='';
+  let dlOk=0, hwOk=0, whOk=0, errCount=0;
+  ovRowsCache = [];
   for(const v of uniqueVaccines){
     const name = v.vaccine_master ? v.vaccine_master.tally_name : v.drug_code8;
     const code4 = v.vaccine_master ? v.vaccine_master.stock_code4 : null;
@@ -2565,8 +2604,41 @@ async function renderOverview(){
     if(wh.match) whOk++;
     if(dl.mismatch || hw.mismatch || wh.mismatch) errCount++;
     const note = noteMap[v.drug_code8] || '';
-    rows += `<tr>
-      <td style="font-size:15px">${name}${code4?`<div style="font-size:12px;color:#999">${code4}</div>`:''}</td>
+    const pending = [dl,hw,wh].some(x => x.tally===null || x.stock===null);
+    const mismatch = dl.mismatch || hw.mismatch || wh.mismatch;
+    ovRowsCache.push({ code8:v.drug_code8, name, code4, dl, hw, wh, note, pending, mismatch });
+  }
+
+  document.getElementById('ov-total').textContent = uniqueVaccines.length;
+  document.getElementById('ov-dl-ok').textContent = dlOk;
+  document.getElementById('ov-hw-ok').textContent = hwOk;
+  document.getElementById('ov-wh-ok').textContent = whOk;
+  document.getElementById('ov-err').textContent = errCount;
+
+  renderOverviewRows();
+}
+
+let ovRowsCache = [];
+function renderOverviewRows(){
+  const kw = (document.getElementById('ov-search').value||'').trim().toLowerCase();
+  const statusFilter = document.getElementById('ov-status-filter').value;
+
+  const filtered = ovRowsCache.filter(r=>{
+    if(kw && !(r.name.toLowerCase().includes(kw) || r.code8.toLowerCase().includes(kw) || (r.code4||'').toLowerCase().includes(kw))) return false;
+    if(statusFilter==='mismatch' && !r.mismatch) return false;
+    if(statusFilter==='pending' && !r.pending) return false;
+    return true;
+  });
+
+  if(!filtered.length){
+    document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">${ovRowsCache.length?'沒有符合條件的品項':'尚無資料'}</td></tr>`;
+    return;
+  }
+
+  document.getElementById('ov-body').innerHTML = filtered.map(r=>{
+    const { dl, hw, wh } = r;
+    return `<tr>
+      <td style="font-size:15px">${r.name}${r.code4?`<div style="font-size:12px;color:#999">${r.code4}</div>`:''}</td>
       <td class="c">${dl.tally===null?'—':dl.tally}</td>
       <td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td>
       <td class="c">${dl.badge}</td>
@@ -2576,16 +2648,9 @@ async function renderOverview(){
       <td class="c">${wh.tally===null?'—':wh.tally}</td>
       <td class="c" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td>
       <td class="c">${wh.badge}</td>
-      <td><input type="text" class="ov-note-input" data-code="${v.drug_code8}" value="${note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
+      <td><input type="text" class="ov-note-input" data-code="${r.code8}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
     </tr>`;
-  }
-
-  document.getElementById('ov-body').innerHTML = rows || '<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">尚無資料</td></tr>';
-  document.getElementById('ov-total').textContent = uniqueVaccines.length;
-  document.getElementById('ov-dl-ok').textContent = dlOk;
-  document.getElementById('ov-hw-ok').textContent = hwOk;
-  document.getElementById('ov-wh-ok').textContent = whOk;
-  document.getElementById('ov-err').textContent = errCount;
+  }).join('');
 }
 
 // 管理總覽的「當天備註」：對應 drug_code8 + note_date + source='overview'，換日期查詢就不會帶出來，只跟當天那一列綁定，也不會跟全院庫存核對的備註互相干擾
@@ -2793,8 +2858,24 @@ async function renderVaccines(){
   renderActiveVaccTable();
 
   // 已停用
-  document.getElementById('inactive-count').textContent = `（${(inactive||[]).length} 項）`;
-  document.getElementById('vacc-inactive-body').innerHTML = (inactive||[]).map(v => `<tr style="opacity:0.6">
+  vaccInactiveRaw = inactive||[];
+  renderInactiveVaccTable();
+
+  updateVaccDelBtn();
+}
+
+function vaccMatchesKeyword(v, kw){
+  if(!kw) return true;
+  const fields = [v.tally_name, v.product_name, v.niis_name, v.drug_code8, v.stock_code4, v.niis_code];
+  return fields.some(f => (f||'').toLowerCase().includes(kw));
+}
+
+let vaccInactiveRaw = [];
+function renderInactiveVaccTable(){
+  const kw = (document.getElementById('vacc-search').value||'').trim().toLowerCase();
+  const rows = vaccInactiveRaw.filter(v => vaccMatchesKeyword(v, kw));
+  document.getElementById('inactive-count').textContent = `（${vaccInactiveRaw.length} 項${kw && rows.length!==vaccInactiveRaw.length ? `，符合搜尋 ${rows.length} 項`:''}）`;
+  document.getElementById('vacc-inactive-body').innerHTML = rows.map(v => `<tr style="opacity:0.6">
     <td><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
     <td style="font-size:15px">${v.tally_name}</td>
     <td style="font-size:14px;color:#666">${v.product_name||'—'}</td>
@@ -2807,9 +2888,7 @@ async function renderVaccines(){
       <button class="btn btn-sm" style="font-size:13px;color:#1D9E75;border-color:#9FE1CB;margin-left:4px" onclick="toggleVaccStatus('${v.drug_code8}','active')">啟用</button>
       <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
     </td>
-  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#bbb">無</td></tr>';
-
-  updateVaccDelBtn();
+  </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#bbb">${kw?'沒有符合搜尋的品項':'無'}</td></tr>`;
 }
 
 // 依欄位取得排序用的值
@@ -2840,7 +2919,8 @@ function sortVaccBy(key){
 }
 
 function renderActiveVaccTable(){
-  let rows = vaccActiveRows.slice();
+  const kw = (document.getElementById('vacc-search').value||'').trim().toLowerCase();
+  let rows = vaccActiveRows.filter(item => vaccMatchesKeyword(item.v, kw));
   if(vaccSortKey){
     rows.sort((a,b)=>{
       const va = vaccSortValue(a, vaccSortKey), vb = vaccSortValue(b, vaccSortKey);
@@ -2851,7 +2931,7 @@ function renderActiveVaccTable(){
     });
   }
   document.getElementById('vacc-active-body').innerHTML = rows.map(item => buildVaccRow(item.v, item.lots)).join('')
-    || '<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">尚無疫苗資料</td></tr>';
+    || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">${kw?'沒有符合搜尋的品項':'尚無疫苗資料'}</td></tr>`;
 
   // 更新欄位標題的排序箭頭
   ['tally_name','product_name','niis_name','drug_code8','stock_code4','niis_code','niis_required','lots'].forEach(key=>{
@@ -6327,13 +6407,132 @@ async function renderMonthlyReport(){
 
 /* ── 月報表底下4份報表切換 ── */
 let mrActiveReport = '1';
+
 function switchMrReport(n){
   mrActiveReport = n;
-  ['1','2','3','4'].forEach(k=>{
+  ['1','2','3','4','5'].forEach(k=>{
     document.getElementById('mr-report-'+k).style.display = (k===n) ? '' : 'none';
     document.getElementById('mr-rep-tab-'+k).classList.toggle('active', k===n);
   });
+  document.getElementById('mr-shared-controls').style.display = (n==='5') ? 'none' : '';
   if(n==='3' && lastMonthlyReport.length) renderHbigReport();
+  if(n==='5') initUsageQueryTab();
+}
+
+/* ══════════════ 品項耗用查詢 ══════════════ */
+let uqItemsLoaded = false;
+let uqMode = 'daily';
+
+async function initUsageQueryTab(){
+  if(!uqItemsLoaded){
+    uqItemsLoaded = true;
+    const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
+    const sel = document.getElementById('uq-item');
+    sel.innerHTML = '<option value="">請選擇品項...</option>' + (vrows||[]).map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+  }
+  if(!document.getElementById('uq-daily-to').value){
+    document.getElementById('uq-daily-to').value = todayStr();
+    document.getElementById('uq-daily-from').value = shiftDate(todayStr(), -29);
+  }
+  if(!document.getElementById('uq-monthly-to').value){
+    const now = new Date();
+    const ymNow = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+    document.getElementById('uq-monthly-to').value = ymNow;
+    document.getElementById('uq-monthly-from').value = shiftYm(ymNow, -5);
+  }
+}
+
+function switchUsageQueryMode(mode){
+  uqMode = mode;
+  document.getElementById('uq-mode-daily').classList.toggle('active', mode==='daily');
+  document.getElementById('uq-mode-monthly').classList.toggle('active', mode==='monthly');
+  document.getElementById('uq-range-daily').style.display = mode==='daily' ? 'flex' : 'none';
+  document.getElementById('uq-range-monthly').style.display = mode==='monthly' ? 'flex' : 'none';
+}
+
+async function runUsageQuery(){
+  const code8 = document.getElementById('uq-item').value;
+  const chartBox = document.getElementById('uq-chart');
+  const tableBox = document.getElementById('uq-table');
+  if(!code8){ alert('請先選擇品項'); return; }
+
+  let fromDate, toDate, bucketFn, labelFn;
+  if(uqMode==='daily'){
+    fromDate = document.getElementById('uq-daily-from').value;
+    toDate = document.getElementById('uq-daily-to').value;
+    if(!fromDate || !toDate){ alert('請填完整日期區間'); return; }
+    bucketFn = d => d; // 每日：直接用日期當桶
+    labelFn = d => d.slice(5); // 顯示 MM-DD
+  } else {
+    const fromYm = document.getElementById('uq-monthly-from').value;
+    const toYm = document.getElementById('uq-monthly-to').value;
+    if(!fromYm || !toYm){ alert('請填完整月份區間'); return; }
+    fromDate = fromYm+'-01';
+    toDate = shiftYm(toYm,1)+'-01'; // 月底下一個月的第一天，查詢時用 < 這個日期
+    bucketFn = d => d.slice(0,7); // 每月：用年月當桶
+    labelFn = ym => ym;
+  }
+
+  chartBox.innerHTML = '<div style="padding:20px;text-align:center;color:#bbb">載入中...</div>';
+  tableBox.innerHTML = '';
+
+  let query = sb.from('usage_uploads').select('upload_date,usage_qty').eq('drug_code8', code8).gte('upload_date', fromDate);
+  query = uqMode==='daily' ? query.lte('upload_date', toDate) : query.lt('upload_date', toDate);
+  const { data, error } = await query;
+  if(error){ chartBox.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
+
+  // 依日期/月份分桶加總
+  const bucketMap = {};
+  (data||[]).forEach(r=>{
+    const key = bucketFn(r.upload_date);
+    bucketMap[key] = (bucketMap[key]||0) + Number(r.usage_qty||0);
+  });
+
+  // 把區間內每一天/每一月都列出來，沒有資料的桶顯示0，才看得出真正的趨勢（含沒耗用的日子）
+  const buckets = [];
+  if(uqMode==='daily'){
+    let d = fromDate;
+    while(d <= toDate){ buckets.push(d); d = shiftDate(d, 1); }
+  } else {
+    let ym = fromDate.slice(0,7);
+    const endYm = document.getElementById('uq-monthly-to').value;
+    while(ym <= endYm){ buckets.push(ym); ym = shiftYm(ym, 1); }
+  }
+
+  const values = buckets.map(b => bucketMap[b]||0);
+  const total = values.reduce((a,b)=>a+b,0);
+  const max = Math.max(...values, 1);
+
+  chartBox.innerHTML = renderUsageQueryChart(buckets.map(labelFn), values, max);
+
+  tableBox.innerHTML = `
+    <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:8px">區間總耗用：${total} 劑</div>
+    <div class="tbl-wrap" style="max-height:320px;overflow-y:auto"><table>
+      <thead><tr><th>${uqMode==='daily'?'日期':'月份'}</th><th class="c">耗用劑數</th></tr></thead>
+      <tbody>${buckets.map((b,i)=>`<tr><td>${b}</td><td class="c">${values[i]}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+// 純SVG畫的簡單長條圖，不依賴任何外部圖表套件
+function renderUsageQueryChart(labels, values, max){
+  const w = 760, h = 220, padL = 36, padB = 30, padT = 10;
+  const chartW = w - padL - 10, chartH = h - padT - padB;
+  const barGap = 2;
+  const barW = Math.max((chartW / labels.length) - barGap, 1);
+  const bars = values.map((v,i)=>{
+    const barH = (v/max) * chartH;
+    const x = padL + i*(chartW/labels.length);
+    const y = padT + chartH - barH;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="#1B3A6B" rx="1"><title>${labels[i]}：${v}劑</title></rect>`;
+  }).join('');
+  // X軸標籤：太多的話只挑幾個顯示，避免擠在一起
+  const labelStep = Math.max(Math.ceil(labels.length/10), 1);
+  const xLabels = labels.map((l,i)=> i%labelStep===0 ? `<text x="${(padL + i*(chartW/labels.length)).toFixed(1)}" y="${h-10}" font-size="10" fill="#999">${l}</text>` : '').join('');
+  const yTicks = [0, 0.5, 1].map(f=>{
+    const y = padT + chartH - f*chartH;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-10}" y2="${y.toFixed(1)}" stroke="#f0f0f0"/><text x="2" y="${(y+3).toFixed(1)}" font-size="10" fill="#999">${Math.round(f*max)}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;max-width:${w}px">${yTicks}${bars}${xLabels}</svg>`;
 }
 
 /* ── 報表② 肺炎鏈球菌疫苗消耗結存月報表：跟報表①用同一份月報表資料，只過濾special_report='pcv'的品項 ── */
