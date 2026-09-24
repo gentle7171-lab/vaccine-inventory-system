@@ -721,8 +721,14 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn btn-primary btn-sm" onclick="openVaccineModal()">＋ 新增疫苗</button>
           <button class="btn btn-sm" onclick="openVaccineBatch()">📋 批次匯入</button>
         </div>
-        <div style="margin-bottom:12px">
+        <div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap">
           <input type="text" id="vacc-search" class="inp" style="width:280px" placeholder="搜尋盤點表名稱／商品名／NIIS名稱／8碼／庫存碼／疫苗代碼" oninput="renderActiveVaccTable();renderInactiveVaccTable()">
+          <select id="vacc-timing-filter" class="inp" style="width:180px" onchange="renderActiveVaccTable();renderInactiveVaccTable()">
+            <option value="">申報時效：全部</option>
+            <option value="next_day">隔天申報</option>
+            <option value="same_day">當天申報</option>
+            <option value="none">不需申報</option>
+          </select>
         </div>
         <!-- 啟用中 -->
         <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px">啟用中品項 <span style="font-size:12px;font-weight:400;color:#999">🔀 可直接拖曳整列調整顯示順序（只影響這份清單，不影響其他畫面）</span></div>
@@ -2870,11 +2876,21 @@ function vaccMatchesKeyword(v, kw){
   return fields.some(f => (f||'').toLowerCase().includes(kw));
 }
 
+function vaccMatchesTiming(v, timing){
+  if(!timing) return true;
+  if(timing==='none') return !v.niis_code;
+  if(!v.niis_code) return false; // 不需申報的品項不算隔天/當天申報
+  const t = v.niis_declare_timing || 'next_day';
+  return t === timing;
+}
+
 let vaccInactiveRaw = [];
 function renderInactiveVaccTable(){
   const kw = (document.getElementById('vacc-search').value||'').trim().toLowerCase();
-  const rows = vaccInactiveRaw.filter(v => vaccMatchesKeyword(v, kw));
-  document.getElementById('inactive-count').textContent = `（${vaccInactiveRaw.length} 項${kw && rows.length!==vaccInactiveRaw.length ? `，符合搜尋 ${rows.length} 項`:''}）`;
+  const timing = document.getElementById('vacc-timing-filter').value;
+  const rows = vaccInactiveRaw.filter(v => vaccMatchesKeyword(v, kw) && vaccMatchesTiming(v, timing));
+  const filtering = kw || timing;
+  document.getElementById('inactive-count').textContent = `（${vaccInactiveRaw.length} 項${filtering && rows.length!==vaccInactiveRaw.length ? `，符合條件 ${rows.length} 項`:''}）`;
   document.getElementById('vacc-inactive-body').innerHTML = rows.map(v => `<tr style="opacity:0.6">
     <td><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
     <td style="font-size:15px">${v.tally_name}</td>
@@ -2888,7 +2904,7 @@ function renderInactiveVaccTable(){
       <button class="btn btn-sm" style="font-size:13px;color:#1D9E75;border-color:#9FE1CB;margin-left:4px" onclick="toggleVaccStatus('${v.drug_code8}','active')">啟用</button>
       <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
     </td>
-  </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#bbb">${kw?'沒有符合搜尋的品項':'無'}</td></tr>`;
+  </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#bbb">${filtering?'沒有符合條件的品項':'無'}</td></tr>`;
 }
 
 // 依欄位取得排序用的值
@@ -2920,7 +2936,8 @@ function sortVaccBy(key){
 
 function renderActiveVaccTable(){
   const kw = (document.getElementById('vacc-search').value||'').trim().toLowerCase();
-  let rows = vaccActiveRows.filter(item => vaccMatchesKeyword(item.v, kw));
+  const timing = document.getElementById('vacc-timing-filter').value;
+  let rows = vaccActiveRows.filter(item => vaccMatchesKeyword(item.v, kw) && vaccMatchesTiming(item.v, timing));
   if(vaccSortKey){
     rows.sort((a,b)=>{
       const va = vaccSortValue(a, vaccSortKey), vb = vaccSortValue(b, vaccSortKey);
@@ -2931,7 +2948,7 @@ function renderActiveVaccTable(){
     });
   }
   document.getElementById('vacc-active-body').innerHTML = rows.map(item => buildVaccRow(item.v, item.lots)).join('')
-    || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">${kw?'沒有符合搜尋的品項':'尚無疫苗資料'}</td></tr>`;
+    || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">${(kw||timing)?'沒有符合條件的品項':'尚無疫苗資料'}</td></tr>`;
 
   // 更新欄位標題的排序箭頭
   ['tally_name','product_name','niis_name','drug_code8','stock_code4','niis_code','niis_required','lots'].forEach(key=>{
