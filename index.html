@@ -676,8 +676,21 @@ input[type=number]{-moz-appearance:textfield}
 
       <div id="mr-report-5" style="display:none">
         <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+            <select id="uq-item-add" class="inp" style="width:240px;max-width:100%" onchange="uqAddItem(this.value); this.value=''">
+              <option value="">＋ 加入品項...</option>
+            </select>
+            <select id="uq-group-select" class="inp" style="width:180px" onchange="uqLoadGroup(this.value)">
+              <option value="">套用已存群組...</option>
+            </select>
+            <button class="btn btn-sm" onclick="uqSaveGroup()">💾 另存新群組</button>
+            <button class="btn btn-sm" id="uq-delgroup-btn" style="display:none;color:#A32D2D;border-color:#f0c0c0" onclick="uqDeleteGroup()">🗑 刪除此群組</button>
+          </div>
+
+          <div id="uq-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
           <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
-            <select id="uq-item" class="inp" style="width:220px;max-width:100%"><option value="">請選擇品項...</option></select>
             <div class="subtabs" style="margin-bottom:0">
               <div class="subtab active" id="uq-mode-daily" onclick="switchUsageQueryMode('daily')">每日</div>
               <div class="subtab" id="uq-mode-monthly" onclick="switchUsageQueryMode('monthly')">每月</div>
@@ -695,7 +708,7 @@ input[type=number]{-moz-appearance:textfield}
             <input type="month" id="uq-monthly-to" class="inp" style="width:150px">
             <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
           </div>
-          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院（斗六＋虎尾＋藥庫）合計的耗用劑數，直接來自耗用報表原始資料，不做整瓶進位等換算。</div>
+          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院（斗六＋虎尾＋藥庫）合計的耗用劑數，直接來自耗用報表原始資料，不做整瓶進位等換算。可以只選一個品項看單一耗用，也可以加好幾個一起比較，還能把常看的組合存成群組下次直接套用。</div>
           <div id="uq-chart" style="margin-bottom:16px"></div>
           <div id="uq-table"></div>
         </div>
@@ -2644,7 +2657,7 @@ function renderOverviewRows(){
   document.getElementById('ov-body').innerHTML = filtered.map(r=>{
     const { dl, hw, wh } = r;
     return `<tr>
-      <td style="font-size:15px">${r.name}${r.code4?`<div style="font-size:12px;color:#999">${r.code4}</div>`:''}</td>
+      <td style="font-size:15px">${r.name}${r.code4?`<div style="font-size:12px;color:#999">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.code8}</div></td>
       <td class="c">${dl.tally===null?'—':dl.tally}</td>
       <td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td>
       <td class="c">${dl.badge}</td>
@@ -6440,12 +6453,19 @@ function switchMrReport(n){
 let uqItemsLoaded = false;
 let uqMode = 'daily';
 
+let uqAllItems = []; // [{drug_code8,tally_name}]
+let uqSelected = []; // [{drug_code8,tally_name}] 目前選取的品項，順序即顯示順序
+let uqGroups = []; // 從資料庫載入的已存群組
+let uqCurrentGroupId = null; // 目前套用中的群組id（用來讓「刪除此群組」知道要刪哪個）
+const UQ_COLORS = ['#1B3A6B','#C77700','#1D9E75','#A32D2D','#6B4FA0','#0E7C86','#B23A6B','#4C6EF5'];
+
 async function initUsageQueryTab(){
   if(!uqItemsLoaded){
     uqItemsLoaded = true;
     const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
-    const sel = document.getElementById('uq-item');
-    sel.innerHTML = '<option value="">請選擇品項...</option>' + (vrows||[]).map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+    uqAllItems = vrows || [];
+    document.getElementById('uq-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + uqAllItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+    await uqLoadGroupList();
   }
   if(!document.getElementById('uq-daily-to').value){
     document.getElementById('uq-daily-to').value = todayStr();
@@ -6457,6 +6477,7 @@ async function initUsageQueryTab(){
     document.getElementById('uq-monthly-to').value = ymNow;
     document.getElementById('uq-monthly-from').value = shiftYm(ymNow, -5);
   }
+  uqRenderChips();
 }
 
 function switchUsageQueryMode(mode){
@@ -6467,45 +6488,121 @@ function switchUsageQueryMode(mode){
   document.getElementById('uq-range-monthly').style.display = mode==='monthly' ? 'flex' : 'none';
 }
 
+function uqAddItem(code8){
+  if(!code8) return;
+  if(uqSelected.some(i=>i.drug_code8===code8)) return; // 已經加過了
+  const item = uqAllItems.find(v=>v.drug_code8===code8);
+  if(!item) return;
+  uqSelected.push(item);
+  uqCurrentGroupId = null; // 手動改動品項清單後，就不再視為「跟已存群組完全一致」
+  uqRenderChips();
+}
+
+function uqRemoveItem(code8){
+  uqSelected = uqSelected.filter(i=>i.drug_code8!==code8);
+  uqCurrentGroupId = null;
+  uqRenderChips();
+}
+
+function uqRenderChips(){
+  const box = document.getElementById('uq-chips');
+  if(!uqSelected.length){
+    box.innerHTML = '<span style="font-size:13px;color:#bbb">尚未選擇品項，請從上面下拉選單加入（可加多個一起比較）</span>';
+    return;
+  }
+  box.innerHTML = uqSelected.map((item,i)=>{
+    const color = UQ_COLORS[i % UQ_COLORS.length];
+    return `<span style="display:inline-flex;align-items:center;gap:5px;background:${color}15;color:${color};border:1px solid ${color}55;border-radius:999px;padding:4px 10px;font-size:13px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
+      ${item.tally_name}
+      <span style="cursor:pointer;font-weight:600;padding-left:2px" onclick="uqRemoveItem('${item.drug_code8}')">✕</span>
+    </span>`;
+  }).join('');
+}
+
+async function uqLoadGroupList(){
+  const { data, error } = await sb.from('usage_query_groups').select('id,name,drug_codes').order('name');
+  const sel = document.getElementById('uq-group-select');
+  if(error){
+    sel.innerHTML = '<option value="">（尚未建立 usage_query_groups 資料表）</option>';
+    return;
+  }
+  uqGroups = data || [];
+  sel.innerHTML = '<option value="">套用已存群組...</option>' + uqGroups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+}
+
+function uqLoadGroup(groupId){
+  const select = document.getElementById('uq-group-select');
+  if(!groupId){ uqCurrentGroupId = null; document.getElementById('uq-delgroup-btn').style.display='none'; return; }
+  const group = uqGroups.find(g=>String(g.id)===String(groupId));
+  if(!group) return;
+  uqSelected = group.drug_codes.map(code8 => uqAllItems.find(v=>v.drug_code8===code8) || {drug_code8:code8, tally_name:code8});
+  uqCurrentGroupId = group.id;
+  document.getElementById('uq-delgroup-btn').style.display = '';
+  uqRenderChips();
+}
+
+async function uqSaveGroup(){
+  if(!uqSelected.length){ alert('請先加入至少一個品項再儲存群組'); return; }
+  const name = prompt('這個群組要取什麼名字？', '');
+  if(!name || !name.trim()) return;
+  const { error } = await sb.from('usage_query_groups').insert({
+    name: name.trim(), drug_codes: uqSelected.map(i=>i.drug_code8), created_by: me.emp_id
+  });
+  if(error){ alert('儲存失敗：'+error.message+'\n請確認 usage_query_groups 資料表是否已建立'); return; }
+  alert('✓ 群組已儲存');
+  await uqLoadGroupList();
+}
+
+async function uqDeleteGroup(){
+  if(!uqCurrentGroupId) return;
+  if(!confirm('確定要刪除這個已存群組嗎？（不會影響現在畫面上選取的品項）')) return;
+  const { error } = await sb.from('usage_query_groups').delete().eq('id', uqCurrentGroupId);
+  if(error){ alert('刪除失敗：'+error.message); return; }
+  uqCurrentGroupId = null;
+  document.getElementById('uq-delgroup-btn').style.display = 'none';
+  await uqLoadGroupList();
+}
+
 async function runUsageQuery(){
-  const code8 = document.getElementById('uq-item').value;
   const chartBox = document.getElementById('uq-chart');
   const tableBox = document.getElementById('uq-table');
-  if(!code8){ alert('請先選擇品項'); return; }
+  if(!uqSelected.length){ alert('請先加入至少一個品項'); return; }
 
   let fromDate, toDate, bucketFn, labelFn;
   if(uqMode==='daily'){
     fromDate = document.getElementById('uq-daily-from').value;
     toDate = document.getElementById('uq-daily-to').value;
     if(!fromDate || !toDate){ alert('請填完整日期區間'); return; }
-    bucketFn = d => d; // 每日：直接用日期當桶
-    labelFn = d => d.slice(5); // 顯示 MM-DD
+    bucketFn = d => d;
+    labelFn = d => d.slice(5);
   } else {
     const fromYm = document.getElementById('uq-monthly-from').value;
     const toYm = document.getElementById('uq-monthly-to').value;
     if(!fromYm || !toYm){ alert('請填完整月份區間'); return; }
     fromDate = fromYm+'-01';
-    toDate = shiftYm(toYm,1)+'-01'; // 月底下一個月的第一天，查詢時用 < 這個日期
-    bucketFn = d => d.slice(0,7); // 每月：用年月當桶
+    toDate = shiftYm(toYm,1)+'-01';
+    bucketFn = d => d.slice(0,7);
     labelFn = ym => ym;
   }
 
   chartBox.innerHTML = '<div style="padding:20px;text-align:center;color:#bbb">載入中...</div>';
   tableBox.innerHTML = '';
 
-  let query = sb.from('usage_uploads').select('upload_date,usage_qty').eq('drug_code8', code8).gte('upload_date', fromDate);
+  const codes = uqSelected.map(i=>i.drug_code8);
+  let query = sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', fromDate);
   query = uqMode==='daily' ? query.lte('upload_date', toDate) : query.lt('upload_date', toDate);
   const { data, error } = await query;
   if(error){ chartBox.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
 
-  // 依日期/月份分桶加總
-  const bucketMap = {};
+  // 依品項 + 日期/月份分桶加總
+  const perItemMap = {}; // drug_code8 -> {bucket: qty}
   (data||[]).forEach(r=>{
     const key = bucketFn(r.upload_date);
-    bucketMap[key] = (bucketMap[key]||0) + Number(r.usage_qty||0);
+    if(!perItemMap[r.drug_code8]) perItemMap[r.drug_code8] = {};
+    perItemMap[r.drug_code8][key] = (perItemMap[r.drug_code8][key]||0) + Number(r.usage_qty||0);
   });
 
-  // 把區間內每一天/每一月都列出來，沒有資料的桶顯示0，才看得出真正的趨勢（含沒耗用的日子）
   const buckets = [];
   if(uqMode==='daily'){
     let d = fromDate;
@@ -6516,40 +6613,53 @@ async function runUsageQuery(){
     while(ym <= endYm){ buckets.push(ym); ym = shiftYm(ym, 1); }
   }
 
-  const values = buckets.map(b => bucketMap[b]||0);
-  const total = values.reduce((a,b)=>a+b,0);
-  const max = Math.max(...values, 1);
+  const series = uqSelected.map(item => ({
+    name: item.tally_name,
+    code8: item.drug_code8,
+    values: buckets.map(b => (perItemMap[item.drug_code8] && perItemMap[item.drug_code8][b]) || 0)
+  }));
 
-  chartBox.innerHTML = renderUsageQueryChart(buckets.map(labelFn), values, max);
+  chartBox.innerHTML = renderUsageQueryChart(buckets.map(labelFn), series);
 
+  const totals = series.map(s => s.values.reduce((a,b)=>a+b,0));
   tableBox.innerHTML = `
-    <div style="font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:8px">區間總耗用：${total} 劑</div>
-    <div class="tbl-wrap" style="max-height:320px;overflow-y:auto"><table>
-      <thead><tr><th>${uqMode==='daily'?'日期':'月份'}</th><th class="c">耗用劑數</th></tr></thead>
-      <tbody>${buckets.map((b,i)=>`<tr><td>${b}</td><td class="c">${values[i]}</td></tr>`).join('')}</tbody>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+      ${series.map((s,i)=>`<div style="font-size:13px"><span style="color:${UQ_COLORS[i%UQ_COLORS.length]};font-weight:600">●</span> ${s.name}　區間總耗用：<b>${totals[i]}</b> 劑</div>`).join('')}
+    </div>
+    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto"><table>
+      <thead><tr><th>${uqMode==='daily'?'日期':'月份'}</th>${series.map(s=>`<th class="c">${s.name}</th>`).join('')}${series.length>1?'<th class="c">合計</th>':''}</tr></thead>
+      <tbody>${buckets.map((b,i)=>{
+        const rowVals = series.map(s=>s.values[i]);
+        const rowTotal = rowVals.reduce((a,c)=>a+c,0);
+        return `<tr><td>${b}</td>${rowVals.map(v=>`<td class="c">${v}</td>`).join('')}${series.length>1?`<td class="c" style="font-weight:600">${rowTotal}</td>`:''}</tr>`;
+      }).join('')}</tbody>
     </table></div>`;
 }
 
-// 純SVG畫的簡單長條圖，不依賴任何外部圖表套件
-function renderUsageQueryChart(labels, values, max){
-  const w = 760, h = 220, padL = 36, padB = 30, padT = 10;
-  const chartW = w - padL - 10, chartH = h - padT - padB;
-  const barGap = 2;
-  const barW = Math.max((chartW / labels.length) - barGap, 1);
-  const bars = values.map((v,i)=>{
-    const barH = (v/max) * chartH;
-    const x = padL + i*(chartW/labels.length);
-    const y = padT + chartH - barH;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="#1B3A6B" rx="1"><title>${labels[i]}：${v}劑</title></rect>`;
-  }).join('');
-  // X軸標籤：太多的話只挑幾個顯示，避免擠在一起
-  const labelStep = Math.max(Math.ceil(labels.length/10), 1);
-  const xLabels = labels.map((l,i)=> i%labelStep===0 ? `<text x="${(padL + i*(chartW/labels.length)).toFixed(1)}" y="${h-10}" font-size="10" fill="#999">${l}</text>` : '').join('');
-  const yTicks = [0, 0.5, 1].map(f=>{
+// 純SVG畫的多品項折線圖，不依賴任何外部圖表套件
+function renderUsageQueryChart(labels, series){
+  const w = 760, h = 240, padL = 40, padB = 30, padT = 14, padR = 10;
+  const chartW = w - padL - padR, chartH = h - padT - padB;
+  const max = Math.max(...series.flatMap(s=>s.values), 1);
+  const n = labels.length;
+  const xAt = i => padL + (n<=1 ? chartW/2 : i*(chartW/(n-1)));
+
+  const yTicks = [0,0.5,1].map(f=>{
     const y = padT + chartH - f*chartH;
-    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-10}" y2="${y.toFixed(1)}" stroke="#f0f0f0"/><text x="2" y="${(y+3).toFixed(1)}" font-size="10" fill="#999">${Math.round(f*max)}</text>`;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="#f0f0f0"/><text x="2" y="${(y+3).toFixed(1)}" font-size="10" fill="#999">${Math.round(f*max)}</text>`;
   }).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;max-width:${w}px">${yTicks}${bars}${xLabels}</svg>`;
+
+  const labelStep = Math.max(Math.ceil(n/10), 1);
+  const xLabels = labels.map((l,i)=> i%labelStep===0 ? `<text x="${xAt(i).toFixed(1)}" y="${h-10}" font-size="10" fill="#999" text-anchor="middle">${l}</text>` : '').join('');
+
+  const lines = series.map((s,si)=>{
+    const color = UQ_COLORS[si % UQ_COLORS.length];
+    const pts = s.values.map((v,i)=>`${xAt(i).toFixed(1)},${(padT + chartH - (v/max)*chartH).toFixed(1)}`).join(' ');
+    const dots = s.values.map((v,i)=>`<circle cx="${xAt(i).toFixed(1)}" cy="${(padT + chartH - (v/max)*chartH).toFixed(1)}" r="2.5" fill="${color}"><title>${s.name}｜${labels[i]}：${v}劑</title></circle>`).join('');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>${dots}`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;max-width:${w}px">${yTicks}${lines}${xLabels}</svg>`;
 }
 
 /* ── 報表② 肺炎鏈球菌疫苗消耗結存月報表：跟報表①用同一份月報表資料，只過濾special_report='pcv'的品項 ── */
