@@ -6450,7 +6450,7 @@ function switchMrReport(n){
 }
 
 /* ══════════════ 品項耗用查詢 ══════════════ */
-let uqItemsLoaded = false;
+let uqGroupsLoaded = false;
 let uqMode = 'daily';
 
 let uqAllItems = []; // [{drug_code8,tally_name}]
@@ -6460,13 +6460,11 @@ let uqCurrentGroupId = null; // 目前套用中的群組id（用來讓「刪除�
 const UQ_COLORS = ['#1B3A6B','#C77700','#1D9E75','#A32D2D','#6B4FA0','#0E7C86','#B23A6B','#4C6EF5'];
 
 async function initUsageQueryTab(){
-  if(!uqItemsLoaded){
-    uqItemsLoaded = true;
-    const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
-    uqAllItems = vrows || [];
-    document.getElementById('uq-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + uqAllItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
-    await uqLoadGroupList();
-  }
+  // 每次打開這個分頁都重新抓一次品項清單（查詢便宜），避免主檔剛新增的品項因為快取沒更新而找不到
+  const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
+  uqAllItems = vrows || [];
+  document.getElementById('uq-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + uqAllItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+  if(!uqGroupsLoaded){ uqGroupsLoaded = true; await uqLoadGroupList(); }
   if(!document.getElementById('uq-daily-to').value){
     document.getElementById('uq-daily-to').value = todayStr();
     document.getElementById('uq-daily-from').value = shiftDate(todayStr(), -29);
