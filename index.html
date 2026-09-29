@@ -510,14 +510,6 @@ input[type=number]{-moz-appearance:textfield}
           </table>
         </div>
 
-        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 8px">全院庫存核對（藥庫＋斗六＋虎尾），用於申報前確認耗用量正確</div>
-        <div class="tbl-wrap" style="margin-bottom:20px">
-          <table>
-            <thead><tr><th style="width:150px">疫苗</th><th style="width:90px">適用日期</th><th class="c">前一日三站庫存</th><th class="c" style="width:110px">期間撥入/撥出</th><th class="c">本次耗用</th><th class="c">推算應剩</th><th class="c">當天三站庫存</th><th>狀態</th><th style="width:160px">備註</th></tr></thead>
-            <tbody id="niis-stockcheck-body"><tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">請按「查詢」</td></tr></tbody>
-          </table>
-        </div>
-
         <div style="font-size:15px;font-weight:600;color:#888;margin:14px 0 8px" id="niis-nextday-title">隔天申報品項</div>
         <div class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr))">
           <div class="card"><div class="lbl">應申報品項（批號數）</div><div class="val" id="niis-nextday-count">—</div></div>
@@ -539,6 +531,15 @@ input[type=number]{-moz-appearance:textfield}
           <table>
             <thead><tr><th style="width:90px">疫苗代碼</th><th>NIIS疫苗名稱</th><th style="width:140px">批號</th><th class="c" style="width:100px">耗用量</th></tr></thead>
             <tbody id="niis-sameday-body"></tbody>
+          </table>
+        </div>
+
+        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:20px 0 8px">全院庫存核對（藥庫＋斗六＋虎尾），用於申報前確認耗用量正確</div>
+        <div style="font-size:12px;color:#999;margin-bottom:8px">品項名稱下面有標「（依盤點量核對）」的，是主檔設定了「略過庫存報表比對」的品項（例如庫存報表數字被院內系統合併算不準的流感疫苗），這幾列改用盤點紀錄當比對基準，不是庫存報表。</div>
+        <div class="tbl-wrap" style="margin-bottom:20px">
+          <table>
+            <thead><tr><th style="width:150px">疫苗</th><th style="width:90px">適用日期</th><th class="c">比對基準庫存／盤點量</th><th class="c" style="width:110px">期間撥入/撥出</th><th class="c">本次耗用</th><th class="c">推算應剩</th><th class="c">當天庫存／盤點量</th><th>狀態</th><th style="width:160px">備註</th></tr></thead>
+            <tbody id="niis-stockcheck-body"><tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">請按「查詢」</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -961,6 +962,13 @@ input[type=number]{-moz-appearance:textfield}
         多人瓶「藥庫領用即整瓶扣帳」（例如卡介苗：注射室一領走就算一整瓶用掉，當天沒用完也報銷，不會留到隔天）
       </label>
       <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">勾選後，上傳耗用報表時系統會依「每瓶劑量」自動把藥庫該批號的庫存以整瓶為單位扣除（無條件進位），不是照實際打的人數逐劑扣</div>
+    </div>
+    <div class="fg" style="margin-top:6px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="vacc-skip-stock-compare" style="width:16px;height:16px">
+        略過庫存報表比對（這個品項的庫存報表數字不可信，只看盤點量）
+      </label>
+      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">適用於院內系統把好幾個品項合併成同一個庫存碼、匯出的庫存報表數字本來就不準確的情況。勾選後，管理總覽不會再對這個品項顯示「不吻合」警示，也不會出現在斗六撥補建議裡。</div>
     </div>
 
     <!-- 批號管理（新增／編輯皆顯示，未儲存前顯示提示） -->
@@ -2399,9 +2407,11 @@ async function renderRestockPanel(){
   body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
   asof.textContent = '';
 
-  const { data: vmasterRows, error: vErr } = await sb.from('vaccine_master')
-    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct,stock_code4')
+  const { data: vmasterRowsRaw, error: vErr } = await sb.from('vaccine_master')
+    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct,stock_code4,skip_stock_compare')
     .eq('status','active').not('dl_reorder_point','is',null);
+  // 略過庫存報表比對的品項（庫存報表數字不可信），撥補建議也不該用那個數字算，直接排除
+  const vmasterRows = (vmasterRowsRaw||[]).filter(v=>!v.skip_stock_compare);
 
   if(vErr){
     body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">尚未建立 dl_reorder_point / dl_par_level 欄位，請先執行 ALTER TABLE vaccine_master ADD COLUMN dl_par_level numeric, ADD COLUMN dl_reorder_point numeric;（${vErr.message}）</div>`;
@@ -2525,7 +2535,7 @@ async function renderOverview(){
   document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#bbb">載入中...</td></tr>';
 
   // 撈全部 active 品項（不分院區）
-  const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status)').eq('status','active');
+  const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status, skip_stock_compare)').eq('status','active');
   if(itemErr){
     document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${itemErr.message}</td></tr>`;
     return;
@@ -2561,9 +2571,9 @@ async function renderOverview(){
 
   const extraCodes = Object.keys(whComputedMap).filter(c=>!seenCodes.has(c));
   if(extraCodes.length){
-    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').in('drug_code8', extraCodes).eq('status','active');
+    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4,skip_stock_compare').in('drug_code8', extraCodes).eq('status','active');
     (extraMaster||[]).forEach(v=>{
-      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4}, _whOnly:true });
+      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4, skip_stock_compare:v.skip_stock_compare}, _whOnly:true });
       seenCodes.add(v.drug_code8);
     });
   }
@@ -2594,10 +2604,16 @@ async function renderOverview(){
     if(campus) stockMap[s.drug_code8+'|'+campus] = s.stock_qty;
   });
 
-  function badgeFor(code, campus){
+  function badgeFor(code, campus, skipStockCompare){
     const key = code+'|'+campus;
     const tally = recMap[key] !== undefined ? recMap[key] : null;
     const stock = stockMap[key] !== undefined ? stockMap[key] : null;
+    if(skipStockCompare){
+      const badge = tally === null
+        ? '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px">尚未盤點</span>'
+        : '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px" title="這個品項設定為略過庫存報表比對">— 不比對</span>';
+      return { tally, stock, match:false, mismatch:false, badge };
+    }
     const match = tally !== null && stock !== null && tally === stock;
     const mismatch = tally !== null && stock !== null && tally !== stock;
     const badge = tally === null
@@ -2615,15 +2631,18 @@ async function renderOverview(){
   for(const v of uniqueVaccines){
     const name = v.vaccine_master ? v.vaccine_master.tally_name : v.drug_code8;
     const code4 = v.vaccine_master ? v.vaccine_master.stock_code4 : null;
-    const dl = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'dl');
-    const hw = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'hw');
-    const wh = badgeFor(v.drug_code8, 'wh');
+    const skipStockCompare = v.vaccine_master ? !!v.vaccine_master.skip_stock_compare : false;
+    const dl = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'dl', skipStockCompare);
+    const hw = v._whOnly ? {tally:null, stock:null, match:false, mismatch:false, badge:'<span style="font-size:13px;color:#ddd">—</span>'} : badgeFor(v.drug_code8, 'hw', skipStockCompare);
+    const wh = badgeFor(v.drug_code8, 'wh', skipStockCompare);
     if(dl.match) dlOk++;
     if(hw.match) hwOk++;
     if(wh.match) whOk++;
     if(dl.mismatch || hw.mismatch || wh.mismatch) errCount++;
     const note = noteMap[v.drug_code8] || '';
-    const pending = [dl,hw,wh].some(x => x.tally===null || x.stock===null);
+    const pending = skipStockCompare
+      ? [dl,hw,wh].some(x => x.tally===null)
+      : [dl,hw,wh].some(x => x.tally===null || x.stock===null);
     const mismatch = dl.mismatch || hw.mismatch || wh.mismatch;
     ovRowsCache.push({ code8:v.drug_code8, name, code4, dl, hw, wh, note, pending, mismatch });
   }
@@ -3198,6 +3217,7 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-dl-reorder-point').value = data.dl_reorder_point!=null ? data.dl_reorder_point : '';
       document.getElementById('vacc-dl-par-level').value = data.dl_par_level!=null ? data.dl_par_level : '';
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
+      document.getElementById('vacc-skip-stock-compare').checked = !!data.skip_stock_compare;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
     }
@@ -3220,6 +3240,7 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-dl-reorder-point').value = '';
     document.getElementById('vacc-dl-par-level').value = '';
     document.getElementById('vacc-whole-vial-deduct').checked = false;
+    document.getElementById('vacc-skip-stock-compare').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
     document.getElementById('vacc-lots-placeholder').style.display = '';
@@ -3245,6 +3266,7 @@ async function saveVaccine(){
     dl_reorder_point: (function(){ const v = document.getElementById('vacc-dl-reorder-point').value.trim(); return v ? parseFloat(v) : null; })(),
     dl_par_level: (function(){ const v = document.getElementById('vacc-dl-par-level').value.trim(); return v ? parseFloat(v) : null; })(),
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
+    skip_stock_compare: document.getElementById('vacc-skip-stock-compare').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
     status: 'active'
@@ -5309,7 +5331,7 @@ async function renderNiisList(){
   document.getElementById('niis-nextday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
   document.getElementById('niis-sameday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
 
-  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4').eq('niis_required', true).eq('status','active');
+  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4,skip_stock_compare').eq('niis_required', true).eq('status','active');
   if(e1){
     const errHtml = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${e1.message}</td></tr>`;
     document.getElementById('niis-nextday-body').innerHTML = errHtml;
@@ -5394,6 +5416,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     drug_code8: v.drug_code8,
     niis_name: v.niis_name,
     stock_code4: v.stock_code4,
+    skip_stock_compare: !!v.skip_stock_compare,
     target_date: v.niis_declare_timing==='same_day' ? date : prevDate
   }));
   const codes = [...new Set(vmaster.map(v=>v.drug_code8))];
@@ -5401,14 +5424,27 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const earliestNeeded = shiftDate(targetDates.reduce((a,b)=>a<b?a:b), -LOOKBACK_DAYS);
   const latestNeeded = targetDates.reduce((a,b)=>a>b?a:b);
 
-  const [{data:stockRows}, {data:usageRows}, {data:txRows}, {data:noteRows}, {data:lotFlagRows}] = await Promise.all([
+  const [{data:stockRows}, {data:usageRows}, {data:txRows}, {data:noteRows}, {data:lotFlagRows}, {data:tallyRows}] = await Promise.all([
     sb.from('stock_uploads').select('drug_code8,station_code,upload_date,stock_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded),
     sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded),
-    sb.from('lot_details').select('drug_code8,used_dl,used_hw,used_wh').eq('status','active').in('drug_code8', codes)
+    sb.from('lot_details').select('drug_code8,used_dl,used_hw,used_wh').eq('status','active').in('drug_code8', codes),
+    sb.from('tally_records').select('drug_code8,campus,tally_qty,tally_date').in('drug_code8', codes).gte('tally_date', earliestNeeded).lte('tally_date', latestNeeded)
   ]);
   const noteMap = {}; (noteRows||[]).forEach(n=>{ noteMap[n.drug_code8+'|'+n.note_date] = n.note; });
+
+  // 有些品項（例如院內系統把好幾個廠牌合併成同一個庫存碼的流感疫苗）庫存報表數字本來就不可信，
+  // 這種品項改用「盤點紀錄」當比對基準，不用庫存報表——邏輯完全一樣，只是資料來源換掉
+  const campusToStation = {dl:'6101', hw:'6201', wh:'6000'};
+  const tallySum = {}, tallyStations = {};
+  (tallyRows||[]).forEach(r=>{
+    const key = r.tally_date+'|'+r.drug_code8;
+    tallySum[key] = (tallySum[key]||0) + Number(r.tally_qty||0);
+    if(!tallyStations[key]) tallyStations[key] = new Set();
+    const st = campusToStation[r.campus];
+    if(st) tallyStations[key].add(st);
+  });
 
   // 每個品項實際需要比對「哪幾站」，用批號管理裡的斗六/虎尾/藥庫燈號決定，不是每個品項都固定要三站都有資料
   // （例如猴痘疫苗這種只有藥庫在管理的品項，斗六/虎尾本來就不會有庫存報表，不能永遠要求三站齊全）
@@ -5447,13 +5483,13 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     target[r.drug_code8][r.tx_date] = (target[r.drug_code8][r.tx_date]||0) + Number(r.qty||0);
   });
 
-  // 往前找「最近一次該品項需要的站點庫存報表都齊全」的日期（不是機械式抓前一天，因為週末沒人傳報表但住院病人仍有耗用）
-  function findBaseDate(code8, td){
+  // 往前找「最近一次該品項需要的站點資料（庫存報表或盤點，視品項而定）都齊全」的日期
+  function findBaseDate(code8, td, sumMap, stationsMap){
     const required = requiredStationsFor(code8);
     let d = shiftDate(td, -1);
     for(let i=0; i<LOOKBACK_DAYS; i++){
       const key = d+'|'+code8;
-      const have = stockStations[key];
+      const have = stationsMap[key];
       if(have && [...required].every(s=>have.has(s))) return d;
       d = shiftDate(d, -1);
     }
@@ -5462,14 +5498,17 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
 
   const rows = items.map(it=>{
     const td = it.target_date;
+    const sumMap = it.skip_stock_compare ? tallySum : stockSum;
+    const stationsMap = it.skip_stock_compare ? tallyStations : stockStations;
+    const sourceLabel = it.skip_stock_compare ? '盤點紀錄' : '庫存報表';
     const curKey = td+'|'+it.drug_code8;
     const required = requiredStationsFor(it.drug_code8);
-    const curHave = stockStations[curKey];
+    const curHave = stationsMap[curKey];
     const curComplete = !!(curHave && [...required].every(s=>curHave.has(s)));
-    const curTotal = curComplete ? stockSum[curKey] : null;
-    const baseDate = findBaseDate(it.drug_code8, td);
+    const curTotal = curComplete ? sumMap[curKey] : null;
+    const baseDate = findBaseDate(it.drug_code8, td, sumMap, stationsMap);
     const baseKey = baseDate ? baseDate+'|'+it.drug_code8 : null;
-    const baseTotal = baseDate ? stockSum[baseKey] : null;
+    const baseTotal = baseDate ? sumMap[baseKey] : null;
 
     // 把 baseDate 之後、td 當天（含）之間的每一天耗用量、撥入、撥出全部加總（涵蓋跳過的週末/連假，住院耗用不會漏算）
     // 這裡改回直接用實際施打人次加總，不做整瓶進位——因為你們上傳的官方庫存報表本身就是照人次/劑數在扣，
@@ -5490,15 +5529,15 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
 
     const expect = baseTotal!==null ? baseTotal + txIn - txOut - usage : null;
     let status;
-    if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整庫存報表</span>`;
+    if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整${sourceLabel}</span>`;
     else if(curTotal===null) status = '<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">當天資料不全</span>';
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
-    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, rawUsageTotal, txIn, txOut, expect, curTotal, status, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
+    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
   }).sort((a,b)=>(a.niis_name||'').localeCompare(b.niis_name||''));
 
   tbody.innerHTML = rows.map(r=>`<tr>
-    <td style="font-size:14px">${r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}</td>
+    <td style="font-size:14px">${r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}</td>
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
