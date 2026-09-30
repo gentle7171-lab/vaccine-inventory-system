@@ -5340,7 +5340,7 @@ async function renderNiisList(){
   document.getElementById('niis-nextday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
   document.getElementById('niis-sameday-body').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
 
-  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4,skip_stock_compare').eq('niis_required', true).eq('status','active');
+  const { data: vmaster, error: e1 } = await sb.from('vaccine_master').select('drug_code8,tally_name,niis_code,niis_name,niis_declare_timing,niis_sort_order,doses_per_vial,whole_vial_deduct,alias_of,stock_code4,skip_stock_compare').eq('niis_required', true).eq('status','active');
   if(e1){
     const errHtml = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${e1.message}</td></tr>`;
     document.getElementById('niis-nextday-body').innerHTML = errHtml;
@@ -5427,6 +5427,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const items = vmaster.filter(v=>!v.alias_of).map(v=>({
     drug_code8: v.drug_code8,
     niis_name: v.niis_name,
+    tally_name: v.tally_name,
     stock_code4: v.stock_code4,
     skip_stock_compare: !!v.skip_stock_compare,
     is_same_day: v.niis_declare_timing==='same_day',
@@ -5547,11 +5548,11 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
     return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
-  }).sort((a,b)=>(a.niis_name||'').localeCompare(b.niis_name||''));
+  }).sort((a,b)=>(a.tally_name||a.niis_name||'').localeCompare(b.tally_name||b.niis_name||''));
 
   function rowHtml(r){
     return `<tr>
-    <td style="font-size:14px">${r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}</td>
+    <td style="font-size:14px">${r.tally_name||r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.drug_code8}</div>${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}</td>
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
