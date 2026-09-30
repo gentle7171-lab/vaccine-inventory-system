@@ -510,6 +510,15 @@ input[type=number]{-moz-appearance:textfield}
           </table>
         </div>
 
+        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 4px">全院庫存核對（藥庫＋斗六＋虎尾）－隔天申報品項</div>
+        <div style="font-size:12px;color:#999;margin-bottom:8px">品項名稱下面有標「（依盤點量核對）」的，是主檔設定了「略過庫存報表比對」的品項，這幾列改用盤點紀錄當比對基準，不是庫存報表。</div>
+        <div class="tbl-wrap" style="margin-bottom:20px">
+          <table>
+            <thead><tr><th style="width:150px">疫苗</th><th style="width:90px">適用日期</th><th class="c">比對基準庫存／盤點量</th><th class="c" style="width:110px">期間撥入/撥出</th><th class="c">本次耗用</th><th class="c">推算應剩</th><th class="c">當天庫存／盤點量</th><th>狀態</th><th style="width:160px">備註</th></tr></thead>
+            <tbody id="niis-stockcheck-body"><tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">請按「查詢」</td></tr></tbody>
+          </table>
+        </div>
+
         <div style="font-size:15px;font-weight:600;color:#888;margin:14px 0 8px" id="niis-nextday-title">隔天申報品項</div>
         <div class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr))">
           <div class="card"><div class="lbl">應申報品項（批號數）</div><div class="val" id="niis-nextday-count">—</div></div>
@@ -527,19 +536,19 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card"><div class="lbl">應申報品項（批號數）</div><div class="val" id="niis-sameday-count">—</div></div>
           <div class="card"><div class="lbl">耗用量合計</div><div class="val" id="niis-sameday-total">—</div></div>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap" style="margin-bottom:20px">
           <table>
             <thead><tr><th style="width:90px">疫苗代碼</th><th>NIIS疫苗名稱</th><th style="width:140px">批號</th><th class="c" style="width:100px">耗用量</th></tr></thead>
             <tbody id="niis-sameday-body"></tbody>
           </table>
         </div>
 
-        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:20px 0 8px">全院庫存核對（藥庫＋斗六＋虎尾），用於申報前確認耗用量正確</div>
-        <div style="font-size:12px;color:#999;margin-bottom:8px">品項名稱下面有標「（依盤點量核對）」的，是主檔設定了「略過庫存報表比對」的品項（例如庫存報表數字被院內系統合併算不準的流感疫苗），這幾列改用盤點紀錄當比對基準，不是庫存報表。</div>
+        <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin:14px 0 4px">全院庫存核對（藥庫＋斗六＋虎尾）－當天申報品項</div>
+        <div style="font-size:12px;color:#999;margin-bottom:8px">品項名稱下面有標「（依盤點量核對）」的，是主檔設定了「略過庫存報表比對」的品項，這幾列改用盤點紀錄當比對基準，不是庫存報表。</div>
         <div class="tbl-wrap" style="margin-bottom:20px">
           <table>
             <thead><tr><th style="width:150px">疫苗</th><th style="width:90px">適用日期</th><th class="c">比對基準庫存／盤點量</th><th class="c" style="width:110px">期間撥入/撥出</th><th class="c">本次耗用</th><th class="c">推算應剩</th><th class="c">當天庫存／盤點量</th><th>狀態</th><th style="width:160px">備註</th></tr></thead>
-            <tbody id="niis-stockcheck-body"><tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">請按「查詢」</td></tr></tbody>
+            <tbody id="niis-stockcheck-sameday-body"><tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">請按「查詢」</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -5398,10 +5407,13 @@ async function renderNiisList(){
 // 全院庫存核對（藥庫＋斗六＋虎尾）：前一日三站庫存合計－本次耗用 是否等於 當天三站庫存合計
 async function renderNiisStockCheck(vmaster, date, prevDate){
   const tbody = document.getElementById('niis-stockcheck-body');
+  const tbodySameDay = document.getElementById('niis-stockcheck-sameday-body');
   tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
+  tbodySameDay.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
 
   if(!vmaster.length){
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">尚無需NIIS申報之品項</td></tr>';
+    tbodySameDay.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">尚無需NIIS申報之品項</td></tr>';
     return;
   }
 
@@ -5417,6 +5429,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     niis_name: v.niis_name,
     stock_code4: v.stock_code4,
     skip_stock_compare: !!v.skip_stock_compare,
+    is_same_day: v.niis_declare_timing==='same_day',
     target_date: v.niis_declare_timing==='same_day' ? date : prevDate
   }));
   const codes = [...new Set(vmaster.map(v=>v.drug_code8))];
@@ -5536,7 +5549,8 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
   }).sort((a,b)=>(a.niis_name||'').localeCompare(b.niis_name||''));
 
-  tbody.innerHTML = rows.map(r=>`<tr>
+  function rowHtml(r){
+    return `<tr>
     <td style="font-size:14px">${r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}</td>
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
@@ -5546,7 +5560,12 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     <td class="c">${r.curTotal===null?'—':r.curTotal}</td>
     <td>${r.status}</td>
     <td><input type="text" class="inp stockcheck-note-input" data-code="${r.drug_code8}" data-date="${r.target_date}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveStockCheckNote(this)"></td>
-  </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">無資料</td></tr>';
+  </tr>`;
+  }
+  const nextDayRows = rows.filter(r=>!r.is_same_day);
+  const sameDayRows = rows.filter(r=>r.is_same_day);
+  tbody.innerHTML = nextDayRows.map(rowHtml).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">無資料</td></tr>';
+  document.getElementById('niis-stockcheck-sameday-body').innerHTML = sameDayRows.map(rowHtml).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">無資料</td></tr>';
 }
 
 // 全院庫存核對的「當天備註」，跟管理總覽是分開存的（source='stockcheck' vs 'overview'），同一個品項/日期兩邊可以各自寫不同的說明
