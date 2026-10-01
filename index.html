@@ -5837,13 +5837,15 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
       }
     }
 
+    // 找不到比對基準時，期間耗用無法計算，但仍顯示「當天」的耗用量，避免看起來像沒有耗用紀錄
+    const dayUsage = (usageByCodeDate[it.drug_code8] && usageByCodeDate[it.drug_code8][td]) || 0;
     const expect = baseTotal!==null ? baseTotal + txIn - txOut - usage : null;
     let status;
     if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整${sourceLabel}</span>`;
     else if(curTotal===null) status = '<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">當天資料不全</span>';
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
-    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
+    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, dayUsage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
   }).sort((a,b)=>(a.tally_name||a.niis_name||'').localeCompare(b.tally_name||b.niis_name||''));
 
   function rowHtml(r){
@@ -5852,7 +5854,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
-    <td class="c">${r.usage}</td>
+    <td class="c">${r.baseDate ? r.usage : `${r.dayUsage}<div style="font-size:11px;color:#999">（只算當天）</div>`}</td>
     <td class="c">${r.expect===null?'—':r.expect}</td>
     <td class="c">${r.curTotal===null?'—':r.curTotal}</td>
     <td>${r.status}</td>
