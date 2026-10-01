@@ -5841,7 +5841,15 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     const dayUsage = (usageByCodeDate[it.drug_code8] && usageByCodeDate[it.drug_code8][td]) || 0;
     const expect = baseTotal!==null ? baseTotal + txIn - txOut - usage : null;
     let status;
-    if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整${sourceLabel}</span>`;
+    // 顯示「近14天裡，哪些院區一直沒有資料」，方便知道要補哪裡
+    const stLabel = {'6101':'斗六','6201':'虎尾','6000':'藥庫'};
+    const neverHave = [...required].filter(st=>{
+      let d = td;
+      for(let i=0; i<=LOOKBACK_DAYS; i++){ const h = stationsMap[d+'|'+it.drug_code8]; if(h && h.has(st)) return false; d = shiftDate(d,-1); }
+      return true;
+    }).map(st=>stLabel[st]||st);
+    const missHint = neverHave.length ? `<div style="font-size:12px;color:#A32D2D;margin-top:4px">近${LOOKBACK_DAYS}天完全沒有：${neverHave.join('、')}的${it.skip_stock_compare?'盤點':'庫存報表'}</div>` : '';
+    if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整${sourceLabel}</span>${missHint}`;
     else if(curTotal===null) status = '<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">當天資料不全</span>';
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
