@@ -738,12 +738,13 @@ input[type=number]{-moz-appearance:textfield}
 
     <!-- ══ 主檔維護（疫苗主檔／分頁設定／帳號管理）══ -->
     <div class="sec" id="sec-master">
+      <div id="master-remind-banner" style="display:none;background:#FFF6E5;border:1px solid #F0D9A8;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:14px;color:#7A5A12;line-height:1.7"></div>
       <div class="subtabs" style="margin-bottom:14px">
         <div class="subtab active" id="mst-sub-vaccines" onclick="switchMasterSub('vaccines')">💉 疫苗主檔</div>
         <div class="subtab" id="mst-sub-pages" onclick="switchMasterSub('pages')">📑 分頁設定</div>
         <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理</div>
         <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')">🎯 起始庫存匯入</div>
-        <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心</div>
+        <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
       </div>
 
       <div id="master-panel-vaccines">
@@ -1519,7 +1520,7 @@ async function initApp(){
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
-    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}${t.id==='master'?' <span id="tab-badge-master" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span>':''}</div>`
+    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}${t.id==='master'?' <span id="tab-badge-master" title="點我直接看待處理事項" onclick="event.stopPropagation();goMasterReminders()" style="cursor:pointer;display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span>':''}</div>`
   ).join('');
 
   document.getElementById('inv-date').value = todayStr();
@@ -2352,12 +2353,33 @@ async function refreshMasterTabBadge(count, labCount){
   }
   masterBadgeHis = count;
   const total = masterBadgeHis + masterBadgeLab;
+  const parts = [];
+  if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
+  if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
+  const subBadge = document.getElementById('mst-sub-remind-badge');
+  const banner = document.getElementById('master-remind-banner');
   if(total>0){
     badgeEl.textContent = total;
     badgeEl.style.display = '';
+    badgeEl.title = parts.map(t=>t.replace(/<[^>]+>/g,'')).join('\n') + '\n（點我前往提醒中心）';
+    if(subBadge){ subBadge.textContent = total; subBadge.style.display = ''; }
+    if(banner){
+      banner.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div><div style="font-weight:600;margin-bottom:2px">🔔 目前有 ${total} 件待處理事項</div>${parts.map(t=>`<div>・${t}</div>`).join('')}</div>
+        <button class="btn btn-sm" style="white-space:nowrap" onclick="goMasterReminders()">前往提醒中心處理 →</button>
+      </div>`;
+      banner.style.display = '';
+    }
   } else {
     badgeEl.style.display = 'none';
+    if(subBadge) subBadge.style.display = 'none';
+    if(banner) banner.style.display = 'none';
   }
+}
+
+function goMasterReminders(){
+  showTab('master');
+  switchMasterSub('reminders');
 }
 
 async function markHisSetupDone(code8, lotNo){
