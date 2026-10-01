@@ -5376,16 +5376,15 @@ async function renderUploadHistory(){
   }
 
   const uDates = Object.keys(uMap).sort().reverse().slice(0,10);
-  document.getElementById('usage-history-body').innerHTML = uDates.length ? `<div class="tbl-wrap"><table>
-    <thead><tr><th style="width:110px">日期</th><th class="c">品項筆數</th><th style="width:140px">上傳人員</th><th style="width:110px">操作</th></tr></thead>
+  document.getElementById('usage-history-body').innerHTML = uDates.length ? `<div class="tbl-wrap"><table data-nosort>
+    <thead><tr><th style="width:110px">日期</th><th class="c">品項筆數</th><th style="width:140px">上傳人員</th><th style="width:100px">明細</th></tr></thead>
     <tbody>${uDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
       <td class="c">${uMap[d]}</td>
       <td style="font-size:13px;color:#666">${namesOf(uByDate[d])}</td>
-      <td>
-        <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteUsageDate('${d}')">刪除</button>
-      </td>
-    </tr>`).join('')}</tbody></table></div>`
+      <td><button class="btn btn-sm" style="font-size:13px" onclick="toggleUsageDetail('${d}')">查看/刪除</button></td>
+    </tr>
+    <tr id="usage-detail-row-${d}" style="display:none"><td colspan="4" style="padding:0"><div id="usage-detail-${d}" style="padding:8px 12px;background:#fafaf8"></div></td></tr>`).join('')}</tbody></table></div>`
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
 
   const sMap = {};
@@ -5425,7 +5424,7 @@ async function renderUploadHistory(){
   });
   const whDates = Object.keys(whMap).sort().reverse();
 
-  document.getElementById('whrecv-history-body').innerHTML = whDates.length ? `<div class="tbl-wrap"><table>
+  document.getElementById('whrecv-history-body').innerHTML = whDates.length ? `<div class="tbl-wrap"><table data-nosort>
     <thead><tr><th style="width:110px">領用日期</th><th class="c">進貨(向衛生所領)</th><th class="c">退貨(調回衛生所)</th><th style="width:140px">上傳人員</th><th style="width:100px">明細</th></tr></thead>
     <tbody>${whDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
@@ -5504,9 +5503,116 @@ async function deleteWhReceiveRow(tx){
   setTimeout(()=>toggleWhReceiveDetail(tx.tx_date), 100);
 }
 
+async function toggleUsageDetail(date, keepOpen){
+  const row = document.getElementById('usage-detail-row-'+date);
+  const box = document.getElementById('usage-detail-'+date);
+  if(!row) return;
+  const opening = keepOpen || row.style.display === 'none';
+  document.querySelectorAll('[id^="usage-detail-row-"]').forEach(r=>r.style.display='none');
+  if(!opening) return;
+  row.style.display = '';
+  box.innerHTML = '載入中...';
+
+  const { data, error } = await sb.from('usage_uploads')
+    .select('drug_code8,lot_no,usage_qty,uploaded_by')
+    .eq('upload_date', date).order('drug_code8');
+  if(error){ box.innerHTML = `查詢失敗：${error.message}`; return; }
+  if(!data || !data.length){ box.innerHTML = '<div style="color:#bbb;font-size:13px">查無明細</div>'; return; }
+
+  const detailCodes = [...new Set(data.map(r=>r.drug_code8))];
+  const [{data:vnames}, {data:detailUsers}] = await Promise.all([
+    sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', detailCodes),
+    sb.from('users').select('emp_id,name')
+  ]);
+  const vnameMap = {}; (vnames||[]).forEach(v=>{ vnameMap[v.drug_code8] = v.tally_name; });
+  const userNameMap = {}; (detailUsers||[]).forEach(u=>{ userNameMap[u.emp_id] = u.name; });
+  const zh = (a,b)=>String(a||'').localeCompare(String(b||''),'zh-Hant');
+  data.sort((a,b)=> zh(vnameMap[a.drug_code8]||a.drug_code8, vnameMap[b.drug_code8]||b.drug_code8) || zh(a.lot_no,b.lot_no));
+  const total = data.reduce((s,r)=>s+Number(r.usage_qty||0),0);
+
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+      <span style="font-size:13px;color:#666">${data.length} 筆，共 ${total} 劑</span>
+      <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteUsageDate('${date}')">刪除這天全部</button>
+    </div>
+    <table data-nosort style="width:100%;font-size:13px">
+    <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">8碼</th><th style="text-align:left">批號</th><th>耗用劑數</th><th>上傳人員</th><th></th></tr></thead>
+    <tbody>${data.map(r=>`<tr>
+      <td>${vnameMap[r.drug_code8] || r.drug_code8}</td>
+      <td style="font-family:monospace;font-size:12px;color:#888">${r.drug_code8}</td>
+      <td style="font-family:monospace">${r.lot_no||'—'}</td>
+      <td style="text-align:center">${r.usage_qty}</td>
+      <td style="text-align:center;color:#666">${userNameMap[r.uploaded_by] || r.uploaded_by || '—'}</td>
+      <td style="text-align:center"><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// 依某一天資料庫裡現有的耗用，重新計算「藥庫領用即整瓶扣帳」品項的藥庫扣帳（先全部還原，再依剩下的耗用重扣）
+async function recalcWholeVialForDate(date){
+  const warnings = [];
+  const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
+  for(const pd of (prevDeducts||[])){
+    const { data: lot } = await sb.from('lot_details').select('*').eq('drug_code8', pd.drug_code8).eq('campus','wh').eq('lot_no', pd.lot_no).maybeSingle();
+    if(lot) await sb.from('lot_details').update({ current_qty: Number(lot.current_qty||0) + Number(pd.qty||0) }).eq('lot_id', lot.lot_id);
+  }
+  await sb.from('warehouse_transactions').delete().eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
+
+  const { data: usage } = await sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty').eq('upload_date', date);
+  const codes = [...new Set((usage||[]).map(r=>r.drug_code8))];
+  if(!codes.length) return warnings;
+  const { data: vmRows } = await sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,alias_of').in('drug_code8', codes);
+  const vmap = {}; (vmRows||[]).forEach(v=>vmap[v.drug_code8]=v);
+  const aliasTargets = [...new Set((vmRows||[]).map(v=>v.alias_of).filter(a=>a && !vmap[a]))];
+  if(aliasTargets.length){
+    const { data: at } = await sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,alias_of').in('drug_code8', aliasTargets);
+    (at||[]).forEach(v=>vmap[v.drug_code8]=v);
+  }
+  for(const r of (usage||[])){
+    const vm = vmap[r.drug_code8];
+    if(!vm || !vm.whole_vial_deduct) continue;
+    const ownDosesPerVial = vm.doses_per_vial || 1;
+    const vials = Math.ceil(Number(r.usage_qty||0) / ownDosesPerVial);
+    const effCode = vm.alias_of || r.drug_code8;
+    const costDosesPerVial = vm.alias_of ? ((vmap[vm.alias_of] && vmap[vm.alias_of].doses_per_vial) || ownDosesPerVial) : ownDosesPerVial;
+    const doseCost = vials * costDosesPerVial;
+    if(doseCost <= 0) continue;
+    const { data: lot } = await sb.from('lot_details').select('*').eq('drug_code8', effCode).eq('campus','wh').eq('lot_no', r.lot_no).maybeSingle();
+    if(!lot){ warnings.push(`${date} ${vm.tally_name||r.drug_code8}（批號${r.lot_no}）：藥庫查無這個批號，無法自動扣庫存，請手動確認`); continue; }
+    await sb.from('lot_details').update({ current_qty: Number(lot.current_qty||0) - doseCost }).eq('lot_id', lot.lot_id);
+    await sb.from('warehouse_transactions').insert({
+      drug_code8: effCode, lot_no: r.lot_no, campus: 'wh', direction: 'out', reason: 'wholevial_pull',
+      qty: doseCost, target_campus: null,
+      note: `注射室領用整瓶報銷：當日用${r.usage_qty}劑（來源8碼${r.drug_code8}），以整瓶${vials}瓶（${doseCost}劑）計算扣帳`,
+      tx_date: date, created_by: me.emp_id
+    });
+  }
+  return warnings;
+}
+
+// 刪除單筆耗用（某天某品項某批號），連動刪除B肝劑別拆分，並重算整瓶扣帳的藥庫庫存
+async function deleteUsageRow(u){
+  if(!confirm(`確定刪除這筆耗用紀錄嗎？\n${u.date}　${u.name}\n批號 ${u.lot_no||'—'}　${u.qty} 劑\n\n如果是整瓶扣帳品項，藥庫庫存會一併重新計算。`)) return;
+  let q = sb.from('usage_uploads').delete().eq('upload_date', u.date).eq('drug_code8', u.drug_code8);
+  q = u.lot_no===null || u.lot_no===undefined ? q.is('lot_no', null) : q.eq('lot_no', u.lot_no);
+  const { error } = await q;
+  if(error){ alert('刪除失敗：'+error.message); return; }
+  try{
+    let dq = sb.from('usage_dose_breakdown').delete().eq('upload_date', u.date).eq('drug_code8', u.drug_code8);
+    dq = u.lot_no===null || u.lot_no===undefined ? dq.is('lot_no', null) : dq.eq('lot_no', u.lot_no);
+    await dq;
+  }catch(e){}
+  const warns = await recalcWholeVialForDate(u.date);
+  if(warns.length) alert('⚠️ 以下品項無法自動扣庫存：\n'+warns.join('\n'));
+  await renderUploadHistory();
+  toggleUsageDetail(u.date, true);
+}
+
 async function deleteUsageDate(date){
-  if(!confirm(`確定刪除 ${date} 的全院合計耗用上傳紀錄？`)) return;
-  await sb.from('usage_uploads').delete().eq('upload_date', date);
+  if(!confirm(`確定刪除 ${date} 的全部耗用上傳紀錄？\n（一般疫苗、流感等這天所有品項都會刪除；整瓶扣帳品項的藥庫庫存會一併還原）`)) return;
+  const { error } = await sb.from('usage_uploads').delete().eq('upload_date', date);
+  if(error){ alert('刪除失敗：'+error.message); return; }
+  try{ await sb.from('usage_dose_breakdown').delete().eq('upload_date', date); }catch(e){}
+  await recalcWholeVialForDate(date);
   renderUploadHistory();
 }
 
