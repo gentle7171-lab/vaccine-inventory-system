@@ -893,6 +893,15 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
+        <div id="labform-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleLabFormPanel()">
+            🧾 待收檢驗單 <span id="labform-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+            <span id="labform-toggle-arrow" style="font-size:12px;color:#999">▼</span>
+          </div>
+          <div style="font-size:12px;color:#999;margin-top:4px">主檔勾選「有耗用時提醒收檢驗單」的品項，近60天耗用報表有耗用的日期會列在這裡；檢驗單收齊後按右邊的按鈕標記完成。</div>
+          <div id="labform-panel-body" style="margin-top:10px"></div>
+        </div>
+
         <div id="multilot-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleMultiLotPanel()">
             ⚠️ 同品項多批號 <span id="multilot-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
@@ -987,6 +996,13 @@ input[type=number]{-moz-appearance:textfield}
         略過庫存報表比對（這個品項的庫存報表數字不可信，只看盤點量）
       </label>
       <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">適用於院內系統把好幾個品項合併成同一個庫存碼、匯出的庫存報表數字本來就不準確的情況。勾選後，管理總覽不會再對這個品項顯示「不吻合」警示，也不會出現在斗六撥補建議裡。</div>
+    </div>
+    <div class="fg" style="margin-top:6px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="vacc-lab-form-reminder" style="width:16px;height:16px">
+        有耗用時提醒收檢驗單
+      </label>
+      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">勾選後，耗用報表上傳成功時會跳提醒，提醒中心的「待收檢驗單」也會列出這個品項有耗用的日期，收齊後按一下標記完成。</div>
     </div>
 
     <!-- 批號管理（新增／編輯皆顯示，未儲存前顯示提示） -->
@@ -2311,9 +2327,16 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-async function refreshMasterTabBadge(count){
+let masterBadgeHis = 0, masterBadgeLab = 0;
+async function refreshMasterTabBadge(count, labCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
+  if(labCount!==undefined){
+    masterBadgeLab = labCount;
+    count = masterBadgeHis;
+  } else if(count===undefined){
+    try{ masterBadgeLab = (await fetchLabFormPending()).pending.length; }catch(e){ masterBadgeLab = 0; }
+  }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
     const { data: vmasterRows } = await sb.from('vaccine_master').select('drug_code8,status').eq('status','active');
@@ -2327,8 +2350,10 @@ async function refreshMasterTabBadge(count){
     });
     count = Object.values(groups).filter(done=>!done).length;
   }
-  if(count>0){
-    badgeEl.textContent = count;
+  masterBadgeHis = count;
+  const total = masterBadgeHis + masterBadgeLab;
+  if(total>0){
+    badgeEl.textContent = total;
     badgeEl.style.display = '';
   } else {
     badgeEl.style.display = 'none';
@@ -2350,6 +2375,95 @@ async function toggleLotHisSetup(lotId, current, code8){
   if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
   await refreshLots(code8);
   renderVaccines();
+}
+
+/* ══════════════ 待收檢驗單 ══════════════ */
+let labFormPanelOpen = true;
+const LAB_FORM_DAYS = 60;
+
+function toggleLabFormPanel(){
+  labFormPanelOpen = !labFormPanelOpen;
+  document.getElementById('labform-panel-body').style.display = labFormPanelOpen ? '' : 'none';
+  document.getElementById('labform-toggle-arrow').textContent = labFormPanelOpen ? '▼' : '▶';
+}
+
+// 依「日期＋藥品8碼」彙總近60天有耗用、但還沒標記收齊的紀錄
+async function fetchLabFormPending(){
+  const { data: vrows, error: vErr } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').eq('lab_form_reminder', true).eq('status','active');
+  if(vErr) throw new Error('vaccine_master 尚未新增 lab_form_reminder 欄位（'+vErr.message+'）');
+  const vmap = {}; (vrows||[]).forEach(v=>vmap[v.drug_code8]=v);
+  const codes = Object.keys(vmap);
+  if(!codes.length) return { pending:[], vmap, noItems:true };
+  const since = new Date(); since.setDate(since.getDate()-LAB_FORM_DAYS);
+  const sinceStr = since.toISOString().slice(0,10);
+  const [{ data: usage }, { data: checks, error: cErr }] = await Promise.all([
+    sb.from('usage_uploads').select('upload_date,drug_code8,usage_qty').in('drug_code8', codes).gte('upload_date', sinceStr),
+    sb.from('lab_form_checks').select('upload_date,drug_code8').gte('upload_date', sinceStr)
+  ]);
+  if(cErr) throw new Error('尚未建立 lab_form_checks 資料表（'+cErr.message+'）');
+  const done = new Set((checks||[]).map(c=>c.upload_date+'|'+c.drug_code8));
+  const g = {};
+  (usage||[]).forEach(u=>{
+    const q = Number(u.usage_qty||0); if(q<=0) return;
+    const k = u.upload_date+'|'+u.drug_code8;
+    if(done.has(k)) return;
+    if(!g[k]) g[k] = { upload_date:u.upload_date, drug_code8:u.drug_code8, qty:0 };
+    g[k].qty += q;
+  });
+  const pending = Object.values(g).sort((a,b)=> a.upload_date.localeCompare(b.upload_date) || (vmap[a.drug_code8]?.tally_name||'').localeCompare(vmap[b.drug_code8]?.tally_name||''));
+  return { pending, vmap };
+}
+
+async function renderLabFormPanel(){
+  const body = document.getElementById('labform-panel-body');
+  const badge = document.getElementById('labform-count-badge');
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+  let res;
+  try{ res = await fetchLabFormPending(); }
+  catch(e){
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">${e.message}，請先到 Supabase 執行建立欄位／資料表的 SQL</div>`;
+    badge.textContent = ''; return;
+  }
+  const { pending, vmap, noItems } = res;
+  badge.textContent = pending.length ? `（${pending.length}筆）` : '';
+  body.style.display = labFormPanelOpen ? '' : 'none';
+  document.getElementById('labform-toggle-arrow').textContent = labFormPanelOpen ? '▼' : '▶';
+  refreshMasterTabBadge(undefined, pending.length);
+  if(noItems){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">還沒有品項勾選「有耗用時提醒收檢驗單」，請到疫苗主檔編輯品項勾選</div>';
+    return;
+  }
+  if(!pending.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待收的檢驗單</div>';
+    return;
+  }
+  body.innerHTML = `<div style="text-align:right;margin-bottom:8px"><button class="btn btn-sm" style="font-size:13px" onclick="markAllLabFormDone()">全部標記已收齊</button></div>
+  <div class="tbl-wrap"><table style="font-size:15px">
+    <thead><tr><th style="width:120px;font-size:14px">耗用日期</th><th style="width:240px;font-size:14px">品項</th><th style="width:90px;font-size:14px" class="c">耗用劑數</th><th style="width:170px;font-size:14px">狀況</th></tr></thead>
+    <tbody>${pending.map(r=>{
+      const v = vmap[r.drug_code8]||{};
+      return `<tr>
+        <td style="font-size:15px">${r.upload_date}</td>
+        <td style="font-size:16px">${v.tally_name||r.drug_code8}${v.stock_code4?`<div style="font-size:12px;color:#999">${v.stock_code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.drug_code8}</div></td>
+        <td class="c" style="font-size:16px">${r.qty}</td>
+        <td><button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="markLabFormDone([{upload_date:'${r.upload_date}',drug_code8:'${r.drug_code8}'}])">尚未收齊，收好點我</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+async function markLabFormDone(list){
+  const rows = list.map(x=>({ upload_date:x.upload_date, drug_code8:x.drug_code8, done_by: me.emp_id }));
+  const { error } = await sb.from('lab_form_checks').upsert(rows, { onConflict:'upload_date,drug_code8' });
+  if(error){ alert('標記失敗：'+error.message); return; }
+  renderLabFormPanel();
+}
+
+async function markAllLabFormDone(){
+  let res; try{ res = await fetchLabFormPending(); }catch(e){ alert(e.message); return; }
+  if(!res.pending.length) return;
+  if(!confirm(`確定要把目前 ${res.pending.length} 筆待收檢驗單全部標記為已收齊嗎？`)) return;
+  markLabFormDone(res.pending);
 }
 
 /* ══════════════ 同品項多批號 ══════════════ */
@@ -3261,6 +3375,7 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-dl-par-level').value = data.dl_par_level!=null ? data.dl_par_level : '';
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-skip-stock-compare').checked = !!data.skip_stock_compare;
+      document.getElementById('vacc-lab-form-reminder').checked = !!data.lab_form_reminder;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
     }
@@ -3284,6 +3399,7 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-dl-par-level').value = '';
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-skip-stock-compare').checked = false;
+    document.getElementById('vacc-lab-form-reminder').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
     document.getElementById('vacc-lots-placeholder').style.display = '';
@@ -3310,6 +3426,7 @@ async function saveVaccine(){
     dl_par_level: (function(){ const v = document.getElementById('vacc-dl-par-level').value.trim(); return v ? parseFloat(v) : null; })(),
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     skip_stock_compare: document.getElementById('vacc-skip-stock-compare').checked,
+    lab_form_reminder: document.getElementById('vacc-lab-form-reminder').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
     status: 'active'
@@ -4241,6 +4358,7 @@ function switchMasterSub(tab){
   if(tab==='accounts') renderAccounts();
   if(tab==='reminders'){
     renderHisSetupPanel();
+    renderLabFormPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -4420,8 +4538,26 @@ async function commitUsageUpload(){
   validRows.forEach(r=>{ (byDate[r.date] = byDate[r.date]||[]).push(r); });
   const dates = Object.keys(byDate).sort();
 
+  // 只取代「這份檔案裡有出現的品項」在該日期的舊資料；同一天其他品項（例如另一份報表上傳的流感疫苗）完全不動
+  const fileCodes = {};
+  dates.forEach(d=>{ fileCodes[d] = [...new Set(byDate[d].map(r=>r.drug_code8))]; });
+  const { data: existRows, error: existErr } = await sb.from('usage_uploads').select('upload_date,drug_code8,niis_code,lot_no,usage_qty').in('upload_date', dates);
+  if(existErr){ alert('讀取既有耗用資料失敗：'+existErr.message); return; }
+  const fullDay = {};          // 該日期寫入後的完整耗用（本檔品項＋其他報表保留的品項），整瓶扣帳要依整天重算
+  const replacedInfo = [];
+  dates.forEach(d=>{
+    const fset = new Set(fileCodes[d]);
+    const others = [], replaced = new Set();
+    (existRows||[]).filter(e=>e.upload_date===d).forEach(e=>{
+      if(fset.has(e.drug_code8)) replaced.add(e.drug_code8);
+      else others.push({ date:d, drug_code8:e.drug_code8, lot_no:e.lot_no, niis_code:e.niis_code, usage_qty:Number(e.usage_qty||0), tally_name:e.drug_code8 });
+    });
+    fullDay[d] = byDate[d].concat(others);
+    if(replaced.size) replacedInfo.push(`${d}（${replaced.size} 個品項）`);
+  });
+
   // 「藥庫領用即整瓶扣帳」的品項（例如卡介苗），要另外抓每瓶劑量／政策旗標，才能算出當天要扣幾瓶
-  const codes = [...new Set(validRows.map(r=>r.drug_code8))];
+  const codes = [...new Set(dates.flatMap(d=>fullDay[d].map(r=>r.drug_code8)))];
   const { data: vmasterRows } = codes.length ? await sb.from('vaccine_master').select('drug_code8,doses_per_vial,whole_vial_deduct,alias_of').in('drug_code8', codes) : {data:[]};
   const vmasterMap = {}; (vmasterRows||[]).forEach(v=>vmasterMap[v.drug_code8]=v);
   // 有些品項是「別名」（跟另一個8碼共用同一批批號，但每次領用單位不同，例如半劑瓶用了就整瓶報銷），
@@ -4433,13 +4569,15 @@ async function commitUsageUpload(){
   }
 
   const summary = dates.map(d=>`${d}：${byDate[d].length} 筆`).join('\n');
-  if(!confirm(`確定要寫入以下 ${dates.length} 天、共 ${validRows.length} 筆全院合計耗用資料嗎？\n（每一天都會先清除該天原本已上傳的耗用報表，再寫入新的）\n\n${summary}`)) return;
+  const replaceNote = replacedInfo.length ? `\n\n以下日期這份檔案裡的品項原本已有資料，會用這次的數字取代：\n${replacedInfo.join('\n')}` : '';
+  if(!confirm(`確定要寫入以下 ${dates.length} 天、共 ${validRows.length} 筆全院合計耗用資料嗎？\n（只會更新這份檔案裡有的品項，同一天其他品項的耗用不受影響）\n\n${summary}${replaceNote}`)) return;
 
   const vialDeductWarnings = [];
   let vialDeductCount = 0;
 
   for(const date of dates){
-    await sb.from('usage_uploads').delete().eq('upload_date', date);
+    const { error: delErr } = await sb.from('usage_uploads').delete().eq('upload_date', date).in('drug_code8', fileCodes[date]);
+    if(delErr){ alert(`清除 ${date} 舊資料失敗：${delErr.message}`); return; }
     const rows = byDate[date].map(r=>({
       upload_date: date, campus:null, drug_code8:r.drug_code8, niis_code:r.niis_code||null, lot_no:r.lot_no, usage_qty:r.usage_qty, uploaded_by: me.emp_id
     }));
@@ -4448,10 +4586,14 @@ async function commitUsageUpload(){
 
     // 劑別拆分（第幾劑）只用於B肝報表統計，非必要資料，失敗不影響主流程
     try{
-      await sb.from('usage_dose_breakdown').delete().eq('upload_date', date);
-      const doseRows = usageDoseGrouped.filter(d=>d.date===date).map(d=>({
-        upload_date: d.date, drug_code8: d.drug_code8, lot_no: d.lot_no, dose_no: d.dose_no, qty: d.qty
-      }));
+      const dm = {};
+      usageDoseGrouped.filter(d=>d.date===date).forEach(d=>{
+        const k = d.drug_code8+'|'+d.lot_no+'|'+d.dose_no;
+        if(dm[k]) dm[k].qty += Number(d.qty||0);
+        else dm[k] = { upload_date: d.date, drug_code8: d.drug_code8, lot_no: d.lot_no, dose_no: d.dose_no, qty: Number(d.qty||0) };
+      });
+      await sb.from('usage_dose_breakdown').delete().eq('upload_date', date).in('drug_code8', fileCodes[date]);
+      const doseRows = Object.values(dm);
       if(doseRows.length) await sb.from('usage_dose_breakdown').insert(doseRows);
     }catch(e){ /* 劑別拆分非必要資料，靜默略過 */ }
 
@@ -4463,7 +4605,7 @@ async function commitUsageUpload(){
     }
     await sb.from('warehouse_transactions').delete().eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
 
-    for(const r of byDate[date]){
+    for(const r of fullDay[date]){
       const vm = vmasterMap[r.drug_code8];
       if(!vm || !vm.whole_vial_deduct) continue;
       const ownDosesPerVial = vm.doses_per_vial || 1;              // 用來算「這次用量相當於開了幾瓶」
@@ -4489,10 +4631,24 @@ async function commitUsageUpload(){
     }
   }
 
-  let msg = `✓ 上傳成功，共 ${dates.length} 天、${validRows.length} 筆`;
+  let msg = `✓ 上傳成功，共 ${dates.length} 天、${validRows.length} 筆` + (replacedInfo.length ? `\n（已取代舊資料：${replacedInfo.join('、')}；其他品項未受影響）` : '');
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
   if(vialDeductWarnings.length) msg += `\n\n⚠️ 以下品項無法自動扣庫存：\n${vialDeductWarnings.join('\n')}`;
+  try{
+    const { data: labItems } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('lab_form_reminder', true);
+    const labMap = {}; (labItems||[]).forEach(v=>labMap[v.drug_code8]=v.tally_name);
+    const labAgg = {};
+    validRows.forEach(r=>{
+      if(!labMap[r.drug_code8] || !(Number(r.usage_qty)>0)) return;
+      const k = r.date+'|'+r.drug_code8;
+      if(!labAgg[k]) labAgg[k] = { date:r.date, name:labMap[r.drug_code8], qty:0 };
+      labAgg[k].qty += Number(r.usage_qty);
+    });
+    const labLines = Object.values(labAgg).sort((a,b)=>a.date.localeCompare(b.date)).map(x=>`${x.date}　${x.name}　${x.qty}劑`);
+    if(labLines.length) msg += `\n\n🧾 記得收檢驗單：\n${labLines.join('\n')}`;
+  }catch(e){}
   alert(msg);
+  if(me && (me.role==='admin'||me.role==='warehouse')) refreshMasterTabBadge();
   document.getElementById('usage-file').value='';
   document.getElementById('usage-preview-wrap').style.display='none';
   usageGrouped = [];
