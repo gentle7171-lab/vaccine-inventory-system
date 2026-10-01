@@ -15,6 +15,8 @@
 body{font-family:'Microsoft JhengHei','PingFang TC',system-ui,-apple-system,sans-serif;font-size:18px;color:#1a1a1a;background:#f5f5f3}
 .screen{display:none}.screen.active{display:block}
 .sort-ico{font-size:11px;color:#1B3A6B}
+table.as-off .as-ico{display:none}
+table.as-off th.as-th{cursor:default !important}
 
 .login-wrap{display:flex;align-items:center;justify-content:center;padding:48px 16px;min-height:100vh;background:#F4F5F7}
 .login-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px}
@@ -532,7 +534,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card"><div class="lbl">耗用量合計</div><div class="val" id="niis-nextday-total">—</div></div>
         </div>
         <div class="tbl-wrap">
-          <table>
+          <table data-nosort>
             <thead><tr><th style="width:90px">疫苗代碼</th><th>NIIS疫苗名稱</th><th style="width:140px">批號</th><th class="c" style="width:100px">耗用量</th></tr></thead>
             <tbody id="niis-nextday-body"></tbody>
           </table>
@@ -544,7 +546,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="card"><div class="lbl">耗用量合計</div><div class="val" id="niis-sameday-total">—</div></div>
         </div>
         <div class="tbl-wrap" style="margin-bottom:20px">
-          <table>
+          <table data-nosort>
             <thead><tr><th style="width:90px">疫苗代碼</th><th>NIIS疫苗名稱</th><th style="width:140px">批號</th><th class="c" style="width:100px">耗用量</th></tr></thead>
             <tbody id="niis-sameday-body"></tbody>
           </table>
@@ -2551,7 +2553,7 @@ async function renderOverview(){
   document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#bbb">載入中...</td></tr>';
 
   // 撈全部 active 品項（不分院區）
-  const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status, skip_stock_compare)').eq('status','active');
+  const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status, skip_stock_compare, master_sort_order)').eq('status','active');
   if(itemErr){
     document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${itemErr.message}</td></tr>`;
     return;
@@ -2568,6 +2570,24 @@ async function renderOverview(){
   }
 
   const assignedItems = (items||[]).filter(it => it.page_id);
+
+  // 盤點分頁順序（斗六→虎尾），讓預設排序跟盤點表一致
+  const { data: ovPages } = await sb.from('tally_pages').select('page_id,campus,sort_order').in('campus',['dl','hw']);
+  const pageOrder = {};
+  (ovPages||[]).forEach(pg=>{ pageOrder[pg.page_id] = (pg.campus==='dl'?0:100000) + Number(pg.sort_order||0)*1000; });
+  const tallyKeyOf = it => {
+    const po = pageOrder[it.page_id];
+    if(po===undefined) return 900000;
+    const io = (it.item_sort_order===null||it.item_sort_order===undefined) ? 999 : Number(it.item_sort_order);
+    return po + io;
+  };
+  const tallyKeyMap = {};
+  assignedItems.forEach(it=>{
+    const k = tallyKeyOf(it);
+    if(tallyKeyMap[it.drug_code8]===undefined || (it.campus==='dl' && k < tallyKeyMap[it.drug_code8]) ) {
+      if(tallyKeyMap[it.drug_code8]===undefined || it.campus==='dl') tallyKeyMap[it.drug_code8] = k;
+    }
+  });
 
   // 取得唯一疫苗清單（依斗六分頁順序排列）
   const dlItems = assignedItems.filter(it => it.campus==='dl');
@@ -2587,9 +2607,9 @@ async function renderOverview(){
 
   const extraCodes = Object.keys(whComputedMap).filter(c=>!seenCodes.has(c));
   if(extraCodes.length){
-    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4,skip_stock_compare').in('drug_code8', extraCodes).eq('status','active');
+    const { data: extraMaster } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4,skip_stock_compare,master_sort_order').in('drug_code8', extraCodes).eq('status','active');
     (extraMaster||[]).forEach(v=>{
-      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4, skip_stock_compare:v.skip_stock_compare}, _whOnly:true });
+      uniqueVaccines.push({ drug_code8:v.drug_code8, vaccine_master:{tally_name:v.tally_name, stock_code4:v.stock_code4, skip_stock_compare:v.skip_stock_compare, master_sort_order:v.master_sort_order}, _whOnly:true });
       seenCodes.add(v.drug_code8);
     });
   }
@@ -2660,7 +2680,10 @@ async function renderOverview(){
       ? [dl,hw,wh].some(x => x.tally===null)
       : [dl,hw,wh].some(x => x.tally===null || x.stock===null);
     const mismatch = dl.mismatch || hw.mismatch || wh.mismatch;
-    ovRowsCache.push({ code8:v.drug_code8, name, code4, dl, hw, wh, note, pending, mismatch });
+    const mso = v.vaccine_master ? v.vaccine_master.master_sort_order : null;
+    ovRowsCache.push({ code8:v.drug_code8, name, code4, dl, hw, wh, note, pending, mismatch,
+      tallyKey: tallyKeyMap[v.drug_code8]!==undefined ? tallyKeyMap[v.drug_code8] : 950000,
+      masterKey: (mso===null||mso===undefined) ? Infinity : Number(mso) });
   }
 
   document.getElementById('ov-total').textContent = uniqueVaccines.length;
@@ -2683,6 +2706,10 @@ function renderOverviewRows(){
     if(statusFilter==='pending' && !r.pending) return false;
     return true;
   });
+
+  // 預設依盤點表順序；點欄位標題可另外排序
+  const zh = (a,b) => String(a||'').localeCompare(String(b||''), 'zh-Hant');
+  filtered.sort((a,b)=> (a.tallyKey-b.tallyKey) || (a.masterKey-b.masterKey) || zh(a.name,b.name));
 
   if(!filtered.length){
     document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">${ovRowsCache.length?'沒有符合條件的品項':'尚無資料'}</td></tr>`;
@@ -7328,6 +7355,95 @@ async function exportMonthlyReportExcel(){
 document.querySelectorAll('.modal-bg').forEach(el => el.addEventListener('click', function(e){ if(e.target===this) closeModal(this.id); }));
 document.getElementById('u-pass').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
 document.getElementById('u-user').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('u-pass').focus(); });
+</script>
+<script>
+/* ===== 全系統表格：點欄位標題排序（跟主檔維護同一套操作：點一次升冪▲、再點一次降冪▼） =====
+   純畫面排序，不改任何資料；已經有自己排序功能的表格、或有合併儲存格／可拖曳的表格會自動略過 */
+(function(){
+  const SKIP_LABEL = /^(操作|編輯|明細|刪除|功能)$/;
+  function cellVal(td){
+    if(!td) return '';
+    const f = td.querySelector('input:not([type=checkbox]),select,textarea');
+    return (f ? f.value : td.textContent).trim();
+  }
+  function cmpVal(a,b){
+    const ea = (a===''||a==='—'||a==='-'), eb = (b===''||b==='—'||b==='-');
+    if(ea||eb) return ea&&eb ? 0 : ea ? 1 : -1;
+    const na = Number(a.replace(/,/g,'')), nb = Number(b.replace(/,/g,''));
+    if(isFinite(na) && isFinite(nb)) return na-nb;
+    return a.localeCompare(b,'zh-Hant',{numeric:true});
+  }
+  function sortable(tbl){
+    const tb = tbl.tBodies[0];
+    if(!tb) return false;
+    if(tb.querySelector('[rowspan],[draggable],[onmousedown]')) return false;
+    return true;
+  }
+  function refresh(tbl){
+    const ok = sortable(tbl);
+    tbl.classList.toggle('as-off', !ok);
+    const st = tbl._as;
+    st.ths.forEach((th,i)=>{
+      const ico = th.querySelector('.as-ico');
+      if(ico) ico.textContent = (st.col===i) ? (st.dir==='asc'?'▲':'▼') : '';
+    });
+    if(ok && st.col!==null) apply(tbl);
+  }
+  function apply(tbl){
+    const st = tbl._as, tb = tbl.tBodies[0];
+    const n = st.ths.length;
+    const rows = [...tb.rows];
+    if(rows.length<2 || rows.some(r=>r.cells.length!==n)) return;
+    const keyed = rows.map((r,i)=>({r,i,v:cellVal(r.cells[st.col])}));
+    const isE = v => (v===''||v==='—'||v==='-');
+    keyed.sort((x,y)=>{
+      const ex = isE(x.v), ey = isE(y.v);
+      if(ex||ey) return (ex&&ey) ? (x.i-y.i) : ex ? 1 : -1;
+      const c = cmpVal(x.v,y.v); return (st.dir==='asc'?c:-c) || (x.i-y.i);
+    });
+    if(keyed.every((k,i)=>k.r===rows[i])) return;
+    const frag = document.createDocumentFragment();
+    keyed.forEach(k=>frag.appendChild(k.r));
+    tb.appendChild(frag);
+    st.obs.takeRecords();
+  }
+  function init(tbl){
+    if(tbl._as || tbl.hasAttribute('data-nosort') || tbl.closest('#sec-niisrep')) return;
+    const th0 = tbl.tHead;
+    if(!th0 || th0.rows.length!==1) return;
+    const ths = [...th0.rows[0].cells];
+    if(!ths.length || ths.some(th=>th.hasAttribute('onclick') || th.colSpan>1 || th.rowSpan>1)) return;
+    const st = { ths, col:null, dir:'asc', obs:null };
+    tbl._as = st;
+    ths.forEach((th,i)=>{
+      const label = th.textContent.trim();
+      if(!label || SKIP_LABEL.test(label) || th.querySelector('input,button,select')) return;
+      th.classList.add('as-th');
+      th.style.cursor = 'pointer'; th.style.userSelect = 'none';
+      const ico = document.createElement('span');
+      ico.className = 'sort-ico as-ico'; ico.style.marginLeft = '3px';
+      th.appendChild(ico);
+      th.addEventListener('click', ()=>{
+        if(tbl.classList.contains('as-off')) return;
+        if(st.col===i) st.dir = st.dir==='asc' ? 'desc' : 'asc';
+        else { st.col = i; st.dir = 'asc'; }
+        refresh(tbl);
+      });
+    });
+    st.obs = new MutationObserver(muts=>{
+      if(muts.some(m=>m.target.tagName==='TBODY' || m.target===tbl)) refresh(tbl);
+    });
+    st.obs.observe(tbl, {childList:true, subtree:true});
+    refresh(tbl);
+  }
+  function scan(){ document.querySelectorAll('table').forEach(init); }
+  let pending = false;
+  new MutationObserver(()=>{
+    if(pending) return; pending = true;
+    requestAnimationFrame(()=>{ pending = false; scan(); });
+  }).observe(document.body, {childList:true, subtree:true});
+  scan();
+})();
 </script>
 </body>
 </html>
