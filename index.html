@@ -5589,6 +5589,24 @@ async function deleteWhReceiveRow(tx){
     .eq('direction', tx.direction).eq('reason', tx.reason).eq('qty', tx.qty).eq('tx_date', tx.tx_date);
   if(error){ alert('刪除失敗：'+error.message); return; }
 
+  // 刪除後如果這個批號已經完全沒有任何紀錄（例如批號打錯、已改用正確批號重新上傳），詢問要不要把批號本身一起移除，
+  // 否則批號管理、NIIS結存輔助還會一直列出這個打錯的批號
+  try{
+    const [{ data: restTx }, { data: restUsage }, { data: restLots }] = await Promise.all([
+      sb.from('warehouse_transactions').select('drug_code8').eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no).limit(1),
+      sb.from('usage_uploads').select('drug_code8').eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no).limit(1),
+      sb.from('lot_details').select('lot_id,current_qty').eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no)
+    ]);
+    const allZero = (restLots||[]).every(l=>Number(l.current_qty||0)===0);
+    if(!(restTx||[]).length && !(restUsage||[]).length && (restLots||[]).length && allZero){
+      if(confirm(`批號 ${tx.lot_no} 已經沒有任何進出貨、耗用紀錄，庫存也是 0。\n\n要一併移除這個批號嗎？（批號管理、NIIS結存輔助都不會再列出它，包含這個批號的NIIS結存紀錄）\n\n如果是批號打錯、已用正確批號重新上傳，建議按「確定」。`)){
+        await sb.from('niis_declare_log').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
+        const { error: lotDelErr } = await sb.from('lot_details').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
+        if(lotDelErr) alert('移除批號失敗：'+lotDelErr.message);
+      }
+    }
+  }catch(e){}
+
   renderUploadHistory();
   setTimeout(()=>toggleWhReceiveDetail(tx.tx_date), 100);
 }
