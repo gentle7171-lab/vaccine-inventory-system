@@ -4551,6 +4551,45 @@ async function recomputeLotStock(campus, keys){
   }
 }
 
+// 耗用上傳遇到「同一天、同一品項資料庫已有資料」時，讓使用者選：取代／略過／取消
+function askUsageConflictMode(conflicts){
+  return new Promise(resolve=>{
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    const rowsHtml = conflicts.map(c=>{
+      const same = c.oldQty===c.newQty;
+      return `<tr>
+        <td style="padding:6px 8px;font-size:13px;white-space:nowrap">${c.date}</td>
+        <td style="padding:6px 8px;font-size:13px">${c.name}<div style="font-size:11px;color:#999">${c.code8}</div></td>
+        <td style="padding:6px 8px;font-size:13px;text-align:center">${c.oldQty}</td>
+        <td style="padding:6px 8px;font-size:13px;text-align:center;${same?'':'color:#A32D2D;font-weight:600'}">${c.newQty}</td>
+      </tr>`;
+    }).join('');
+    const diffCount = conflicts.filter(c=>c.oldQty!==c.newQty).length;
+    ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:20px 20px 16px;box-shadow:0 10px 30px rgba(0,0,0,0.2)">
+      <div style="font-size:16px;font-weight:600;color:#1B3A6B;margin-bottom:6px">有 ${conflicts.length} 個品項資料庫裡已經有耗用資料</div>
+      <div style="font-size:13px;color:#666;margin-bottom:10px">${diffCount ? `其中 <b style="color:#A32D2D">${diffCount}</b> 個數字不一樣（紅字）。` : '數字都跟資料庫一樣。'}其他沒重複的品項會照常寫入。</div>
+      <div style="overflow:auto;border:1px solid #eee;border-radius:8px">
+        <table data-nosort style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f7f7f5"><th style="padding:6px 8px;font-size:12px;text-align:left">日期</th><th style="padding:6px 8px;font-size:12px;text-align:left">品項</th><th style="padding:6px 8px;font-size:12px">資料庫原本</th><th style="padding:6px 8px;font-size:12px">這份檔案</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div style="font-size:12px;color:#666;margin-top:10px;line-height:1.7">
+        <b>取代</b>：這幾個品項改用這份檔案的數字。<br>
+        <b>略過</b>：這幾個品項保留資料庫原本的數字，只寫入其他沒重複的品項。
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">
+        <button class="btn" data-v="">取消</button>
+        <button class="btn" data-v="skip">略過重複品項</button>
+        <button class="btn btn-primary" data-v="replace">取代</button>
+      </div>
+    </div>`;
+    ov.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{ ov.remove(); resolve(b.dataset.v||null); }));
+    document.body.appendChild(ov);
+  });
+}
+
 async function commitUsageUpload(){
   if(!usageGrouped.length){ alert('請先選擇並解析檔案'); return; }
   const validRows = usageGrouped.filter(r=>r.tally_name);
@@ -4566,17 +4605,42 @@ async function commitUsageUpload(){
   const { data: existRows, error: existErr } = await sb.from('usage_uploads').select('upload_date,drug_code8,niis_code,lot_no,usage_qty').in('upload_date', dates);
   if(existErr){ alert('讀取既有耗用資料失敗：'+existErr.message); return; }
   const fullDay = {};          // 該日期寫入後的完整耗用（本檔品項＋其他報表保留的品項），整瓶扣帳要依整天重算
-  const replacedInfo = [];
+  let replacedInfo = [];
+  const conflicts = [];        // 這份檔案跟資料庫重複的品項（同一天、同一個8碼）
   dates.forEach(d=>{
     const fset = new Set(fileCodes[d]);
-    const others = [], replaced = new Set();
+    const others = [], replaced = new Set(), oldQty = {};
     (existRows||[]).filter(e=>e.upload_date===d).forEach(e=>{
-      if(fset.has(e.drug_code8)) replaced.add(e.drug_code8);
+      if(fset.has(e.drug_code8)){ replaced.add(e.drug_code8); oldQty[e.drug_code8] = (oldQty[e.drug_code8]||0) + Number(e.usage_qty||0); }
       else others.push({ date:d, drug_code8:e.drug_code8, lot_no:e.lot_no, niis_code:e.niis_code, usage_qty:Number(e.usage_qty||0), tally_name:e.drug_code8 });
     });
     fullDay[d] = byDate[d].concat(others);
     if(replaced.size) replacedInfo.push(`${d}（${replaced.size} 個品項）`);
+    replaced.forEach(c=>{
+      const newRows = byDate[d].filter(r=>r.drug_code8===c);
+      conflicts.push({ date:d, code8:c, name:(newRows[0]&&newRows[0].tally_name)||c, oldQty:oldQty[c], newQty:newRows.reduce((t,r)=>t+Number(r.usage_qty||0),0) });
+    });
   });
+
+  // 有重複品項時，讓使用者選「取代」或「略過（保留資料庫原本的）」
+  let usageMode = 'replace';
+  let writtenCount = validRows.length;
+  if(conflicts.length){
+    usageMode = await askUsageConflictMode(conflicts);
+    if(!usageMode) return;
+    if(usageMode==='skip'){
+      const skipSet = new Set(conflicts.map(c=>c.date+'|'+c.code8));
+      dates.forEach(d=>{
+        byDate[d] = byDate[d].filter(r=>!skipSet.has(d+'|'+r.drug_code8));
+        fileCodes[d] = [...new Set(byDate[d].map(r=>r.drug_code8))];
+        const others = (existRows||[]).filter(e=>e.upload_date===d).map(e=>({ date:d, drug_code8:e.drug_code8, lot_no:e.lot_no, niis_code:e.niis_code, usage_qty:Number(e.usage_qty||0), tally_name:e.drug_code8 }));
+        fullDay[d] = byDate[d].concat(others);
+      });
+      writtenCount = dates.reduce((t,d)=>t+byDate[d].length,0);
+      replacedInfo = [];
+      if(!writtenCount){ alert('這份檔案的品項資料庫裡都已經有了，略過後沒有需要寫入的資料。'); return; }
+    }
+  }
 
   // 「藥庫領用即整瓶扣帳」的品項（例如卡介苗），要另外抓每瓶劑量／政策旗標，才能算出當天要扣幾瓶
   const codes = [...new Set(dates.flatMap(d=>fullDay[d].map(r=>r.drug_code8)))];
@@ -4592,12 +4656,15 @@ async function commitUsageUpload(){
 
   const summary = dates.map(d=>`${d}：${byDate[d].length} 筆`).join('\n');
   const replaceNote = replacedInfo.length ? `\n\n以下日期這份檔案裡的品項原本已有資料，會用這次的數字取代：\n${replacedInfo.join('\n')}` : '';
-  if(!confirm(`確定要寫入以下 ${dates.length} 天、共 ${validRows.length} 筆全院合計耗用資料嗎？\n（只會更新這份檔案裡有的品項，同一天其他品項的耗用不受影響）\n\n${summary}${replaceNote}`)) return;
+  if(!conflicts.length){
+    if(!confirm(`確定要寫入以下 ${dates.length} 天、共 ${validRows.length} 筆全院合計耗用資料嗎？\n（只會更新這份檔案裡有的品項，同一天其他品項的耗用不受影響）\n\n${summary}`)) return;
+  }
 
   const vialDeductWarnings = [];
   let vialDeductCount = 0;
 
   for(const date of dates){
+    if(!byDate[date].length) continue;
     const { error: delErr } = await sb.from('usage_uploads').delete().eq('upload_date', date).in('drug_code8', fileCodes[date]);
     if(delErr){ alert(`清除 ${date} 舊資料失敗：${delErr.message}`); return; }
     const rows = byDate[date].map(r=>({
@@ -4609,7 +4676,8 @@ async function commitUsageUpload(){
     // 劑別拆分（第幾劑）只用於B肝報表統計，非必要資料，失敗不影響主流程
     try{
       const dm = {};
-      usageDoseGrouped.filter(d=>d.date===date).forEach(d=>{
+      const fcSet = new Set(fileCodes[date]);
+      usageDoseGrouped.filter(d=>d.date===date && fcSet.has(d.drug_code8)).forEach(d=>{
         const k = d.drug_code8+'|'+d.lot_no+'|'+d.dose_no;
         if(dm[k]) dm[k].qty += Number(d.qty||0);
         else dm[k] = { upload_date: d.date, drug_code8: d.drug_code8, lot_no: d.lot_no, dose_no: d.dose_no, qty: Number(d.qty||0) };
@@ -4653,7 +4721,7 @@ async function commitUsageUpload(){
     }
   }
 
-  let msg = `✓ 上傳成功，共 ${dates.length} 天、${validRows.length} 筆` + (replacedInfo.length ? `\n（已取代舊資料：${replacedInfo.join('、')}；其他品項未受影響）` : '');
+  let msg = `✓ 上傳成功，寫入 ${writtenCount} 筆` + (usageMode==='skip' ? `\n（已略過 ${conflicts.length} 個資料庫原本就有的品項，保留原本的數字）` : (replacedInfo.length ? `\n（已取代舊資料：${replacedInfo.join('、')}；其他品項未受影響）` : ''));
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
   if(vialDeductWarnings.length) msg += `\n\n⚠️ 以下品項無法自動扣庫存：\n${vialDeductWarnings.join('\n')}`;
   try{
