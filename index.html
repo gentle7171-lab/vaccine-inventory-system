@@ -4563,25 +4563,29 @@ function askUsageConflictMode(conflicts){
         <td style="padding:6px 8px;font-size:13px">${c.name}<div style="font-size:11px;color:#999">${c.code8}</div></td>
         <td style="padding:6px 8px;font-size:13px;text-align:center">${c.oldQty}</td>
         <td style="padding:6px 8px;font-size:13px;text-align:center;${same?'':'color:#A32D2D;font-weight:600'}">${c.newQty}</td>
+        <td style="padding:6px 8px;font-size:13px;text-align:center;color:#1B3A6B">${c.oldQty + c.newQty}</td>
       </tr>`;
     }).join('');
     const diffCount = conflicts.filter(c=>c.oldQty!==c.newQty).length;
-    ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:20px 20px 16px;box-shadow:0 10px 30px rgba(0,0,0,0.2)">
+    ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:620px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:20px 20px 16px;box-shadow:0 10px 30px rgba(0,0,0,0.2)">
       <div style="font-size:16px;font-weight:600;color:#1B3A6B;margin-bottom:6px">有 ${conflicts.length} 個品項資料庫裡已經有耗用資料</div>
       <div style="font-size:13px;color:#666;margin-bottom:10px">${diffCount ? `其中 <b style="color:#A32D2D">${diffCount}</b> 個數字不一樣（紅字）。` : '數字都跟資料庫一樣。'}其他沒重複的品項會照常寫入。</div>
       <div style="overflow:auto;border:1px solid #eee;border-radius:8px">
         <table data-nosort style="width:100%;border-collapse:collapse">
-          <thead><tr style="background:#f7f7f5"><th style="padding:6px 8px;font-size:12px;text-align:left">日期</th><th style="padding:6px 8px;font-size:12px;text-align:left">品項</th><th style="padding:6px 8px;font-size:12px">資料庫原本</th><th style="padding:6px 8px;font-size:12px">這份檔案</th></tr></thead>
+          <thead><tr style="background:#f7f7f5"><th style="padding:6px 8px;font-size:12px;text-align:left">日期</th><th style="padding:6px 8px;font-size:12px;text-align:left">品項</th><th style="padding:6px 8px;font-size:12px">資料庫原本</th><th style="padding:6px 8px;font-size:12px">這份檔案</th><th style="padding:6px 8px;font-size:12px">累加後</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
       <div style="font-size:12px;color:#666;margin-top:10px;line-height:1.7">
         <b>取代</b>：這幾個品項改用這份檔案的數字。<br>
-        <b>略過</b>：這幾個品項保留資料庫原本的數字，只寫入其他沒重複的品項。
+        <b>略過</b>：這幾個品項保留資料庫原本的數字，只寫入其他沒重複的品項。<br>
+        <b>累加</b>：把這份檔案的數字加到原本的數字上（例如隔天補登前一天的帳）。
       </div>
+      ${conflicts.some(c=>c.oldQty===c.newQty) ? `<div style="background:#FCEBEB;color:#A32D2D;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:8px">⚠️ 有品項的數字跟資料庫一模一樣，可能是同一份檔案重複上傳，這種情況不要選「累加」，否則數量會變兩倍。</div>` : ''}
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">
         <button class="btn" data-v="">取消</button>
         <button class="btn" data-v="skip">略過重複品項</button>
+        <button class="btn" data-v="add">累加</button>
         <button class="btn btn-primary" data-v="replace">取代</button>
       </div>
     </div>`;
@@ -4640,6 +4644,24 @@ async function commitUsageUpload(){
       replacedInfo = [];
       if(!writtenCount){ alert('這份檔案的品項資料庫裡都已經有了，略過後沒有需要寫入的資料。'); return; }
     }
+    if(usageMode==='add'){
+      // 累加：重複品項把資料庫原本的數量加上這份檔案的數量（同批號相加；資料庫有、檔案沒有的批號保留）
+      const addSet = new Set(conflicts.map(c=>c.date+'|'+c.code8));
+      dates.forEach(d=>{
+        const m = {};
+        byDate[d].forEach(r=>{ const k = r.drug_code8+'|'+r.lot_no; if(m[k]) m[k].usage_qty = Number(m[k].usage_qty)+Number(r.usage_qty||0); else m[k] = {...r, usage_qty:Number(r.usage_qty||0)}; });
+        (existRows||[]).filter(e=>e.upload_date===d && addSet.has(d+'|'+e.drug_code8)).forEach(e=>{
+          const k = e.drug_code8+'|'+e.lot_no;
+          if(m[k]) m[k].usage_qty += Number(e.usage_qty||0);
+          else m[k] = { date:d, drug_code8:e.drug_code8, lot_no:e.lot_no, niis_code:e.niis_code, usage_qty:Number(e.usage_qty||0), tally_name:e.drug_code8 };
+        });
+        byDate[d] = Object.values(m);
+        const fset = new Set(fileCodes[d]);
+        const others = (existRows||[]).filter(e=>e.upload_date===d && !fset.has(e.drug_code8)).map(e=>({ date:d, drug_code8:e.drug_code8, lot_no:e.lot_no, niis_code:e.niis_code, usage_qty:Number(e.usage_qty||0), tally_name:e.drug_code8 }));
+        fullDay[d] = byDate[d].concat(others);
+      });
+      replacedInfo = [];
+    }
   }
 
   // 「藥庫領用即整瓶扣帳」的品項（例如卡介苗），要另外抓每瓶劑量／政策旗標，才能算出當天要扣幾瓶
@@ -4677,6 +4699,13 @@ async function commitUsageUpload(){
     try{
       const dm = {};
       const fcSet = new Set(fileCodes[date]);
+      if(usageMode==='add'){
+        const addCodes = conflicts.filter(c=>c.date===date).map(c=>c.code8);
+        if(addCodes.length){
+          const { data: oldDose } = await sb.from('usage_dose_breakdown').select('drug_code8,lot_no,dose_no,qty').eq('upload_date', date).in('drug_code8', addCodes);
+          (oldDose||[]).forEach(o=>{ dm[o.drug_code8+'|'+o.lot_no+'|'+o.dose_no] = { upload_date:date, drug_code8:o.drug_code8, lot_no:o.lot_no, dose_no:o.dose_no, qty:Number(o.qty||0) }; });
+        }
+      }
       usageDoseGrouped.filter(d=>d.date===date && fcSet.has(d.drug_code8)).forEach(d=>{
         const k = d.drug_code8+'|'+d.lot_no+'|'+d.dose_no;
         if(dm[k]) dm[k].qty += Number(d.qty||0);
@@ -4721,7 +4750,7 @@ async function commitUsageUpload(){
     }
   }
 
-  let msg = `✓ 上傳成功，寫入 ${writtenCount} 筆` + (usageMode==='skip' ? `\n（已略過 ${conflicts.length} 個資料庫原本就有的品項，保留原本的數字）` : (replacedInfo.length ? `\n（已取代舊資料：${replacedInfo.join('、')}；其他品項未受影響）` : ''));
+  let msg = `✓ 上傳成功，寫入 ${writtenCount} 筆` + (usageMode==='skip' ? `\n（已略過 ${conflicts.length} 個資料庫原本就有的品項，保留原本的數字）` : usageMode==='add' ? `\n（${conflicts.length} 個重複品項已累加到原本的數字上）` : (replacedInfo.length ? `\n（已取代舊資料：${replacedInfo.join('、')}；其他品項未受影響）` : ''));
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
   if(vialDeductWarnings.length) msg += `\n\n⚠️ 以下品項無法自動扣庫存：\n${vialDeductWarnings.join('\n')}`;
   try{
