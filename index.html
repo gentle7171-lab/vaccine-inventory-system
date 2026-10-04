@@ -4418,16 +4418,30 @@ async function handleUsageFile(input){
   }catch(e){ alert('檔案解析失敗：'+e.message); return; }
   if(!rows || rows.length<2){ alert('檔案內容空白或格式錯誤'); return; }
 
-  const headerIdx = findHeaderRowIdx(rows, ['藥品八碼','藥品8碼','八碼']);
-  if(headerIdx < 0){ alert('找不到必要欄位（藥品八碼／批號／給藥量），請確認檔案格式'); return; }
+  // 支援兩種格式：
+  //  ① 一般耗用報表：藥品八碼／批號／給藥量／處方確認日期／疫苗劑別代碼（每列是彙總後的數量）
+  //  ② 當日施打清單（例如「今日施打流感疫苗清單」）：藥碼／批號／處方日期／劑別，沒有數量欄位，每一列＝一位民眾施打一劑
+  const exactIdx = (header, names) => header.findIndex(h=>names.includes(String(h||'').trim()));
+  let headerIdx = findHeaderRowIdx(rows, ['藥品八碼','藥品8碼','八碼']);
+  if(headerIdx < 0){
+    for(let i=0;i<Math.min(rows.length,15);i++){
+      const h = (rows[i]||[]).map(x=>String(x||'').trim());
+      if(exactIdx(h,['藥碼'])>=0 && findColIdx(h,['批號'])>=0){ headerIdx = i; break; }
+    }
+  }
+  if(headerIdx < 0){ alert('找不到必要欄位（藥品八碼或藥碼／批號），請確認檔案格式'); return; }
   const header = rows[headerIdx].map(h=>String(h||'').trim());
-  const idxCode8 = findColIdx(header, ['藥品八碼','藥品8碼','八碼']);
+  let idxCode8 = findColIdx(header, ['藥品八碼','藥品8碼','八碼']);
+  if(idxCode8<0) idxCode8 = exactIdx(header, ['藥碼']);
   const idxNiis = findColIdx(header, ['疫苗代碼']);
   const idxLot = findColIdx(header, ['批號']);
   const idxQty = findColIdx(header, ['給藥量','數量']);
-  const idxRxDate = findColIdx(header, ['處方確認日期','施打日期','用藥日期','投藥日期']);
-  const idxDoseNo = findColIdx(header, ['疫苗劑別代碼','劑別代碼','疫苗劑別']);
-  if(idxLot<0 || idxQty<0){ alert('找不到必要欄位（批號／給藥量），請確認檔案格式'); return; }
+  let idxRxDate = findColIdx(header, ['處方確認日期','施打日期','用藥日期','投藥日期']);
+  if(idxRxDate<0) idxRxDate = findColIdx(header, ['處方日期']);
+  let idxDoseNo = findColIdx(header, ['疫苗劑別代碼','劑別代碼','疫苗劑別']);
+  if(idxDoseNo<0) idxDoseNo = exactIdx(header, ['劑別']);
+  const perRowMode = idxQty<0;   // 沒有數量欄位 → 每一列算 1 劑
+  if(idxLot<0){ alert('找不到必要欄位（批號），請確認檔案格式'); return; }
 
   const dataRows = rows.slice(headerIdx+1).filter(r=>r && r.length && String(r[idxCode8]||'').trim());
 
@@ -4444,7 +4458,7 @@ async function handleUsageFile(input){
     const lot = String(r[idxLot]||'').trim();
     if(!code8 || !lot) return;
     const niis = idxNiis>=0 ? String(r[idxNiis]||'').trim() : '';
-    const qty = parseFloat(r[idxQty]) || 0;
+    const qty = perRowMode ? 1 : (parseFloat(r[idxQty]) || 0);
 
     let date = idxRxDate>=0 ? parseFlexDate(r[idxRxDate]) : null;
     if(!date){
@@ -4479,7 +4493,7 @@ async function handleUsageFile(input){
         const lot = String(r[idxLot]||'').trim();
         if(!code8 || !lot) return;
         const niis = idxNiis>=0 ? String(r[idxNiis]||'').trim() : '';
-        const qty = parseFloat(r[idxQty]) || 0;
+        const qty = perRowMode ? 1 : (parseFloat(r[idxQty]) || 0);
         const key = fallbackDate+'|'+code8+'|'+lot;
         if(!map[key]) map[key] = {date:fallbackDate, drug_code8:code8, lot_no:lot, niis_code:niis, usage_qty:0};
         map[key].usage_qty += qty;
@@ -4521,6 +4535,7 @@ async function handleUsageFile(input){
   const ubox = document.getElementById('usage-unmatch-box');
   let ubox_msgs = [];
   if(dateNotice) ubox_msgs.push(dateNotice);
+  if(perRowMode) ubox_msgs.push(`ℹ️ 這份檔案沒有「給藥量」欄位，判定為當日施打清單：每一列算 1 劑（共 ${dataRows.length} 列）。`);
   if(aliasNoted.size) ubox_msgs.push(`ℹ️ 以下藥品8碼已設定為別名（${[...aliasNoted].map(c=>`${c}→${aliasMap[c]}`).join('、')}）：消耗紀錄仍會分開存這個8碼，但NIIS結存輔助／月報表計算批號庫存時會自動合併成同一批`);
   if(unmatched.length) ubox_msgs.push(`⚠️ 以下藥品8碼於疫苗主檔查無資料，將不會寫入：${[...new Set(unmatched.map(u=>u.drug_code8))].join('、')}`);
   if(ubox_msgs.length){ ubox.style.display=''; ubox.innerHTML = ubox_msgs.join('<br>'); } else ubox.style.display='none';
@@ -5679,7 +5694,7 @@ async function toggleUsageDetail(date, keepOpen){
       <td style="font-family:monospace">${r.lot_no||'—'}</td>
       <td style="text-align:center">${r.usage_qty}</td>
       <td style="text-align:center;color:#666">${userNameMap[r.uploaded_by] || r.uploaded_by || '—'}</td>
-      <td style="text-align:center"><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
+      <td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
 }
@@ -5724,6 +5739,25 @@ async function recalcWholeVialForDate(date){
     });
   }
   return warnings;
+}
+
+// 修改單筆耗用數量（院內系統刪除多開處方、但無法重新匯出那天報表時的備用做法）
+async function editUsageRowQty(u){
+  const input = prompt(`修改耗用數量\n${u.date}　${u.name}\n批號 ${u.lot_no||'—'}\n\n目前 ${u.qty} 劑，請輸入正確的劑數：\n（之後如果重新上傳這天的報表並選「取代」，會改回報表上的數字）`, u.qty);
+  if(input===null) return;
+  const newQty = Number(String(input).trim());
+  if(!Number.isFinite(newQty) || newQty<0 || String(input).trim()===''){ alert('請輸入 0 以上的數字'); return; }
+  if(newQty===Number(u.qty)) return;
+  if(newQty===0){ return deleteUsageRow(u); }
+  let q = sb.from('usage_uploads').update({ usage_qty: newQty, uploaded_by: me.emp_id }).eq('upload_date', u.date).eq('drug_code8', u.drug_code8);
+  q = u.lot_no===null || u.lot_no===undefined ? q.is('lot_no', null) : q.eq('lot_no', u.lot_no);
+  const { error } = await q;
+  if(error){ alert('修改失敗：'+error.message); return; }
+  const warns = await recalcWholeVialForDate(u.date);
+  alert(`✓ 已把 ${u.date} ${u.name}（批號 ${u.lot_no||'—'}）從 ${u.qty} 劑改成 ${newQty} 劑`
+    + (warns.length ? '\n\n⚠️ 以下品項無法自動扣庫存：\n'+warns.join('\n') : ''));
+  await renderUploadHistory();
+  toggleUsageDetail(u.date, true);
 }
 
 // 刪除單筆耗用（某天某品項某批號），連動刪除B肝劑別拆分，並重算整瓶扣帳的藥庫庫存
