@@ -894,6 +894,12 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
+        <div id="manualedit-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B">✏️ 手動修改待確認 <span id="manualedit-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
+          <div style="font-size:12px;color:#999;margin-top:4px">在耗用明細用「修改數量」改過的品項會列在這裡（以實品為準）。到院內系統確認醫療端已經補帳或刪除處方後，按「已確認」。</div>
+          <div id="manualedit-panel-body" style="margin-top:10px"></div>
+        </div>
+
         <div id="labform-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleLabFormPanel()">
             🧾 待收檢驗單 <span id="labform-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
@@ -2344,15 +2350,19 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-let masterBadgeHis = 0, masterBadgeLab = 0;
-async function refreshMasterTabBadge(count, labCount){
+let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0;
+async function refreshMasterTabBadge(count, labCount, manualCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
-  if(labCount!==undefined){
+  if(manualCount!==undefined){
+    masterBadgeManual = manualCount;
+    count = masterBadgeHis;
+  } else if(labCount!==undefined){
     masterBadgeLab = labCount;
     count = masterBadgeHis;
   } else if(count===undefined){
     try{ masterBadgeLab = (await fetchLabFormPending()).pending.length; }catch(e){ masterBadgeLab = 0; }
+    try{ masterBadgeManual = (await fetchManualEditPending()).length; }catch(e){ masterBadgeManual = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -2368,10 +2378,11 @@ async function refreshMasterTabBadge(count, labCount){
     count = Object.values(groups).filter(done=>!done).length;
   }
   masterBadgeHis = count;
-  const total = masterBadgeHis + masterBadgeLab;
+  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual;
   const parts = [];
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
+  if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
   const subBadge = document.getElementById('mst-sub-remind-badge');
   const banner = document.getElementById('master-remind-banner');
   if(total>0){
@@ -2413,6 +2424,52 @@ async function toggleLotHisSetup(lotId, current, code8){
   if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
   await refreshLots(code8);
   renderVaccines();
+}
+
+/* ══════════════ 手動修改待確認 ══════════════ */
+async function fetchManualEditPending(){
+  const { data, error } = await sb.from('usage_manual_edits').select('*').order('upload_date',{ascending:true});
+  if(error) throw new Error('尚未建立 usage_manual_edits 資料表（'+error.message+'）');
+  return data||[];
+}
+
+async function renderManualEditPanel(){
+  const body = document.getElementById('manualedit-panel-body');
+  const badge = document.getElementById('manualedit-count-badge');
+  if(!body) return;
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+  let rows;
+  try{ rows = await fetchManualEditPending(); }
+  catch(e){ body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">${e.message}，請先到 Supabase 執行建立資料表的 SQL</div>`; badge.textContent=''; return; }
+  badge.textContent = rows.length ? `（${rows.length}筆）` : '';
+  refreshMasterTabBadge(undefined, undefined, rows.length);
+  if(!rows.length){ body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待確認的手動修改</div>'; return; }
+  const codes = [...new Set(rows.map(r=>r.drug_code8))];
+  const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name,stock_code4').in('drug_code8', codes);
+  const vmap = {}; (vrows||[]).forEach(v=>vmap[v.drug_code8]=v);
+  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th style="width:110px;font-size:14px">耗用日期</th><th style="width:230px;font-size:14px">品項</th><th style="font-size:14px">批號</th><th class="c" style="font-size:14px">報表原本</th><th class="c" style="font-size:14px">改成（實品）</th><th class="c" style="font-size:14px">差異</th><th style="width:110px;font-size:14px"></th></tr></thead>
+    <tbody>${rows.map(r=>{
+      const v = vmap[r.drug_code8]||{};
+      const diff = Number(r.manual_qty) - Number(r.original_qty);
+      const arg = JSON.stringify({date:r.upload_date, code8:r.drug_code8, lot:r.lot_no||'', name:v.tally_name||r.drug_code8}).replace(/'/g,'');
+      return `<tr>
+        <td style="font-size:14px">${r.upload_date}</td>
+        <td style="font-size:15px">${v.tally_name||r.drug_code8}<div style="font-size:12px;color:#bbb">${r.drug_code8}</div></td>
+        <td style="font-family:monospace;font-size:13px">${r.lot_no||'—'}</td>
+        <td class="c">${r.original_qty}</td>
+        <td class="c" style="font-weight:600;color:#1B3A6B">${r.manual_qty}</td>
+        <td class="c" style="color:${diff>0?'#1D9E75':'#A32D2D'}">${diff>0?'+':''}${diff}<div style="font-size:11px;color:#999">${diff>0?'少開，待補帳':'多開，待刪處方'}</div></td>
+        <td><button class="btn btn-sm" style="font-size:13px" onclick='confirmManualEdit(${arg})'>已確認</button></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+async function confirmManualEdit(x){
+  if(!confirm(`確認醫療端已經處理好了嗎？\n${x.date}　${x.name}\n批號 ${x.lot||'—'}\n\n按確定後這筆會從清單移除。`)) return;
+  const { error } = await sb.from('usage_manual_edits').delete().eq('upload_date', x.date).eq('drug_code8', x.code8).eq('lot_no', x.lot);
+  if(error){ alert('確認失敗：'+error.message); return; }
+  renderManualEditPanel();
 }
 
 /* ══════════════ 待收檢驗單 ══════════════ */
@@ -4397,6 +4454,7 @@ function switchMasterSub(tab){
   if(tab==='reminders'){
     renderHisSetupPanel();
     renderLabFormPanel();
+    renderManualEditPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -4632,14 +4690,15 @@ function askUsageConflictMode(conflicts){
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
     const keyOf = c => c.date+'|'+c.code8;
     const modes = {};
-    conflicts.forEach(c=>{ modes[keyOf(c)] = (c.oldQty===c.newQty) ? 'skip' : 'replace'; });
+    const defaultMode = c => (c.oldQty===c.newQty || c.manual) ? 'skip' : 'replace';
+    conflicts.forEach(c=>{ modes[keyOf(c)] = defaultMode(c); });
     const resultOf = (c,m) => m==='replace' ? c.newQty : m==='skip' ? c.oldQty : c.oldQty + c.newQty;
     const rowsHtml = conflicts.map((c,i)=>{
       const same = c.oldQty===c.newQty;
       return `<tr>
         <td style="padding:6px 8px;font-size:13px;white-space:nowrap">${c.date}</td>
         <td style="padding:6px 8px;font-size:13px">${c.name}<div style="font-size:11px;color:#999">${c.code8}</div></td>
-        <td style="padding:6px 8px;font-size:13px;text-align:center">${c.oldQty}</td>
+        <td style="padding:6px 8px;font-size:13px;text-align:center">${c.oldQty}${c.manual?'<div style="font-size:11px;color:#C77700;white-space:nowrap">✏️ 你手動改過</div>':''}</td>
         <td style="padding:6px 8px;font-size:13px;text-align:center;${same?'':'color:#A32D2D;font-weight:600'}">${c.newQty}</td>
         <td style="padding:6px 8px">
           <select data-i="${i}" class="inp" style="font-size:13px;padding:4px 6px;width:auto">
@@ -4654,7 +4713,7 @@ function askUsageConflictMode(conflicts){
     const diffCount = conflicts.filter(c=>c.oldQty!==c.newQty).length;
     ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:720px;width:100%;max-height:88vh;display:flex;flex-direction:column;padding:20px 20px 16px;box-shadow:0 10px 30px rgba(0,0,0,0.2)">
       <div style="font-size:16px;font-weight:600;color:#1B3A6B;margin-bottom:6px">有 ${conflicts.length} 個品項資料庫裡已經有耗用資料</div>
-      <div style="font-size:13px;color:#666;margin-bottom:8px">${diffCount ? `其中 <b style="color:#A32D2D">${diffCount}</b> 個數字不一樣（紅字），預設「取代」；` : ''}數字一樣的預設「略過」。可以每個品項各自調整，其他沒重複的品項會照常寫入。</div>
+      <div style="font-size:13px;color:#666;margin-bottom:8px">${diffCount ? `其中 <b style="color:#A32D2D">${diffCount}</b> 個數字不一樣（紅字），預設「取代」；` : ''}數字一樣、或你手動改過（✏️，以實品為準）的預設「略過」。可以每個品項各自調整，其他沒重複的品項會照常寫入。</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;align-items:center">
         <span style="color:#666">全部設為：</span>
         <button class="btn btn-sm" data-all="replace">取代</button>
@@ -4691,7 +4750,7 @@ function askUsageConflictMode(conflicts){
     };
     sels.forEach(sel=>sel.addEventListener('change',()=>{ modes[keyOf(conflicts[Number(sel.dataset.i)])] = sel.value; refresh(); }));
     ov.querySelectorAll('[data-all]').forEach(b=>b.addEventListener('click',()=>{
-      conflicts.forEach(c=>{ modes[keyOf(c)] = b.dataset.all==='default' ? ((c.oldQty===c.newQty)?'skip':'replace') : b.dataset.all; });
+      conflicts.forEach(c=>{ modes[keyOf(c)] = b.dataset.all==='default' ? defaultMode(c) : b.dataset.all; });
       refresh();
     }));
     ov.querySelector('[data-act="cancel"]').addEventListener('click',()=>{ ov.remove(); resolve(null); });
@@ -4718,6 +4777,11 @@ async function commitUsageUpload(){
   const fullDay = {};          // 該日期寫入後的完整耗用（本檔品項＋其他報表保留的品項），整瓶扣帳要依整天重算
   let replacedInfo = [];
   const conflicts = [];        // 這份檔案跟資料庫重複的品項（同一天、同一個8碼）
+  const manualSet = new Set(); // date|code8：這天這個品項有手動改過數量（以實品為準）
+  try{
+    const { data: edits } = await sb.from('usage_manual_edits').select('upload_date,drug_code8').in('upload_date', dates);
+    (edits||[]).forEach(e=>manualSet.add(e.upload_date+'|'+e.drug_code8));
+  }catch(e){}
   dates.forEach(d=>{
     const fset = new Set(fileCodes[d]);
     const others = [], replaced = new Set(), oldQty = {};
@@ -4729,7 +4793,7 @@ async function commitUsageUpload(){
     if(replaced.size) replacedInfo.push(`${d}（${replaced.size} 個品項）`);
     replaced.forEach(c=>{
       const newRows = byDate[d].filter(r=>r.drug_code8===c);
-      conflicts.push({ date:d, code8:c, name:(newRows[0]&&newRows[0].tally_name)||c, oldQty:oldQty[c], newQty:newRows.reduce((t,r)=>t+Number(r.usage_qty||0),0) });
+      conflicts.push({ date:d, code8:c, name:(newRows[0]&&newRows[0].tally_name)||c, oldQty:oldQty[c], newQty:newRows.reduce((t,r)=>t+Number(r.usage_qty||0),0), manual: manualSet.has(d+'|'+c) });
     });
   });
 
@@ -5769,6 +5833,11 @@ async function toggleUsageDetail(date, keepOpen){
   const zh = (a,b)=>String(a||'').localeCompare(String(b||''),'zh-Hant');
   data.sort((a,b)=> zh(vnameMap[a.drug_code8]||a.drug_code8, vnameMap[b.drug_code8]||b.drug_code8) || zh(a.lot_no,b.lot_no));
   const total = data.reduce((s,r)=>s+Number(r.usage_qty||0),0);
+  const manualMap = {};
+  try{
+    const { data: edits } = await sb.from('usage_manual_edits').select('drug_code8,lot_no,original_qty,manual_qty').eq('upload_date', date);
+    (edits||[]).forEach(e=>{ manualMap[e.drug_code8+'|'+(e.lot_no||'')] = e; });
+  }catch(e){}
 
   box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
       <span style="font-size:13px;color:#666">${data.length} 筆，共 ${total} 劑</span>
@@ -5780,7 +5849,7 @@ async function toggleUsageDetail(date, keepOpen){
       <td>${vnameMap[r.drug_code8] || r.drug_code8}</td>
       <td style="font-family:monospace;font-size:12px;color:#888">${r.drug_code8}</td>
       <td style="font-family:monospace">${r.lot_no||'—'}</td>
-      <td style="text-align:center">${r.usage_qty}</td>
+      <td style="text-align:center">${r.usage_qty}${(manualMap[r.drug_code8+'|'+(r.lot_no||'')] && Number(manualMap[r.drug_code8+'|'+(r.lot_no||'')].manual_qty)===Number(r.usage_qty)) ? `<div style="font-size:11px;color:#C77700;white-space:nowrap">✏️ 手動改過（報表原 ${manualMap[r.drug_code8+'|'+(r.lot_no||'')].original_qty}）</div>` : ''}</td>
       <td style="text-align:center;color:#666">${userNameMap[r.uploaded_by] || r.uploaded_by || '—'}</td>
       <td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
@@ -5841,8 +5910,19 @@ async function editUsageRowQty(u){
   q = u.lot_no===null || u.lot_no===undefined ? q.is('lot_no', null) : q.eq('lot_no', u.lot_no);
   const { error } = await q;
   if(error){ alert('修改失敗：'+error.message); return; }
+  // 記下「這筆是手動改過的（以實品為準）」，之後上傳報表遇到同一天同一品項時，預設會「略過」保留你改的數字
+  try{
+    const lotKey = u.lot_no||'';
+    const { data: oldEdit } = await sb.from('usage_manual_edits').select('original_qty').eq('upload_date', u.date).eq('drug_code8', u.drug_code8).eq('lot_no', lotKey).maybeSingle();
+    const { error: meErr } = await sb.from('usage_manual_edits').upsert({
+      upload_date: u.date, drug_code8: u.drug_code8, lot_no: lotKey, manual_qty: newQty,
+      original_qty: oldEdit ? oldEdit.original_qty : Number(u.qty), edited_by: me.emp_id, edited_at: new Date().toISOString()
+    }, { onConflict: 'upload_date,drug_code8,lot_no' });
+    if(meErr) console.warn('記錄手動修改失敗（可能尚未建立 usage_manual_edits 資料表）', meErr);
+  }catch(e){}
   const warns = await recalcWholeVialForDate(u.date);
-  alert(`✓ 已把 ${u.date} ${u.name}（批號 ${u.lot_no||'—'}）從 ${u.qty} 劑改成 ${newQty} 劑`
+  if(me && (me.role==='admin'||me.role==='warehouse')) refreshMasterTabBadge();
+  alert(`✓ 已把 ${u.date} ${u.name}（批號 ${u.lot_no||'—'}）從 ${u.qty} 劑改成 ${newQty} 劑\n已加入提醒中心「✏️ 手動修改待確認」，確認醫療端處理好後記得按已確認`
     + (warns.length ? '\n\n⚠️ 以下品項無法自動扣庫存：\n'+warns.join('\n') : ''));
   await renderUploadHistory();
   toggleUsageDetail(u.date, true);
@@ -5860,6 +5940,7 @@ async function deleteUsageRow(u){
     dq = u.lot_no===null || u.lot_no===undefined ? dq.is('lot_no', null) : dq.eq('lot_no', u.lot_no);
     await dq;
   }catch(e){}
+  try{ await sb.from('usage_manual_edits').delete().eq('upload_date', u.date).eq('drug_code8', u.drug_code8).eq('lot_no', u.lot_no||''); }catch(e){}
   const warns = await recalcWholeVialForDate(u.date);
   if(warns.length) alert('⚠️ 以下品項無法自動扣庫存：\n'+warns.join('\n'));
   await renderUploadHistory();
@@ -5871,6 +5952,7 @@ async function deleteUsageDate(date){
   const { error } = await sb.from('usage_uploads').delete().eq('upload_date', date);
   if(error){ alert('刪除失敗：'+error.message); return; }
   try{ await sb.from('usage_dose_breakdown').delete().eq('upload_date', date); }catch(e){}
+  try{ await sb.from('usage_manual_edits').delete().eq('upload_date', date); }catch(e){}
   await recalcWholeVialForDate(date);
   renderUploadHistory();
 }
@@ -6335,6 +6417,7 @@ function renderNiisMirrorRows(){
       <td colspan="7" style="padding:12px 16px">
         <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
           <div class="fg" style="margin:0"><label>申報日期</label><input type="date" class="inp" id="niis-mirror-date-${i}" value="${r.targetDate}" style="width:150px"></div>
+          ${!r.lastDeclareDate ? `<div class="fg" style="margin:0"><label>起始庫存量${r.wholeVial?'（瓶）':''}<span style="font-weight:400;color:#C77700;font-size:11px">（第一次結存，預設帶批號管理現有量，可改成實際全院數量）</span></label><input type="number" class="inp" id="niis-mirror-opening-${i}" value="${r.qty}" style="width:110px" oninput="updateNiisMirrorPreview(${i})"></div>` : ''}
           <div class="fg" style="margin:0"><label>消耗量${r.wholeVial?'（瓶）':''}${r.rawUsage!==undefined && r.usage!==r.rawUsage ? `<span style="font-weight:400;color:#C77700;font-size:11px">（實際施打${r.rawUsage}人，換算${r.usage}瓶）</span>` : ''}</label><input type="number" class="inp" id="niis-mirror-usage-${i}" value="${r.usage}" style="width:100px" oninput="updateNiisMirrorPreview(${i})"></div>
           <div class="fg" style="margin:0"><label>控留量</label><input type="number" class="inp" id="niis-mirror-hold-${i}" value="${r.hold}" style="width:100px"></div>
           <div class="fg" style="margin:0"><label>其他異動（退回衛生所等，正數＝扣掉、負數＝加回，例如撥入要填負數）</label><input type="number" class="inp" id="niis-mirror-adjust-${i}" value="${r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}" style="width:140px" oninput="updateNiisMirrorPreview(${i})"></div>
@@ -6418,12 +6501,19 @@ function checkMrEndNegative(inp){
   }
 }
 
+// 起始庫存量：有結存紀錄就用最新一筆的結存後庫存；第一次結存時用畫面上可自行修改的欄位
+function niisOpeningOf(r, i){
+  const el = document.getElementById('niis-mirror-opening-'+i);
+  if(el && el.value !== '') return parseFloat(el.value) || 0;
+  return r.qty;
+}
+
 function updateNiisMirrorPreview(i){
   const r = niisMirrorRows[i];
   if(!r) return;
   const usage = parseFloat(document.getElementById('niis-mirror-usage-'+i).value) || 0;
   const adjust = parseFloat(document.getElementById('niis-mirror-adjust-'+i)?.value) || 0;
-  const closing = r.qty - usage - adjust;
+  const closing = niisOpeningOf(r, i) - usage - adjust;
   const previewEl = document.getElementById('niis-mirror-preview-'+i);
   const warnEl = document.getElementById('niis-mirror-warn-'+i);
   previewEl.textContent = closing;
@@ -6448,7 +6538,7 @@ async function confirmNiisDeclare(i){
   const usage = parseFloat(document.getElementById('niis-mirror-usage-'+i).value) || 0;
   const hold = parseFloat(document.getElementById('niis-mirror-hold-'+i).value) || 0;
   const otherAdjust = parseFloat(document.getElementById('niis-mirror-adjust-'+i)?.value) || 0;
-  const opening = r.qty;
+  const opening = niisOpeningOf(r, i);
   const closing = opening - usage - otherAdjust;
 
   if(usage===0 && otherAdjust===0){
@@ -6492,9 +6582,10 @@ async function confirmNiisDeclare(i){
     // 這是這個批號第一次結存：起始庫存量是直接抓藥庫目前現有量，已經包含這個批號過去所有的進出貨，
     // 所以要把它過去所有的進出貨都標記為已套用，不然下次結存會被誤判成「還沒校正」而重複跳出來
     try{
+      // 只標記「申報日期當天以前」的進出貨；申報日期之後才發生的（例如之後才撥入），留到結存那天再列出來勾選
       await sb.from('warehouse_transactions').update({ niis_adjusted: true })
         .eq('campus','wh').eq('drug_code8', r.code8).eq('lot_no', r.lotNo)
-        .in('reason', ['receive_import','return_import']);
+        .in('reason', ['receive_import','return_import']).lte('tx_date', declareDate);
     }catch(err){ console.warn('標記首次結存前的藥庫異動失敗', err); }
   }
 
@@ -6594,13 +6685,35 @@ async function deleteNiisLog(code8, lotNo, declareDate, niisName){
   const idx = sameLot.indexOf(target);
   const prev = idx>0 ? sameLot[idx-1] : null;
   const isLatest = idx === sameLot.length-1;
-  const applied = Array.isArray(target.applied_adjust) ? target.applied_adjust : [];
+  const hasRecord = Array.isArray(target.applied_adjust);
+  const applied = hasRecord ? target.applied_adjust : [];
+  // 要改回「未套用」的藥庫進出貨：
+  //  ・新版紀錄：照當時記下的清單
+  //  ・第一次結存：當時一次標記的「申報日期以前」全部進出貨
+  //  ・舊版紀錄（沒記清單）：推估為「前一筆結存日期之後～這筆申報日期」之間、目前標記為已套用的進出貨
+  let restoreTx = [];
+  if(isLatest){
+    let tq = sb.from('warehouse_transactions').select('direction,reason,qty,tx_date').eq('campus','wh').eq('drug_code8', code8).eq('lot_no', lotNo)
+      .in('reason',['receive_import','return_import']).eq('niis_adjusted', true);
+    const { data: markedTx } = await tq;
+    const marked = markedTx||[];
+    if(target.first_declare || !prev){
+      restoreTx = marked.filter(t=>t.tx_date <= declareDate);
+      applied.forEach(a=>{
+        if(!restoreTx.some(t=>t.tx_date===a.tx_date && Number(t.qty)===Number(a.rawQty) && t.direction===a.direction)) restoreTx.push({direction:a.direction, reason:a.reason, qty:a.rawQty, tx_date:a.tx_date});
+      });
+    } else if(hasRecord){
+      restoreTx = applied.map(a=>({direction:a.direction, reason:a.reason, qty:a.rawQty, tx_date:a.tx_date}));
+    } else {
+      restoreTx = marked.filter(t=>t.tx_date > prev.declare_date && t.tx_date <= declareDate);
+    }
+  }
 
   let msg = `確定刪除這筆結存紀錄？\n${niisName}（批號 ${lotNo}）\n申報日期：${declareDate}\n起始 ${target.opening_stock} － 消耗 ${target.declared_usage}${Number(target.other_adjust||0)?` － 其他異動 ${target.other_adjust}`:''} ＝ 結存後 ${target.closing_stock}\n\n`;
   if(isLatest){
     msg += prev ? `刪除後，這個批號的結存數字會復原成前一次（${prev.declare_date}）的結存後庫存：${prev.closing_stock}。` : `這是這個批號唯一的一筆結存，刪除後起始庫存會改回藥庫目前的現有量。`;
-    if(applied.length) msg += `\n當時套用的 ${applied.length} 筆藥庫進出貨也會改回「未套用」，下次結存會重新列出來。`;
-    else if(target.applied_adjust===undefined || target.applied_adjust===null) msg += `\n（這筆是舊版本建立的紀錄，沒有記下當時套用了哪些藥庫進出貨；如果當時有勾選套用，下次結存請到「其他異動」手動補回）`;
+    if(restoreTx.length) msg += `\n\n以下藥庫進出貨會改回「未套用」，下次結存會重新列出來讓你勾選：\n${restoreTx.map(t=>`　${t.tx_date} ${t.direction==='in'?'撥入':'撥出'} ${t.qty}`).join('\n')}`;
+    if(!hasRecord && prev && !target.first_declare) msg += `\n（這筆是舊版本建立的紀錄，上面的清單是依日期推估的，請確認是否正確）`;
   } else {
     msg += `⚠️ 這筆不是這個批號最新的結存（之後還有 ${sameLot.length-1-idx} 筆），刪除後目前的結存數字不會改變，只是這天會重新變成「待結存」。如果要復原數字，請從最新的一筆開始往回刪。`;
   }
@@ -6610,12 +6723,12 @@ async function deleteNiisLog(code8, lotNo, declareDate, niisName){
   const { error } = await sb.from('niis_declare_log').delete().eq('drug_code8', code8).eq('lot_no', lotNo).eq('declare_date', declareDate);
   if(error){ alert('刪除失敗：'+error.message); return; }
 
-  if(isLatest && applied.length){
+  if(isLatest && restoreTx.length){
     try{
-      await Promise.all(applied.map(x =>
+      await Promise.all(restoreTx.map(x =>
         sb.from('warehouse_transactions').update({ niis_adjusted: false })
           .eq('campus','wh').eq('drug_code8', code8).eq('lot_no', lotNo)
-          .eq('direction', x.direction).eq('reason', x.reason).eq('qty', x.rawQty).eq('tx_date', x.tx_date)
+          .eq('direction', x.direction).eq('reason', x.reason).eq('qty', x.qty).eq('tx_date', x.tx_date)
       ));
     }catch(err){ alert('結存紀錄已刪除，但還原藥庫進出貨時發生錯誤：'+err.message); }
   }
