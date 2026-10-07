@@ -5730,8 +5730,9 @@ async function deleteWhReceiveRow(tx){
     ]);
     const allZero = (restLots||[]).every(l=>Number(l.current_qty||0)===0);
     if(!(restTx||[]).length && !(restUsage||[]).length && (restLots||[]).length && allZero){
-      if(confirm(`批號 ${tx.lot_no} 已經沒有任何進出貨、耗用紀錄，庫存也是 0。\n\n要一併移除這個批號嗎？（批號管理、NIIS結存輔助都不會再列出它，包含這個批號的NIIS結存紀錄）\n\n如果是批號打錯、已用正確批號重新上傳，建議按「確定」。`)){
+      if(confirm(`批號 ${tx.lot_no} 已經沒有任何進出貨、耗用紀錄，庫存也是 0。\n\n要一併移除這個批號嗎？（批號管理、NIIS結存輔助、月報表都不會再列出它，包含這個批號的NIIS結存紀錄和月結存紀錄）\n\n如果是批號打錯、已用正確批號重新上傳，建議按「確定」。`)){
         await sb.from('niis_declare_log').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
+        try{ await sb.from('lot_monthly_closing').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no); }catch(e){}
         const { error: lotDelErr } = await sb.from('lot_details').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
         if(lotDelErr) alert('移除批號失敗：'+lotDelErr.message);
       }
@@ -6462,11 +6463,28 @@ async function confirmNiisDeclare(i){
     : `確認結存：\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n記錄後這批號會更新結存數字；如果沒有其他待結存的日期，列表會恢復原本顏色。實際申報仍要自行到政府NIIS系統輸入送出。`;
   if(!confirm(confirmMsg)) return;
 
-  const { error } = await sb.from('niis_declare_log').upsert({
+  // 這次勾選套用的藥庫進出貨明細（一起存進結存紀錄，之後刪除這筆結存時才能把它們還原成「未套用」）
+  const checkedItems = [];
+  document.querySelectorAll(`.niis-adjitem[data-i="${i}"]`).forEach(cb=>{
+    if(cb.checked){
+      const j = Number(cb.dataset.j);
+      const x = r.autoAdjust[j];
+      if(x) checkedItems.push(x);
+    }
+  });
+  const appliedAdjust = checkedItems.map(x=>({ direction:x.direction, reason:x.reason, rawQty:x.rawQty, tx_date:x.tx_date }));
+  const logRow = {
     drug_code8: r.code8, lot_no: r.lotNo, declare_date: declareDate,
     declared_usage: usage, opening_stock: opening, closing_stock: closing, hold_qty: hold, other_adjust: otherAdjust,
-    declared_by: me.emp_id, declared_at: new Date().toISOString()
-  }, { onConflict: 'drug_code8,lot_no,declare_date' });
+    declared_by: me.emp_id, declared_at: new Date().toISOString(),
+    applied_adjust: appliedAdjust, first_declare: !r.lastDeclareDate
+  };
+  let { error } = await sb.from('niis_declare_log').upsert(logRow, { onConflict: 'drug_code8,lot_no,declare_date' });
+  if(error && /applied_adjust|first_declare/.test(error.message||'')){
+    // 還沒執行新增欄位的SQL：先照舊記錄，只是之後刪除時沒辦法自動還原藥庫進出貨
+    delete logRow.applied_adjust; delete logRow.first_declare;
+    ({ error } = await sb.from('niis_declare_log').upsert(logRow, { onConflict: 'drug_code8,lot_no,declare_date' }));
+  }
 
   if(error){ alert('結存記錄失敗：'+error.message); return; }
 
@@ -6481,14 +6499,6 @@ async function confirmNiisDeclare(i){
   }
 
   // 把這次勾選套用的藥庫進出貨明細標記為已套用，避免下次結存又重複列出來
-  const checkedItems = [];
-  document.querySelectorAll(`.niis-adjitem[data-i="${i}"]`).forEach(cb=>{
-    if(cb.checked){
-      const j = Number(cb.dataset.j);
-      const x = r.autoAdjust[j];
-      if(x) checkedItems.push(x);
-    }
-  });
   if(checkedItems.length){
     try{
       await Promise.all(checkedItems.map(x =>
@@ -6570,13 +6580,47 @@ async function bulkDeleteZeroNiisLog(){
   }
   alert(`已刪除 ${okCount} 筆${failCount?`，失敗 ${failCount} 筆`:''}`);
   renderNiisLogModal();
+  if(lastNiisMirrorVmaster && lastNiisMirrorVmaster.length) renderNiisMirror(lastNiisMirrorVmaster);
 }
 
+// 刪除一筆結存紀錄，並把數字復原：
+//  ・結存後庫存：系統是用「最新一筆結存」的結存後庫存量當起點，刪掉最新一筆後自動退回前一筆的結存數字（沒有前一筆就退回藥庫現有量）
+//  ・這筆結存當時勾選套用的藥庫進出貨：改回「未套用」，下次結存會重新列出來讓你勾選
 async function deleteNiisLog(code8, lotNo, declareDate, niisName){
-  if(!confirm(`確定刪除這筆結存紀錄？\n${niisName}（批號 ${lotNo}）\n申報日期：${declareDate}\n\n刪除後，這個批號的這個申報日期會重新變成「待結存」狀態（如果耗用報表資料還在的話）。`)) return;
+  const { data: logs } = await sb.from('niis_declare_log').select('*').eq('lot_no', lotNo).order('declare_date', {ascending:true});
+  const target = (logs||[]).find(l=>l.drug_code8===code8 && l.declare_date===declareDate);
+  if(!target){ alert('找不到這筆結存紀錄，可能已經被刪除'); renderNiisLogModal(); return; }
+  const sameLot = (logs||[]).filter(l=>l.drug_code8===code8);
+  const idx = sameLot.indexOf(target);
+  const prev = idx>0 ? sameLot[idx-1] : null;
+  const isLatest = idx === sameLot.length-1;
+  const applied = Array.isArray(target.applied_adjust) ? target.applied_adjust : [];
+
+  let msg = `確定刪除這筆結存紀錄？\n${niisName}（批號 ${lotNo}）\n申報日期：${declareDate}\n起始 ${target.opening_stock} － 消耗 ${target.declared_usage}${Number(target.other_adjust||0)?` － 其他異動 ${target.other_adjust}`:''} ＝ 結存後 ${target.closing_stock}\n\n`;
+  if(isLatest){
+    msg += prev ? `刪除後，這個批號的結存數字會復原成前一次（${prev.declare_date}）的結存後庫存：${prev.closing_stock}。` : `這是這個批號唯一的一筆結存，刪除後起始庫存會改回藥庫目前的現有量。`;
+    if(applied.length) msg += `\n當時套用的 ${applied.length} 筆藥庫進出貨也會改回「未套用」，下次結存會重新列出來。`;
+    else if(target.applied_adjust===undefined || target.applied_adjust===null) msg += `\n（這筆是舊版本建立的紀錄，沒有記下當時套用了哪些藥庫進出貨；如果當時有勾選套用，下次結存請到「其他異動」手動補回）`;
+  } else {
+    msg += `⚠️ 這筆不是這個批號最新的結存（之後還有 ${sameLot.length-1-idx} 筆），刪除後目前的結存數字不會改變，只是這天會重新變成「待結存」。如果要復原數字，請從最新的一筆開始往回刪。`;
+  }
+  msg += `\n\n這天會重新變成「待結存」狀態（如果耗用報表資料還在的話）。`;
+  if(!confirm(msg)) return;
+
   const { error } = await sb.from('niis_declare_log').delete().eq('drug_code8', code8).eq('lot_no', lotNo).eq('declare_date', declareDate);
   if(error){ alert('刪除失敗：'+error.message); return; }
+
+  if(isLatest && applied.length){
+    try{
+      await Promise.all(applied.map(x =>
+        sb.from('warehouse_transactions').update({ niis_adjusted: false })
+          .eq('campus','wh').eq('drug_code8', code8).eq('lot_no', lotNo)
+          .eq('direction', x.direction).eq('reason', x.reason).eq('qty', x.rawQty).eq('tx_date', x.tx_date)
+      ));
+    }catch(err){ alert('結存紀錄已刪除，但還原藥庫進出貨時發生錯誤：'+err.message); }
+  }
   renderNiisLogModal();
+  if(lastNiisMirrorVmaster && lastNiisMirrorVmaster.length) renderNiisMirror(lastNiisMirrorVmaster);
 }
 
 
