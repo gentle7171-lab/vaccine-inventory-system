@@ -1407,6 +1407,9 @@ function parseFlexDate(v){
     // 讀取Excel實際日期儲存格時（非顯示文字），直接用日期物件本身的年月日，不受儲存格顯示格式（mm-dd-yy等）影響
     return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
   }
+  if(typeof v === 'number' && Number.isInteger(v) && ((v>=1000101 && v<=1991231) || (v>=19000101 && v<=29991231))){
+    v = String(v);   // 1151001（民國）或 20261001 這種存成數字的日期，不是Excel日期序號
+  }
   if(typeof v === 'number'){
     if(window.XLSX && XLSX.SSF && XLSX.SSF.parse_date_code){
       const p = XLSX.SSF.parse_date_code(v);
@@ -4426,24 +4429,66 @@ async function handleUsageFile(input){
   if(headerIdx < 0){
     for(let i=0;i<Math.min(rows.length,15);i++){
       const h = (rows[i]||[]).map(x=>String(x||'').trim());
-      if(exactIdx(h,['藥碼'])>=0 && findColIdx(h,['批號'])>=0){ headerIdx = i; break; }
+      if((exactIdx(h,['藥碼'])>=0 || exactIdx(h,['疫苗種類'])>=0) && findColIdx(h,['批號'])>=0){ headerIdx = i; break; }
     }
   }
-  if(headerIdx < 0){ alert('找不到必要欄位（藥品八碼或藥碼／批號），請確認檔案格式'); return; }
+  if(headerIdx < 0){ alert('找不到必要欄位（藥品八碼或藥碼或疫苗種類／批號），請確認檔案格式'); return; }
   const header = rows[headerIdx].map(h=>String(h||'').trim());
   let idxCode8 = findColIdx(header, ['藥品八碼','藥品8碼','八碼']);
   if(idxCode8<0) idxCode8 = exactIdx(header, ['藥碼']);
-  const idxNiis = findColIdx(header, ['疫苗代碼']);
+  let idxNiis = findColIdx(header, ['疫苗代碼']);
+  // ③ 疫苗清單（例如「每日Covid-19疫苗報表」）：只有疫苗種類（NIIS疫苗代碼）＋疫苗批號，沒有藥品8碼 → 用批號反查8碼
+  const niisListMode = idxCode8<0 && exactIdx(header,['疫苗種類'])>=0;
+  if(niisListMode && idxNiis<0) idxNiis = exactIdx(header,['疫苗種類']);
+  let lotCodeMap = {};   // niis|lot -> drug_code8
+  const lotMapNotes = [];
   const idxLot = findColIdx(header, ['批號']);
   const idxQty = findColIdx(header, ['給藥量','數量']);
-  let idxRxDate = findColIdx(header, ['處方確認日期','施打日期','用藥日期','投藥日期']);
+  let idxRxDate = findColIdx(header, ['處方確認日期','施打日期','用藥日期','投藥日期','接種日期']);
   if(idxRxDate<0) idxRxDate = findColIdx(header, ['處方日期']);
   let idxDoseNo = findColIdx(header, ['疫苗劑別代碼','劑別代碼','疫苗劑別']);
   if(idxDoseNo<0) idxDoseNo = exactIdx(header, ['劑別']);
   const perRowMode = idxQty<0;   // 沒有數量欄位 → 每一列算 1 劑
   if(idxLot<0){ alert('找不到必要欄位（批號），請確認檔案格式'); return; }
 
-  const dataRows = rows.slice(headerIdx+1).filter(r=>r && r.length && String(r[idxCode8]||'').trim());
+  if(niisListMode){
+    // 用批號反查藥品8碼：優先看近90天耗用報表裡這個批號最常記在哪個8碼（可分辨別名，例如幼兒劑型），找不到再看批號管理
+    const pairs = {};
+    rows.slice(headerIdx+1).forEach(r=>{
+      const n = String(r[idxNiis]||'').trim(), l = String(r[idxLot]||'').trim();
+      if(n && l) pairs[n+'|'+l] = {niis:n, lot:l};
+    });
+    const lots = [...new Set(Object.values(pairs).map(x=>x.lot))];
+    if(lots.length){
+      const since = shiftDate(todayStr(), -90);
+      const [{data:vmN}, {data:hist}, {data:lotRows}] = await Promise.all([
+        sb.from('vaccine_master').select('drug_code8,niis_code,tally_name,alias_of'),
+        sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty').in('lot_no', lots).gte('upload_date', since),
+        sb.from('lot_details').select('drug_code8,lot_no').in('lot_no', lots)
+      ]);
+      const vmByCode = {}; (vmN||[]).forEach(v=>vmByCode[v.drug_code8]=v);
+      Object.values(pairs).forEach(({niis,lot})=>{
+        const okCode = c => vmByCode[c] && (vmByCode[c].niis_code===niis);
+        const tally = {};
+        (hist||[]).filter(h=>h.lot_no===lot && okCode(h.drug_code8)).forEach(h=>{ tally[h.drug_code8] = (tally[h.drug_code8]||0) + Number(h.usage_qty||0); });
+        let cands = Object.keys(tally).sort((a,b)=>tally[b]-tally[a]);
+        let src = '近期耗用紀錄';
+        if(!cands.length){
+          cands = [...new Set((lotRows||[]).filter(x=>x.lot_no===lot && okCode(x.drug_code8)).map(x=>x.drug_code8))];
+          src = '批號管理';
+        }
+        if(!cands.length){ lotMapNotes.push(`⚠️ ${niis} 批號 ${lot}：找不到對應的藥品8碼（批號管理、近期耗用都沒有），這批不會寫入`); return; }
+        lotCodeMap[niis+'|'+lot] = cands[0];
+        const nm = c => (vmByCode[c] && vmByCode[c].tally_name) || c;
+        lotMapNotes.push(`批號 ${lot} → ${cands[0]} ${nm(cands[0])}（依${src}判斷）` + (cands.length>1 ? `　⚠️ 這個批號也曾記在：${cands.slice(1).map(c=>c+' '+nm(c)).join('、')}，這份清單分不出來，全部算到 ${cands[0]}` : ''));
+      });
+    }
+  }
+  const getCode8 = r => niisListMode
+    ? (lotCodeMap[String(r[idxNiis]||'').trim()+'|'+String(r[idxLot]||'').trim()] || '')
+    : String(r[idxCode8]||'').trim();
+
+  const dataRows = rows.slice(headerIdx+1).filter(r=>r && r.length && getCode8(r));
 
   // 逐列讀取施打日期，各列可以是不同日期，依「日期＋藥品8碼＋批號」自動分組（不再整份檔案只取單一日期）
   const map = {};          // key: date|code8|lot -> 彙總
@@ -4454,7 +4499,7 @@ async function handleUsageFile(input){
   const fallbackDate = document.getElementById('usage-date').value || null;
 
   dataRows.forEach(r=>{
-    const code8 = String(r[idxCode8]||'').trim();
+    const code8 = getCode8(r);
     const lot = String(r[idxLot]||'').trim();
     if(!code8 || !lot) return;
     const niis = idxNiis>=0 ? String(r[idxNiis]||'').trim() : '';
@@ -4489,7 +4534,7 @@ async function handleUsageFile(input){
       : '⚠️ 找不到「施打日期／處方確認日期」欄位，且尚未手動選擇日期，請在上方選擇日期後再重新選檔。';
     if(fallbackDate){
       dataRows.forEach(r=>{
-        const code8 = String(r[idxCode8]||'').trim();
+        const code8 = getCode8(r);
         const lot = String(r[idxLot]||'').trim();
         if(!code8 || !lot) return;
         const niis = idxNiis>=0 ? String(r[idxNiis]||'').trim() : '';
@@ -4535,7 +4580,8 @@ async function handleUsageFile(input){
   const ubox = document.getElementById('usage-unmatch-box');
   let ubox_msgs = [];
   if(dateNotice) ubox_msgs.push(dateNotice);
-  if(perRowMode) ubox_msgs.push(`ℹ️ 這份檔案沒有「給藥量」欄位，判定為當日施打清單：每一列算 1 劑（共 ${dataRows.length} 列）。`);
+  if(perRowMode) ubox_msgs.push(`ℹ️ 這份檔案沒有「給藥量」欄位，判定為施打清單：每一列算 1 劑（共 ${dataRows.length} 列）。`);
+  if(niisListMode && lotMapNotes.length) ubox_msgs.push(`ℹ️ 這份清單沒有藥品8碼，已依批號對應：<br>${lotMapNotes.join('<br>')}`);
   if(aliasNoted.size) ubox_msgs.push(`ℹ️ 以下藥品8碼已設定為別名（${[...aliasNoted].map(c=>`${c}→${aliasMap[c]}`).join('、')}）：消耗紀錄仍會分開存這個8碼，但NIIS結存輔助／月報表計算批號庫存時會自動合併成同一批`);
   if(unmatched.length) ubox_msgs.push(`⚠️ 以下藥品8碼於疫苗主檔查無資料，將不會寫入：${[...new Set(unmatched.map(u=>u.drug_code8))].join('、')}`);
   if(ubox_msgs.length){ ubox.style.display=''; ubox.innerHTML = ubox_msgs.join('<br>'); } else ubox.style.display='none';
