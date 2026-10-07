@@ -6067,6 +6067,8 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     tally_name: v.tally_name,
     stock_code4: v.stock_code4,
     skip_stock_compare: !!v.skip_stock_compare,
+    // 依盤點量核對＋整瓶扣帳（例如卡介苗）：盤點是「瓶」，耗用要把每天的人次換算成當天開了幾瓶（每天各自無條件進位）
+    vial_mode: !!v.skip_stock_compare && !!v.whole_vial_deduct,
     is_same_day: v.niis_declare_timing==='same_day',
     target_date: v.niis_declare_timing==='same_day' ? date : prevDate
   }));
@@ -6126,6 +6128,22 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     if(!usageByCodeDate[code]) usageByCodeDate[code] = {};
     usageByCodeDate[code][r.upload_date] = (usageByCodeDate[code][r.upload_date]||0) + Number(r.usage_qty||0);
   });
+  // 整瓶扣帳品項：每個8碼每天各自算開了幾瓶（人次 ÷ 自己的每瓶劑量，無條件進位），再併到正式8碼
+  const rawByCodeDate = {};
+  (usageRows||[]).forEach(r=>{
+    const k = r.drug_code8+'|'+r.upload_date;
+    rawByCodeDate[k] = (rawByCodeDate[k]||0) + Number(r.usage_qty||0);
+  });
+  const vialUsageByCodeDate = {};
+  Object.entries(rawByCodeDate).forEach(([k, doses])=>{
+    const [code8, d] = k.split('|');
+    const v = vmap[code8];
+    const dpv = (v && v.doses_per_vial) || 1;
+    const vials = Math.ceil(doses / dpv);
+    const c = canon(code8);
+    if(!vialUsageByCodeDate[c]) vialUsageByCodeDate[c] = {};
+    vialUsageByCodeDate[c][d] = (vialUsageByCodeDate[c][d]||0) + vials;
+  });
   // 藥庫進出貨（衛生所）撥入/撥出，也要算進期間異動，不然有領用/退回時這裡會被誤判成異常
   const txInByCodeDate = {}, txOutByCodeDate = {};
   (txRows||[]).forEach(r=>{
@@ -6169,7 +6187,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
       let d = shiftDate(baseDate, 1);
       while(d <= td){
         const rawUsage = (usageByCodeDate[it.drug_code8] && usageByCodeDate[it.drug_code8][d]) || 0;
-        usage += rawUsage;
+        usage += it.vial_mode ? ((vialUsageByCodeDate[it.drug_code8] && vialUsageByCodeDate[it.drug_code8][d]) || 0) : rawUsage;
         rawUsageTotal += rawUsage;
         txIn += (txInByCodeDate[it.drug_code8] && txInByCodeDate[it.drug_code8][d]) || 0;
         txOut += (txOutByCodeDate[it.drug_code8] && txOutByCodeDate[it.drug_code8][d]) || 0;
@@ -6179,7 +6197,8 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     }
 
     // 找不到比對基準時，期間耗用無法計算，但仍顯示「當天」的耗用量，避免看起來像沒有耗用紀錄
-    const dayUsage = (usageByCodeDate[it.drug_code8] && usageByCodeDate[it.drug_code8][td]) || 0;
+    const dayRaw = (usageByCodeDate[it.drug_code8] && usageByCodeDate[it.drug_code8][td]) || 0;
+    const dayUsage = it.vial_mode ? ((vialUsageByCodeDate[it.drug_code8] && vialUsageByCodeDate[it.drug_code8][td]) || 0) : dayRaw;
     const expect = baseTotal!==null ? baseTotal + txIn - txOut - usage : null;
     let status;
     // 顯示「近14天裡，哪些院區一直沒有資料」，方便知道要補哪裡
@@ -6194,7 +6213,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     else if(curTotal===null) status = '<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">當天資料不全</span>';
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
-    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, dayUsage, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
+    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, dayUsage, dayRaw, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
   }).sort((a,b)=>(a.tally_name||a.niis_name||'').localeCompare(b.tally_name||b.niis_name||''));
 
   function rowHtml(r){
@@ -6203,7 +6222,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
-    <td class="c">${r.baseDate ? r.usage : `${r.dayUsage}<div style="font-size:11px;color:#999">（只算當天）</div>`}</td>
+    <td class="c">${r.baseDate ? r.usage : `${r.dayUsage}<div style="font-size:11px;color:#999">（只算當天）</div>`}${r.vial_mode ? `<div style="font-size:11px;color:#C77700;white-space:nowrap">${r.baseDate ? r.rawUsageTotal : r.dayRaw}人→開${r.baseDate ? r.usage : r.dayUsage}瓶</div>` : ''}</td>
     <td class="c">${r.expect===null?'—':r.expect}</td>
     <td class="c">${r.curTotal===null?'—':r.curTotal}</td>
     <td>${r.status}</td>
