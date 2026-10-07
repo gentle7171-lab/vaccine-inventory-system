@@ -1649,12 +1649,14 @@ function switchInvSite(site){
 }
 
 // 找出「今天往前推」最舊的一段連續沒有盤點紀錄的日期（最多往前找30天，遇到已經有盤點紀錄的那天就停）
-async function findUnrecordedDate(site){
+async function findUnrecordedDate(site, codes){
   const maxDays = 30;
   const candidates = [];
   for(let i=0;i<maxDays;i++) candidates.push(shiftDate(todayStr(), -i));
 
-  const { data, error } = await sb.from('tally_records').select('tally_date').eq('campus', site).in('tally_date', candidates);
+  let q = sb.from('tally_records').select('tally_date').eq('campus', site).in('tally_date', candidates);
+  if(codes && codes.length) q = q.in('drug_code8', codes);   // 只看這個盤點分頁裡的品項
+  const { data, error } = await q;
   if(error){ console.error(error); return null; }
   const recorded = new Set((data||[]).map(r=>r.tally_date));
 
@@ -1668,25 +1670,34 @@ async function findUnrecordedDate(site){
 
 // manual=true 表示是使用者自己按「跳到未盤點日期」按鈕觸發，manual=false（或省略）是自動觸發（例如切換院區、剛登入時）
 let invAutoJumpChecked = new Set();
+// 依「目前選到的盤點分頁」找最舊的未盤點日期；同一次登入、同一個院區的同一個分頁只自動跳一次
 async function jumpToUnrecordedDate(manual){
   const site = mySite();
+  myPagesCache = await loadMyPages();
+  myItemsCache = await loadMyItems();
+  if(currentSubtab >= myPagesCache.length) currentSubtab = 0;
+  const page = myPagesCache[currentSubtab];
+  const key = site + '|' + (page ? page.page_id : '');
   if(!manual){
-    if(invAutoJumpChecked.has(site)){ renderInv(); return; } // 同一次登入、同一個院區只自動跳一次，避免使用者自己改了日期又被跳回去
-    invAutoJumpChecked.add(site);
+    if(invAutoJumpChecked.has(key)){ renderInv(); return; } // 避免使用者自己改了日期又被跳回去
+    invAutoJumpChecked.add(key);
   }
+  const codes = page ? myItemsCache.filter(it=>it.page_id===page.page_id).map(it=>it.drug_code8) : [];
+  if(page && !codes.length){ renderInv(); return; }   // 這個分頁沒有品項，不用跳
+  const pageLabel = page ? `「${page.page_name}」` : '';
   const note = document.getElementById('inv-autojump-note');
-  const target = await findUnrecordedDate(site);
+  const target = await findUnrecordedDate(site, codes);
   const today = todayStr();
   if(target && target !== today){
     document.getElementById('inv-date').value = target;
-    if(note){ note.style.display=''; note.textContent = `⚠️ 已自動跳到最近未盤點的日期（${target}），今天以前有連續沒盤點的日子，處理完這天記得繼續往後補`; }
+    if(note){ note.style.display=''; note.textContent = `⚠️ ${pageLabel}已自動跳到最近未盤點的日期（${target}），今天以前有連續沒盤點的日子，處理完這天記得繼續往後補`; }
   } else {
     document.getElementById('inv-date').value = today;
     if(note){
-      if(target === today){ note.style.display=''; note.textContent = '今天還沒有盤點紀錄'; }
+      if(target === today){ note.style.display=''; note.textContent = `${pageLabel}今天還沒有盤點紀錄`; }
       else { note.style.display='none'; }
     }
-    if(manual && !target){ alert('最近30天都已經有盤點紀錄了，沒有找到未盤點的日期'); }
+    if(manual && !target){ alert(`${pageLabel}最近30天都已經有盤點紀錄了，沒有找到未盤點的日期`); }
   }
   renderInv();
 }
@@ -1741,6 +1752,8 @@ async function renderInv(){
 function switchSubtab(idx){
   currentSubtab = idx;
   document.querySelectorAll('#inv-subtabs .subtab').forEach((el,i) => el.classList.toggle('active', i===idx));
+  const page = myPagesCache[idx];
+  if(page && !invAutoJumpChecked.has(mySite()+'|'+page.page_id)){ jumpToUnrecordedDate(); return; }  // 第一次切到這個分頁：自動跳到它最舊的未盤點日期
   renderInvList();
 }
 
