@@ -5,6 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>疫苗盤點管理系統</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ===== 系統自己的提示／確認視窗（取代瀏覽器內建 alert / confirm / prompt，不會再出現網址那一行） ===== */
+function appEsc(t){ return String(t==null?'':t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const appDialogQueue = [];
+let appDialogBusy = false;
+function appDialogNext(){
+  if(appDialogBusy || !appDialogQueue.length) return;
+  appDialogBusy = true;
+  const { opts, resolve } = appDialogQueue.shift();
+  const colors = { confirm:'#1B3A6B', danger:'#A32D2D', info:'#1B3A6B', success:'#1D7A55', error:'#A32D2D' };
+  const head = colors[opts.kind] || '#1B3A6B';
+  const bodyHtml = opts.html != null ? opts.html : appEsc(opts.text).split('\n').map(line=>{
+    if(!line.trim()) return '<div style="height:6px"></div>';
+    const warn = /^\s*⚠️/.test(line);
+    return `<div style="${warn?'color:#A32D2D;':''}">${line}</div>`;
+  }).join('');
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,50,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = `<div role="dialog" style="background:#fff;border-radius:14px;width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.25)">
+    <div style="background:${head};color:#fff;padding:12px 18px;font-size:16px;font-weight:600">${appEsc(opts.title)}</div>
+    <div style="padding:16px 18px;font-size:15px;line-height:1.7;color:#333;overflow:auto">${bodyHtml}
+      ${opts.input ? `<input type="text" class="inp" id="app-dialog-input" style="margin-top:10px;width:100%" value="${appEsc(opts.defaultValue||'')}">` : ''}
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;padding:10px 18px 14px">
+      ${opts.cancelText ? `<button class="btn" data-v="0">${appEsc(opts.cancelText)}</button>` : ''}
+      <button class="btn btn-primary" data-v="1" style="${opts.kind==='danger'||opts.kind==='error'?'background:#A32D2D;border-color:#A32D2D':''}">${appEsc(opts.okText||'確定')}</button>
+    </div>
+  </div>`;
+  const close = v => {
+    const inp = ov.querySelector('#app-dialog-input');
+    ov.remove(); document.removeEventListener('keydown', onKey, true);
+    appDialogBusy = false;
+    resolve(opts.input ? (v ? inp.value : null) : v);
+    setTimeout(appDialogNext, 0);
+  };
+  const onKey = e => {
+    if(e.key==='Escape' && opts.cancelText){ e.preventDefault(); close(false); }
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      const ae = document.activeElement;
+      if(ae && ae.matches && ae.matches('button[data-v]') && ov.contains(ae)) close(ae.dataset.v==='1');
+      else close(true);
+    }
+  };
+  ov.querySelectorAll('button[data-v]').forEach(b=>b.addEventListener('click', ()=>close(b.dataset.v==='1')));
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(ov);
+  const focusEl = ov.querySelector('#app-dialog-input') || ov.querySelector('button[data-v="1"]');
+  if(focusEl) setTimeout(()=>focusEl.focus(), 0);
+}
+function appDialog(opts){ return new Promise(resolve=>{ appDialogQueue.push({opts, resolve}); appDialogNext(); }); }
+
+// 確認視窗：回傳 true／false。訊息有「刪除／移除」自動用紅色。
+function appConfirm(text, o){
+  o = o || {};
+  const t = String(text||'');
+  const danger = o.kind ? o.kind==='danger' : /刪除|移除/.test(t);
+  return appDialog({ text:t, html:o.html, title:o.title || (danger?'確認刪除':'請確認'), kind:o.kind || (danger?'danger':'confirm'),
+    okText:o.okText || (danger?'刪除':'確定'), cancelText:o.cancelText || '取消' });
+}
+// 提示視窗：依內容自動決定標題（✓→完成、失敗/錯誤→發生錯誤、⚠️→請注意）
+function appAlert(text, o){
+  o = o || {};
+  const t = String(text==null?'':text);
+  let kind='info', title='提示';
+  if(/^\s*✓/.test(t)){ kind='success'; title='完成'; }
+  else if(/失敗|錯誤|error/i.test(t)){ kind='error'; title='發生錯誤'; }
+  else if(/⚠️/.test(t)){ kind='info'; title='請注意'; }
+  return appDialog({ text:t.replace(/^\s*✓\s*/,''), title:o.title||title, kind:o.kind||kind, okText:o.okText||'知道了' });
+}
+function appPrompt(text, def, o){
+  o = o || {};
+  return appDialog({ text:String(text||''), title:o.title||'請輸入', kind:'confirm', okText:o.okText||'確定', cancelText:'取消', input:true, defaultValue:def });
+}
+window.alert = (msg)=>{ appAlert(msg); };
+</script>
 <script>if (typeof supabase === 'undefined') { document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>'); }</script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>if (typeof XLSX === 'undefined') { document.write('<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>'); }</script>
@@ -116,6 +192,16 @@ tr:hover td{background:#fafaf8}
 .fg label{font-size:13px;color:#666}
 .fg input,.fg select{padding:7px 9px;font-size:15px;border-radius:8px;border:1px solid #d5d5d5;background:#fff;color:#1a1a1a}
 .mfooter{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.vsec{border:1px solid #e8ecf2;border-radius:10px;padding:10px 14px;margin-bottom:10px;background:#fcfcfb}
+.vsec-title{font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px}
+details.vsec>summary.vsec-title{cursor:pointer;margin-bottom:0;list-style-position:inside}
+.vsec-hint{font-size:12px;font-weight:400;color:#999;margin-left:6px}
+.vsec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.vsec-desc{font-size:12px;color:#999;margin-top:2px;padding-left:2px}
+.vtag{display:inline-block;font-size:11px;line-height:1.5;padding:0 6px;border-radius:8px;margin:2px 4px 0 0;white-space:nowrap}
+.vtag-same{background:#FDECEC;color:#A32D2D}.vtag-next{background:#EAF1FB;color:#1B3A6B}
+.vtag-vial{background:#FFF3DC;color:#8A5A00}.vtag-skip{background:#EEE;color:#666}
+.vtag-lab{background:#E8F6EF;color:#1D7A55}.vtag-alias{background:#FFF8E1;color:#B8860B}
 
 .loading{text-align:center;padding:40px;color:#bbb;font-size:15px}
 .err-banner{background:#FCEBEB;color:#A32D2D;padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px}
@@ -769,15 +855,11 @@ input[type=number]{-moz-appearance:textfield}
           <table>
             <thead><tr>
               <th style="width:32px"><input type="checkbox" id="vacc-chk-all-active" onchange="toggleAllVaccChk(this,'active')"></th>
-              <th style="width:150px;cursor:pointer;user-select:none" onclick="sortVaccBy('tally_name')">盤點表名稱 <span class="sort-ico" id="sort-ico-tally_name"></span></th>
-              <th style="width:180px;cursor:pointer;user-select:none" onclick="sortVaccBy('product_name')">商品名 <span class="sort-ico" id="sort-ico-product_name"></span></th>
-              <th style="width:150px;cursor:pointer;user-select:none" onclick="sortVaccBy('niis_name')">NIIS疫苗名稱 <span class="sort-ico" id="sort-ico-niis_name"></span></th>
-              <th style="width:80px;cursor:pointer;user-select:none" onclick="sortVaccBy('drug_code8')">藥品8碼 <span class="sort-ico" id="sort-ico-drug_code8"></span></th>
-              <th style="width:60px;cursor:pointer;user-select:none" onclick="sortVaccBy('stock_code4')">庫存碼 <span class="sort-ico" id="sort-ico-stock_code4"></span></th>
-              <th style="width:65px;cursor:pointer;user-select:none" onclick="sortVaccBy('niis_code')">疫苗代碼 <span class="sort-ico" id="sort-ico-niis_code"></span></th>
-              <th style="width:190px;cursor:pointer;user-select:none" onclick="sortVaccBy('lots')">使用中批號 <span class="sort-ico" id="sort-ico-lots"></span></th>
-              <th style="width:45px;cursor:pointer;user-select:none" onclick="sortVaccBy('niis_required')">NIIS <span class="sort-ico" id="sort-ico-niis_required"></span></th>
-              <th style="width:130px">管理</th>
+              <th style="min-width:260px;cursor:pointer;user-select:none" onclick="sortVaccBy('tally_name')">品項 <span class="sort-ico" id="sort-ico-tally_name"></span></th>
+              <th style="width:120px;cursor:pointer;user-select:none" onclick="sortVaccBy('drug_code8')">藥品8碼／庫存碼 <span class="sort-ico" id="sort-ico-drug_code8"></span></th>
+              <th style="min-width:180px;cursor:pointer;user-select:none" onclick="sortVaccBy('niis_code')">NIIS 申報 <span class="sort-ico" id="sort-ico-niis_code"></span></th>
+              <th style="width:200px;cursor:pointer;user-select:none" onclick="sortVaccBy('lots')">使用中批號 <span class="sort-ico" id="sort-ico-lots"></span></th>
+              <th style="width:70px"></th>
             </tr></thead>
             <tbody id="vacc-active-body"></tbody>
           </table>
@@ -793,13 +875,10 @@ input[type=number]{-moz-appearance:textfield}
             <table>
               <thead><tr>
                 <th style="width:32px"><input type="checkbox" id="vacc-chk-all-inactive" onchange="toggleAllVaccChk(this,'inactive')"></th>
-                <th style="width:150px">盤點表名稱</th>
-                <th style="width:180px">商品名</th>
-                <th style="width:150px">NIIS疫苗名稱</th>
-                <th style="width:80px">藥品8碼</th>
-                <th style="width:60px">庫存碼</th>
-                <th style="width:65px">疫苗代碼</th>
-                <th style="width:130px">管理</th>
+                <th style="min-width:260px">品項</th>
+                <th style="width:120px">藥品8碼／庫存碼</th>
+                <th style="min-width:180px">NIIS 申報</th>
+                <th style="width:150px"></th>
               </tr></thead>
               <tbody id="vacc-inactive-body"></tbody>
             </table>
@@ -941,80 +1020,106 @@ input[type=number]{-moz-appearance:textfield}
   <div class="modal" style="width:960px;max-width:96vw;max-height:90vh;overflow-y:auto">
     <h3 id="vacc-modal-title">新增疫苗</h3>
     <input type="hidden" id="vacc-edit-code">
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-      <div class="fg"><label>藥品8碼</label><input type="text" id="vacc-code8" placeholder="8碼"></div>
-      <div class="fg"><label>庫存碼</label><input type="text" id="vacc-code4" placeholder="4碼"></div>
-      <div class="fg"><label>疫苗代碼（NIIS）</label><input type="text" id="vacc-niis-code" placeholder="留空=不需申報"></div>
-      <div class="fg"><label>NIIS疫苗名稱</label><input type="text" id="vacc-niis-name" placeholder="NIIS顯示名稱"></div>
-      <div class="fg"><label>申報時效</label>
-        <select id="vacc-niis-timing" class="inp">
-          <option value="next_day">隔天申報（報前一天的量）</option>
-          <option value="same_day">當天申報（報當天的量）</option>
+
+    <!-- ① 基本資料 -->
+    <div class="vsec">
+      <div class="vsec-title">① 基本資料</div>
+      <div class="vsec-grid">
+        <div class="fg"><label>藥品8碼</label><input type="text" id="vacc-code8" placeholder="8碼"></div>
+        <div class="fg"><label>庫存碼</label><input type="text" id="vacc-code4" placeholder="4碼"></div>
+        <div class="fg"><label>盤點表名稱（簡稱）</label><input type="text" id="vacc-tally-name" placeholder="盤點頁顯示的名稱"></div>
+      </div>
+      <div class="fg" style="margin-top:6px"><label>商品名</label><input type="text" id="vacc-product-name" placeholder="院內商品名"></div>
+    </div>
+
+    <!-- ② NIIS 申報 -->
+    <div class="vsec">
+      <div class="vsec-title">② NIIS 申報 <span class="vsec-hint">疫苗代碼留空＝不需申報</span></div>
+      <div class="vsec-grid">
+        <div class="fg"><label>疫苗代碼（NIIS）</label><input type="text" id="vacc-niis-code" placeholder="留空=不需申報"></div>
+        <div class="fg"><label>NIIS疫苗名稱</label><input type="text" id="vacc-niis-name" placeholder="NIIS顯示名稱"></div>
+        <div class="fg"><label>申報時效</label>
+          <select id="vacc-niis-timing" class="inp">
+            <option value="next_day">隔天申報（報前一天的量）</option>
+            <option value="same_day">當天申報（報當天的量）</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ 庫存與扣帳 -->
+    <details class="vsec" id="vsec-stock">
+      <summary class="vsec-title">③ 庫存與扣帳 <span class="vsec-hint" id="vsec-stock-sum"></span></summary>
+      <div class="fg" style="margin-top:8px"><label>每瓶劑量</label><input type="number" id="vacc-doses-per-vial" placeholder="1" min="0.01" step="0.01" class="inp" style="width:140px"></div>
+      <div class="fg" style="margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="vacc-whole-vial-deduct" style="width:16px;height:16px">
+          多人瓶「藥庫領用即整瓶扣帳」（例如卡介苗：開瓶當天沒用完也報銷）
+        </label>
+        <div class="vsec-desc">每天依「每瓶劑量」把人次換算成開了幾瓶（無條件進位），用於藥庫扣庫存、NIIS 結存、月報表</div>
+      </div>
+      <div class="fg" style="margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="vacc-skip-stock-compare" style="width:16px;height:16px">
+          略過庫存報表比對（庫存報表不可信，改用盤點量核對）
+        </label>
+        <div class="vsec-desc">例如多廠牌共用庫存碼、多人瓶跨日不重算。管理總覽顯示「不比對」、不列入斗六撥補建議；全院庫存核對改用盤點量</div>
+      </div>
+      <div class="fg" style="margin-top:6px">
+        <label>共用批號庫存（別名，選填）</label>
+        <input type="text" id="vacc-alias-of" placeholder="留空＝獨立管理批號；填另一個藥品8碼＝視為它的別名" class="inp">
+        <div class="vsec-desc">同一批貨、但用不同8碼申報（公費/自費、不同對象）。設定後這個8碼不用自己開批號，庫存全部算在那個8碼下</div>
+      </div>
+    </details>
+
+    <!-- ④ 提醒 -->
+    <details class="vsec" id="vsec-remind">
+      <summary class="vsec-title">④ 提醒 <span class="vsec-hint" id="vsec-remind-sum"></span></summary>
+      <div class="fg" style="margin-top:8px">
+        <label>近效期預警天數</label>
+        <input type="number" id="vacc-expiry-alert-days" placeholder="留空＝套用全院預設" min="1" step="1" class="inp" style="width:200px">
+        <div class="vsec-desc">只有這個品項效期特別短／長才需要填</div>
+      </div>
+      <div class="fg" style="margin-top:6px">
+        <label>斗六撥補建議</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:13px;color:#666">低於
+            <input type="number" id="vacc-dl-reorder-point" placeholder="安全庫存" min="0" step="1" class="inp" style="width:100px;display:inline-block">
+            就提醒，建議補到
+            <input type="number" id="vacc-dl-par-level" placeholder="回補目標(選填)" min="0" step="1" class="inp" style="width:120px;display:inline-block">
+          </span>
+        </div>
+        <div class="vsec-desc">留空＝不出現在撥補建議；依最近一次上傳的斗六庫存報表比對</div>
+      </div>
+      <div class="fg" style="margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="vacc-lab-form-reminder" style="width:16px;height:16px">
+          有耗用時提醒收檢驗單
+        </label>
+        <div class="vsec-desc">耗用報表上傳成功時提醒，並列入提醒中心「待收檢驗單」</div>
+      </div>
+    </details>
+
+    <!-- ⑤ 月報表 -->
+    <details class="vsec" id="vsec-report">
+      <summary class="vsec-title">⑤ 月報表 <span class="vsec-hint" id="vsec-report-sum"></span></summary>
+      <div class="fg" style="margin-top:8px">
+        <label>特殊月報表分類（選填）</label>
+        <select id="vacc-special-report" class="inp">
+          <option value="">無（只出現在一般疫苗消耗結存報表）</option>
+          <option value="pcv">肺炎鏈球菌疫苗報表</option>
+          <option value="bcg">卡介苗報表</option>
+          <option value="hbig_ig">B肝報表－免疫球蛋白(H.B.I.G)</option>
+          <option value="hbig_vaccine">B肝報表－遺傳工程疫苗</option>
+          <option value="exclude">不需要出現在疫苗消耗結存報表（不需申報的品項）</option>
         </select>
+        <div class="vsec-desc">設定後額外出現在對應的專屬報表；選「不需要出現」則一律不列入疫苗消耗結存報表</div>
       </div>
-    </div>
-    <div class="fg" style="margin-top:6px"><label>商品名</label><input type="text" id="vacc-product-name" placeholder="院內商品名"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="fg"><label>盤點表名稱（簡稱）</label><input type="text" id="vacc-tally-name" placeholder="盤點頁顯示的名稱"></div>
-      <div class="fg"><label>每瓶劑量</label><input type="number" id="vacc-doses-per-vial" placeholder="1" min="0.01" step="0.01" class="inp"></div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label>近效期預警天數（留空套用全院預設；只有這個品項效期特別短/長才需要填）</label>
-      <input type="number" id="vacc-expiry-alert-days" placeholder="留空＝套用全院預設" min="1" step="1" class="inp" style="width:200px">
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label>斗六撥補建議（留空＝這個品項不出現在管理總覽的撥補建議清單）</label>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:13px;color:#666">低於
-          <input type="number" id="vacc-dl-reorder-point" placeholder="安全庫存" min="0" step="1" class="inp" style="width:100px;display:inline-block">
-          就提醒撥補，建議補到
-          <input type="number" id="vacc-dl-par-level" placeholder="回補目標(選填)" min="0" step="1" class="inp" style="width:120px;display:inline-block">
-        </span>
-      </div>
-      <div style="font-size:12px;color:#999;margin-top:2px">依據最近一次上傳的「斗六庫存報表」數字比對，不是即時庫存，請留意報表日期是否夠新</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label>共用批號庫存（別名，選填）</label>
-      <input type="text" id="vacc-alias-of" placeholder="留空＝獨立管理批號庫存；填入另一個藥品8碼＝這個8碼視為它的別名，耗用/進出貨上傳會自動併入那個8碼的批號庫存扣帳" class="inp">
-      <div style="font-size:12px;color:#999;margin-top:2px">用於「同一批貨、但要用不同8碼申報」的情況（例如公費/自費、不同對象但共用同一支疫苗）。設定後這個8碼不需要自己開批號，庫存全部算在被設定的那個8碼下。</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label>特殊月報表分類（選填）</label>
-      <select id="vacc-special-report" class="inp">
-        <option value="">無（只出現在一般疫苗消耗結存報表）</option>
-        <option value="pcv">肺炎鏈球菌疫苗報表</option>
-        <option value="bcg">卡介苗報表</option>
-        <option value="hbig_ig">B肝報表－免疫球蛋白(H.B.I.G)</option>
-        <option value="hbig_vaccine">B肝報表－遺傳工程疫苗</option>
-        <option value="exclude">不需要出現在疫苗消耗結存報表（不需申報的品項）</option>
-      </select>
-      <div style="font-size:12px;color:#999;margin-top:2px">設定後，這個品項會額外出現在「報表→月報表」對應的專屬報表分頁裡（原本的疫苗消耗結存報表不受影響，一樣會出現）；選「不需要出現」則相反，就算這個月有撥入/撥出/耗用紀錄，也不會出現在疫苗消耗結存報表</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="vacc-whole-vial-deduct" style="width:16px;height:16px">
-        多人瓶「藥庫領用即整瓶扣帳」（例如卡介苗：注射室一領走就算一整瓶用掉，當天沒用完也報銷，不會留到隔天）
-      </label>
-      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">勾選後，上傳耗用報表時系統會依「每瓶劑量」自動把藥庫該批號的庫存以整瓶為單位扣除（無條件進位），不是照實際打的人數逐劑扣</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="vacc-skip-stock-compare" style="width:16px;height:16px">
-        略過庫存報表比對（這個品項的庫存報表數字不可信，只看盤點量）
-      </label>
-      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">適用於院內系統把好幾個品項合併成同一個庫存碼、匯出的庫存報表數字本來就不準確的情況。勾選後，管理總覽不會再對這個品項顯示「不吻合」警示，也不會出現在斗六撥補建議裡。</div>
-    </div>
-    <div class="fg" style="margin-top:6px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="vacc-lab-form-reminder" style="width:16px;height:16px">
-        有耗用時提醒收檢驗單
-      </label>
-      <div style="font-size:12px;color:#999;margin-top:2px;padding-left:24px">勾選後，耗用報表上傳成功時會跳提醒，提醒中心的「待收檢驗單」也會列出這個品項有耗用的日期，收齊後按一下標記完成。</div>
-    </div>
+    </details>
 
     <!-- 批號管理（新增／編輯皆顯示，未儲存前顯示提示） -->
     <div id="vacc-lots-section" style="margin-top:16px;padding-top:16px;border-top:1px solid #eee">
-      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:#1B3A6B">批號管理</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px;color:#1B3A6B">⑥ 批號管理</div>
       <input type="hidden" id="lot-drug-code">
 
       <div id="vacc-lots-placeholder" style="padding:16px;text-align:center;color:#bbb;font-size:14px;background:#f8f8f6;border-radius:8px">
@@ -1046,6 +1151,10 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div class="mfooter">
+      <div id="vacc-danger" style="margin-right:auto;display:none;gap:8px">
+        <button class="btn btn-sm" id="vacc-danger-status" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0"></button>
+        <button class="btn btn-sm" id="vacc-danger-delete" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0">🗑 永久刪除</button>
+      </div>
       <button class="btn" onclick="closeModal('modal-vaccine')">關閉</button>
       <button class="btn btn-primary" onclick="saveVaccine()">儲存</button>
     </div>
@@ -2190,7 +2299,7 @@ async function confirmRecDateFix(){
   }
 
   const siteLabel = site==='dl'?'斗六院區':site==='hw'?'虎尾院區':'藥庫';
-  if(!confirm(`確定把「${siteLabel}」${wrongDate} 的 ${moveRows.length} 筆盤點紀錄，搬到 ${correctDate} 嗎？${conflictNote}`)) return;
+  if(!await appConfirm(`確定把「${siteLabel}」${wrongDate} 的 ${moveRows.length} 筆盤點紀錄，搬到 ${correctDate} 嗎？${conflictNote}`)) return;
 
   const moveIds = moveRows.map(r=>r.record_id);
   const { error } = await sb.from('tally_records').update({ tally_date: correctDate }).in('record_id', moveIds);
@@ -2466,7 +2575,7 @@ async function renderManualEditPanel(){
 }
 
 async function confirmManualEdit(x){
-  if(!confirm(`確認醫療端已經處理好了嗎？\n${x.date}　${x.name}\n批號 ${x.lot||'—'}\n\n按確定後這筆會從清單移除。`)) return;
+  if(!await appConfirm(`${x.date}　${x.name}\n${x.lot||'—'}`, {title:'醫療端已處理好？', okText:'已確認'})) return;
   const { error } = await sb.from('usage_manual_edits').delete().eq('upload_date', x.date).eq('drug_code8', x.code8).eq('lot_no', x.lot);
   if(error){ alert('確認失敗：'+error.message); return; }
   renderManualEditPanel();
@@ -2557,7 +2666,7 @@ async function markLabFormDone(list){
 async function markAllLabFormDone(){
   let res; try{ res = await fetchLabFormPending(); }catch(e){ alert(e.message); return; }
   if(!res.pending.length) return;
-  if(!confirm(`確定要把目前 ${res.pending.length} 筆待收檢驗單全部標記為已收齊嗎？`)) return;
+  if(!await appConfirm(`${res.pending.length} 筆待收檢驗單全部標記為已收齊？`, {title:'全部標記', okText:'全部標記'})) return;
   markLabFormDone(res.pending);
 }
 
@@ -3175,20 +3284,16 @@ function renderInactiveVaccTable(){
   const rows = vaccInactiveRaw.filter(v => vaccMatchesKeyword(v, kw) && vaccMatchesTiming(v, timing));
   const filtering = kw || timing;
   document.getElementById('inactive-count').textContent = `（${vaccInactiveRaw.length} 項${filtering && rows.length!==vaccInactiveRaw.length ? `，符合條件 ${rows.length} 項`:''}）`;
-  document.getElementById('vacc-inactive-body').innerHTML = rows.map(v => `<tr style="opacity:0.6">
+  document.getElementById('vacc-inactive-body').innerHTML = rows.map(v => `<tr style="opacity:0.65">
     <td><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
-    <td style="font-size:15px">${v.tally_name}</td>
-    <td style="font-size:14px;color:#666">${v.product_name||'—'}</td>
-    <td style="font-size:14px;color:#666">${v.niis_name||'—'}</td>
-    <td style="font-size:13px;color:#888">${v.drug_code8}</td>
-    <td style="font-size:13px;color:#888">${v.stock_code4||'—'}</td>
-    <td style="font-size:13px">${v.niis_code||'—'}</td>
-    <td>
+    <td>${vaccNameCell(v, false)}</td>
+    <td>${vaccCodeCell(v)}</td>
+    <td>${vaccNiisCell(v)}</td>
+    <td style="white-space:nowrap">
       <button class="btn btn-sm" style="font-size:13px" onclick="openVaccineModal('${v.drug_code8}')">編輯</button>
       <button class="btn btn-sm" style="font-size:13px;color:#1D9E75;border-color:#9FE1CB;margin-left:4px" onclick="toggleVaccStatus('${v.drug_code8}','active')">啟用</button>
-      <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
     </td>
-  </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#bbb">${filtering?'沒有符合條件的品項':'無'}</td></tr>`;
+  </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;padding:12px;color:#bbb">${filtering?'沒有符合條件的品項':'無'}</td></tr>`;
 }
 
 // 依欄位取得排序用的值
@@ -3232,7 +3337,7 @@ function renderActiveVaccTable(){
     });
   }
   document.getElementById('vacc-active-body').innerHTML = rows.map(item => buildVaccRow(item.v, item.lots)).join('')
-    || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">${(kw||timing)?'沒有符合條件的品項':'尚無疫苗資料'}</td></tr>`;
+    || `<tr><td colspan="6" style="text-align:center;padding:20px;color:#bbb">${(kw||timing)?'沒有符合條件的品項':'尚無疫苗資料'}</td></tr>`;
 
   // 更新欄位標題的排序箭頭
   ['tally_name','product_name','niis_name','drug_code8','stock_code4','niis_code','niis_required','lots'].forEach(key=>{
@@ -3286,7 +3391,7 @@ async function tryDeleteVaccine(code8){
 async function deleteSelectedVaccines(){
   if(!vaccSelected.size) return;
   const codes = [...vaccSelected];
-  if(!confirm(`確定要嘗試永久刪除勾選的 ${codes.length} 個疫苗品項？\n已有歷史盤點紀錄的品項無法永久刪除（會自動略過並提示改用「停用」），其餘品項會直接刪除且無法復原。`)) return;
+  if(!await appConfirm(`確定要嘗試永久刪除勾選的 ${codes.length} 個疫苗品項？\n已有歷史盤點紀錄的品項無法永久刪除（會自動略過並提示改用「停用」），其餘品項會直接刪除且無法復原。`)) return;
 
   const okList = [];
   const blockedList = [];
@@ -3341,6 +3446,28 @@ async function fetchActiveLotsMap(codes){
   return map;
 }
 
+// 主檔清單共用：品項欄（名稱＋商品名＋設定小標籤）、代碼欄、NIIS欄
+function vaccNameCell(v, withHandle){
+  const tags = [];
+  if(v.whole_vial_deduct) tags.push('<span class="vtag vtag-vial">整瓶扣帳</span>');
+  if(v.skip_stock_compare) tags.push('<span class="vtag vtag-skip">不比對庫存報表</span>');
+  if(v.lab_form_reminder) tags.push('<span class="vtag vtag-lab">檢驗單</span>');
+  if(v.alias_of) tags.push(`<span class="vtag vtag-alias">別名→${v.alias_of}</span>`);
+  return `<div style="display:flex;gap:6px;align-items:flex-start">
+    ${withHandle ? `<span style="color:#bbb;cursor:grab;padding-top:2px" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>` : ''}
+    <div><div style="font-size:15px;font-weight:600;color:#222">${v.tally_name||''}</div>
+    ${v.product_name ? `<div style="font-size:12px;color:#888;margin-top:1px">${v.product_name}</div>` : ''}
+    ${tags.length ? `<div>${tags.join('')}</div>` : ''}</div></div>`;
+}
+function vaccCodeCell(v){
+  return `<div style="font-family:monospace;font-size:13px;color:#555">${v.drug_code8||''}</div><div style="font-family:monospace;font-size:12px;color:#999">${v.stock_code4||'—'}</div>`;
+}
+function vaccNiisCell(v){
+  if(!v.niis_code) return '<span style="font-size:12px;color:#bbb">不需申報</span>';
+  const same = (v.niis_declare_timing||'next_day')==='same_day';
+  return `<div style="font-size:13px;color:#333">${v.niis_code}</div>${v.niis_name?`<div style="font-size:12px;color:#888">${v.niis_name}</div>`:''}<span class="vtag ${same?'vtag-same':'vtag-next'}">${same?'當天申報':'隔天申報'}</span>`;
+}
+
 function buildVaccRow(v, lots){
   lots = lots || [];
   const groups = {};
@@ -3367,19 +3494,11 @@ function buildVaccRow(v, lots){
     ondragstart="vaccMasterDragStart(event)" ondragover="vaccMasterDragOver(event)"
     ondragleave="vaccMasterDragLeave(event)" ondrop="vaccMasterDrop(event)" ondragend="vaccMasterDragEnd(event)">
     <td style="border-top:1px solid #dde3ec"><input type="checkbox" ${vaccSelected.has(v.drug_code8)?'checked':''} onchange="toggleVaccChk('${v.drug_code8}',this)"></td>
-    <td style="font-size:15px;border-top:1px solid #dde3ec"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${v.tally_name||''}${v.alias_of?`<div style="font-size:11px;color:#B8860B;margin-top:2px">↳ 共用批號於 ${v.alias_of}</div>`:''}</td>
-    <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.product_name||'—'}</td>
-    <td style="font-size:14px;color:#666;border-top:1px solid #dde3ec">${v.niis_name||'—'}</td>
-    <td style="font-size:13px;color:#888;border-top:1px solid #dde3ec">${v.drug_code8||''}</td>
-    <td style="font-size:13px;color:#888;border-top:1px solid #dde3ec">${v.stock_code4||'—'}</td>
-    <td style="font-size:13px;border-top:1px solid #dde3ec">${v.niis_code||'—'}</td>
-    <td style="font-size:13px;border-top:1px solid #dde3ec">${v.alias_of?`<span style="color:#B8860B">別名，批號庫存共用於 ${v.alias_of}</span>`:lotsHtml}</td>
-    <td class="c" style="border-top:1px solid #dde3ec">${v.niis_required ? '<span title="需NIIS申報" style="color:#1D9E75;font-weight:700;font-size:16px">✓</span>' : '<span style="font-size:13px;color:#ddd">—</span>'}</td>
-    <td style="border-top:1px solid #dde3ec">
-      <button class="btn btn-sm" style="font-size:13px" onclick="openVaccineModal('${v.drug_code8}')">編輯</button>
-      <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="toggleVaccStatus('${v.drug_code8}','inactive')">停用</button>
-      <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteVaccine('${v.drug_code8}','${(v.tally_name||'').replace(/'/g,'')}')">🗑刪除</button>
-    </td>
+    <td style="border-top:1px solid #dde3ec">${vaccNameCell(v, true)}</td>
+    <td style="border-top:1px solid #dde3ec">${vaccCodeCell(v)}</td>
+    <td style="border-top:1px solid #dde3ec">${vaccNiisCell(v)}</td>
+    <td style="font-size:13px;border-top:1px solid #dde3ec">${v.alias_of?`<span style="color:#B8860B;font-size:12px">批號庫存共用於 ${v.alias_of}</span>`:lotsHtml}</td>
+    <td style="border-top:1px solid #dde3ec"><button class="btn btn-sm" style="font-size:13px" onclick="openVaccineModal('${v.drug_code8}')">編輯</button></td>
   </tr>`;
 }
 
@@ -3500,7 +3619,51 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-lots-placeholder').style.display = '';
     document.getElementById('vacc-lots-content').style.display = 'none';
   }
+  updateVaccSectionSummary(true);
+  const danger = document.getElementById('vacc-danger');
+  if(code8){
+    const { data: st } = await sb.from('vaccine_master').select('status,tally_name').eq('drug_code8', code8).maybeSingle();
+    const isActive = !st || st.status !== 'inactive';
+    const nm = ((st && st.tally_name) || '').replace(/'/g,'');
+    const sBtn = document.getElementById('vacc-danger-status');
+    sBtn.textContent = isActive ? '停用此品項' : '重新啟用';
+    sBtn.style.color = isActive ? '#A32D2D' : '#1D9E75';
+    sBtn.style.borderColor = isActive ? '#f0c0c0' : '#9FE1CB';
+    sBtn.onclick = async ()=>{ closeModal('modal-vaccine'); await toggleVaccStatus(code8, isActive ? 'inactive' : 'active'); };
+    document.getElementById('vacc-danger-delete').onclick = async ()=>{ closeModal('modal-vaccine'); await deleteVaccine(code8, nm); };
+    danger.style.display = 'flex';
+  } else {
+    danger.style.display = 'none';
+  }
   document.getElementById('modal-vaccine').classList.add('open');
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const m = document.getElementById('modal-vaccine');
+  if(m){ ['input','change'].forEach(ev=>m.addEventListener(ev, ()=>{ try{ updateVaccSectionSummary(false); }catch(e){} })); }
+});
+// 收合區塊標題旁顯示「目前設定了什麼」；剛打開視窗時，有設定的區塊自動展開
+function updateVaccSectionSummary(autoOpen){
+  const g = id => document.getElementById(id);
+  const stock = [];
+  const dpv = Number(g('vacc-doses-per-vial').value||1);
+  if(dpv && dpv!==1) stock.push(`每瓶 ${dpv} 劑`);
+  if(g('vacc-whole-vial-deduct').checked) stock.push('整瓶扣帳');
+  if(g('vacc-skip-stock-compare').checked) stock.push('略過庫存報表比對');
+  if(g('vacc-alias-of').value.trim()) stock.push(`別名→${g('vacc-alias-of').value.trim()}`);
+  const remind = [];
+  if(g('vacc-expiry-alert-days').value) remind.push(`效期 ${g('vacc-expiry-alert-days').value} 天`);
+  if(g('vacc-dl-reorder-point').value) remind.push('斗六撥補');
+  if(g('vacc-lab-form-reminder').checked) remind.push('檢驗單');
+  const rep = g('vacc-special-report');
+  const report = rep.value ? [rep.options[rep.selectedIndex].text.replace(/（.*$/,'')] : [];
+  const setSum = (id, arr) => { g(id).textContent = arr.length ? `已設定：${arr.join('、')}` : '未設定'; };
+  setSum('vsec-stock-sum', stock); setSum('vsec-remind-sum', remind); setSum('vsec-report-sum', report);
+  if(autoOpen){
+    g('vsec-stock').open = stock.length>0;
+    g('vsec-remind').open = remind.length>0;
+    g('vsec-report').open = report.length>0;
+  }
 }
 
 async function saveVaccine(){
@@ -3534,7 +3697,7 @@ async function saveVaccine(){
   }
   // ② 勾了整瓶扣帳但每瓶劑量填1，通常代表忘了改成實際每瓶可打人數，跳確認但不擋
   if(row.whole_vial_deduct && dosesPerVial === 1){
-    if(!confirm('這個品項勾選了「整瓶扣帳」，但每瓶劑量填的是1。\n整瓶扣帳通常代表多人瓶（一瓶可打多人），每瓶劑量應該大於1。\n\n確定每瓶劑量就是1、要繼續儲存嗎？')) return;
+    if(!await appConfirm('這個品項勾選了「整瓶扣帳」，但每瓶劑量填的是1。\n整瓶扣帳通常代表多人瓶（一瓶可打多人），每瓶劑量應該大於1。\n\n確定每瓶劑量就是1、要繼續儲存嗎？')) return;
   }
   if(row.alias_of && row.alias_of === row.drug_code8){ alert('共用批號庫存不能填自己本身的8碼'); return; }
   if(row.alias_of){
@@ -3543,7 +3706,7 @@ async function saveVaccine(){
     if(targetRow.alias_of){ alert(`「${row.alias_of}」本身也是別名（共用於「${targetRow.alias_of}」），請直接填最終那個正式管理批號的8碼，不要疊兩層`); return; }
     // ③ 別名品項的每瓶劑量跟正式管理品項不一樣時提醒一下（有可能是刻意的，例如半劑瓶，不擋）
     if(targetRow.doses_per_vial != null && Number(targetRow.doses_per_vial) !== dosesPerVial){
-      if(!confirm(`這個品項的每瓶劑量（${dosesPerVial}）跟共用批號的正式管理品項「${row.alias_of}」的每瓶劑量（${targetRow.doses_per_vial}）不一樣。\n\n如果是刻意設定（例如半劑瓶）請按確定繼續；如果是打錯了請取消修改。`)) return;
+      if(!await appConfirm(`這個品項的每瓶劑量（${dosesPerVial}）跟共用批號的正式管理品項「${row.alias_of}」的每瓶劑量（${targetRow.doses_per_vial}）不一樣。\n\n如果是刻意設定（例如半劑瓶）請按確定繼續；如果是打錯了請取消修改。`)) return;
     }
   }
   const { error } = editCode
@@ -3566,7 +3729,7 @@ async function saveVaccine(){
 
 async function toggleVaccStatus(code8, status){
   const msg = status==='inactive' ? `確定停用此疫苗品項？（盤點分頁、管理總覽等畫面將同步不再顯示）` : `確定重新啟用此疫苗品項？（盤點分頁、管理總覽等畫面將同步恢復顯示）`;
-  if(!confirm(msg)) return;
+  if(!await appConfirm(msg)) return;
   await sb.from('vaccine_master').update({status}).eq('drug_code8', code8);
   // 同步更新分頁指派表的狀態，避免兩張表狀態不同步
   await sb.from('vaccine_campus_items').update({status}).eq('drug_code8', code8);
@@ -3574,7 +3737,7 @@ async function toggleVaccStatus(code8, status){
 }
 
 async function deleteVaccine(code8, name){
-  if(!confirm(`確定要永久刪除「${name}」（${code8}）？\n此動作將一併移除該品項的分頁指派與所有批號資料，且無法復原。\n（若此品項已有歷史盤點紀錄，將無法刪除，請改用「停用」）`)) return;
+  if(!await appConfirm(`確定要永久刪除「${name}」（${code8}）？\n此動作將一併移除該品項的分頁指派與所有批號資料，且無法復原。\n（若此品項已有歷史盤點紀錄，將無法刪除，請改用「停用」）`)) return;
   const r = await tryDeleteVaccine(code8);
   if(!r.ok){
     if(r.blocked){
@@ -3847,7 +4010,7 @@ async function saveLotNote(lotId, code8, value){
 }
 
 async function addNewLot(code8){
-  const lotNo = prompt('請輸入批號：', '');
+  const lotNo = await appPrompt('請輸入批號：', '');
   if(lotNo === null) return;
   const trimmed = lotNo.trim();
   if(!trimmed){ alert('批號不可空白'); return; }
@@ -3865,7 +4028,7 @@ async function addNewLot(code8){
 }
 
 async function deleteLotGroup(lotNo, code8){
-  if(!confirm(`確定要永久刪除批號「${lotNo}」？此動作無法復原。`)) return;
+  if(!await appConfirm(`確定要永久刪除批號「${lotNo}」？此動作無法復原。`)) return;
   const { error } = await sb.from('lot_details').delete().eq('drug_code8', code8).eq('lot_no', lotNo);
   if(error){ alert('刪除失敗：'+error.message); return; }
   await refreshLots(code8);
@@ -4137,7 +4300,7 @@ async function saveNewPage(){
 }
 
 async function deletePage(pageId, pageName){
-  if(!confirm(`確定刪除「${pageName}」分頁？分頁內的疫苗會移至未分類。`)) return;
+  if(!await appConfirm(`確定刪除「${pageName}」分頁？分頁內的疫苗會移至未分類。`)) return;
   await sb.from('vaccine_campus_items').update({page_id:null}).eq('page_id', pageId);
   await sb.from('tally_pages').delete().eq('page_id', pageId);
   if(selectedPageId === pageId) selectedPageId = null;
@@ -4257,7 +4420,7 @@ async function saveAccountChanges(){
 async function deleteSelectedAccounts(){
   const sel = accCache.filter(u=>u._chk);
   if(!sel.length) return;
-  if(!confirm(`確定刪除勾選的 ${sel.length} 個帳號？`)) return;
+  if(!await appConfirm(`確定刪除勾選的 ${sel.length} 個帳號？`)) return;
   for(const u of sel){
     await sb.from('users').delete().eq('emp_id', u.emp_id);
   }
@@ -4845,7 +5008,7 @@ async function commitUsageUpload(){
   const summary = dates.map(d=>`${d}：${byDate[d].length} 筆`).join('\n');
   const replaceNote = replacedInfo.length ? `\n\n以下日期這份檔案裡的品項原本已有資料，會用這次的數字取代：\n${replacedInfo.join('\n')}` : '';
   if(!conflicts.length){
-    if(!confirm(`確定要寫入以下 ${dates.length} 天、共 ${validRows.length} 筆全院合計耗用資料嗎？\n（只會更新這份檔案裡有的品項，同一天其他品項的耗用不受影響）\n\n${summary}`)) return;
+    if(!await appConfirm(`寫入 ${validRows.length} 筆耗用資料？\n${summary}`, {title:'確認上傳', okText:'寫入'})) return;
   }
 
   const vialDeductWarnings = [];
@@ -4998,7 +5161,7 @@ async function commitLotFix(){
   const { data: wrongRow } = await sb.from('usage_uploads').select('*').eq('upload_date', date).eq('drug_code8', code8).eq('lot_no', wrongLot).maybeSingle();
   if(!wrongRow){ msgBox.style.display=''; msgBox.textContent = '查無這筆錯批號的耗用紀錄，可能已經被更正過或資料有變動，請關閉重開再確認一次'; return; }
   if(qty > Number(wrongRow.usage_qty)){ msgBox.style.display=''; msgBox.textContent = `更正數量不能超過這個批號當天的耗用量（目前${wrongRow.usage_qty}）`; return; }
-  if(!confirm(`確定把 ${date} ${code8} 的耗用量 ${qty}，從批號「${wrongLot}」搬到「${correctLot}」？`)) return;
+  if(!await appConfirm(`確定把 ${date} ${code8} 的耗用量 ${qty}，從批號「${wrongLot}」搬到「${correctLot}」？`)) return;
 
   const remain = Number(wrongRow.usage_qty) - qty;
   if(remain <= 0){
@@ -5075,14 +5238,14 @@ async function commitWhLotFix(){
   if(tx.lot_no === correctLot){
     msgBox.style.display=''; msgBox.textContent = '錯的批號跟對的批號不能一樣'; return;
   }
-  if(!confirm(`確定把 ${date}「${tx.direction==='in'?'進貨':'退衛生所'} ${tx.qty}瓶」這筆紀錄，從批號「${tx.lot_no}」搬到「${correctLot}」？\n（庫存量會自動同步調整）`)) return;
+  if(!await appConfirm(`確定把 ${date}「${tx.direction==='in'?'進貨':'退衛生所'} ${tx.qty}瓶」這筆紀錄，從批號「${tx.lot_no}」搬到「${correctLot}」？\n（庫存量會自動同步調整）`)) return;
 
   // 找出符合這筆紀錄所有欄位的資料列，鎖定要搬的那一筆（沒有唯一id，所以用完整欄位比對）
   const { data: matched } = await sb.from('warehouse_transactions').select('*')
     .eq('campus','wh').eq('drug_code8', code8).eq('lot_no', tx.lot_no)
     .eq('direction', tx.direction).eq('reason', tx.reason).eq('qty', tx.qty).eq('tx_date', tx.tx_date);
   if(!matched || !matched.length){ msgBox.style.display=''; msgBox.textContent = '查無這筆紀錄，可能已經被更正過，請關閉重開再確認一次'; return; }
-  if(matched.length > 1 && !confirm(`⚠️ 資料庫裡有 ${matched.length} 筆完全相同的紀錄（同批號/方向/數量/日期），無法精準分辨是哪一筆，這次會全部一起搬到對的批號。\n\n確定要繼續嗎？`)) return;
+  if(matched.length > 1 && !await appConfirm(`⚠️ 資料庫裡有 ${matched.length} 筆完全相同的紀錄（同批號/方向/數量/日期），無法精準分辨是哪一筆，這次會全部一起搬到對的批號。\n\n確定要繼續嗎？`)) return;
 
   // 反向處理舊批號的庫存（進貨要扣回去、退衛生所要加回來），乘上這次總共要搬的筆數
   // 藥庫進出貨數量是「瓶數」，但整瓶扣帳品項的 current_qty 是用「劑」記錄，要先換算才能直接加減
@@ -5370,7 +5533,7 @@ async function handleWhReceiveFile(input){
 async function commitWhReceive(){
   const toWrite = whrecvGrouped.filter(r=>!r.isDup && r.tx_date);
   if(!toWrite.length){ alert('沒有可寫入的資料（可能都重複或缺少日期）'); return; }
-  if(!confirm(`確定寫入 ${toWrite.length} 筆藥庫進出貨紀錄？系統會自動更新藥庫批號庫存。`)) return;
+  if(!await appConfirm(`寫入 ${toWrite.length} 筆藥庫進出貨？`, {title:'確認上傳', okText:'寫入'})) return;
 
   for(const r of toWrite){
     // 藥庫進出貨的數量永遠是「瓶數（實際到貨支數）」，但 lot_details.current_qty 對「藥庫領用即整瓶扣帳」
@@ -5549,7 +5712,7 @@ async function handleInitStockFile(input){
 async function commitInitStock(){
   const toWrite = initStockGrouped.filter(r=>r.tally_name);
   if(!toWrite.length){ alert('沒有可寫入的資料（皆未比對到主檔）'); return; }
-  if(!confirm(`確定將 ${toWrite.length} 筆批號的庫存量直接設定成上傳的數字（已依每瓶劑量換算成劑數，覆蓋現有值，不是累加）？\n\n這個動作通常只在正式上線或重新校正基準點時做一次，請確認這份資料是最新盤點結果。\n\n斗六/虎尾/藥庫亮燈也會依這次填的瓶數自動點亮或熄滅。`)) return;
+  if(!await appConfirm(`確定將 ${toWrite.length} 筆批號的庫存量直接設定成上傳的數字（已依每瓶劑量換算成劑數，覆蓋現有值，不是累加）？\n\n這個動作通常只在正式上線或重新校正基準點時做一次，請確認這份資料是最新盤點結果。\n\n斗六/虎尾/藥庫亮燈也會依這次填的瓶數自動點亮或熄滅。`)) return;
 
   let okCount=0, failCount=0;
   for(const r of toWrite){
@@ -5603,7 +5766,7 @@ async function commitStockUpload(){
 
   const stations = [...new Set(validRows.map(r=>r.station_code))];
   const stationLabels = stations.map(st=>st==='6101'?'斗六':st==='6201'?'虎尾':'藥庫');
-  if(!confirm(`確定將 ${validRows.length} 筆庫存資料寫入 ${date}（站別：${stationLabels.join('、')}）？\n（只會覆蓋這次上傳有出現的站別，其他站別當天的資料不受影響）`)) return;
+  if(!await appConfirm(`確定將 ${validRows.length} 筆庫存資料寫入 ${date}（站別：${stationLabels.join('、')}）？\n（只會覆蓋這次上傳有出現的站別，其他站別當天的資料不受影響）`)) return;
 
   for(const st of stations){
     await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', st);
@@ -5765,7 +5928,7 @@ async function toggleWhReceiveDetail(date){
 // 刪除單筆藥庫進出貨紀錄時，要連動把這筆對藥庫批號庫存造成的加減也一併還原，避免刪除紀錄後庫存跟紀錄對不起來
 // 用「藥品8碼+批號+方向+原因+數量+日期」這組合去比對刪除（跟上傳時的重複偵測邏輯一致），不假設資料表一定有id欄位
 async function deleteWhReceiveRow(tx){
-  if(!confirm(`確定刪除這筆紀錄嗎？\n${tx.drug_code8} 批號 ${tx.lot_no}　${tx.direction==='in'?'進貨':'退衛生所'} ${tx.qty}\n\n刪除後會同時把藥庫該批號的庫存數量還原（差額 ${tx.direction==='in'?'-':'+'}${tx.qty}）。`)) return;
+  if(!await appConfirm(`確定刪除這筆紀錄嗎？\n${tx.drug_code8} 批號 ${tx.lot_no}　${tx.direction==='in'?'進貨':'退衛生所'} ${tx.qty}\n\n刪除後會同時把藥庫該批號的庫存數量還原（差額 ${tx.direction==='in'?'-':'+'}${tx.qty}）。`)) return;
 
   const { data: whLot } = await sb.from('lot_details').select('*').eq('drug_code8', tx.drug_code8).eq('campus','wh').eq('lot_no', tx.lot_no).maybeSingle();
   if(whLot){
@@ -5794,7 +5957,7 @@ async function deleteWhReceiveRow(tx){
     ]);
     const allZero = (restLots||[]).every(l=>Number(l.current_qty||0)===0);
     if(!(restTx||[]).length && !(restUsage||[]).length && (restLots||[]).length && allZero){
-      if(confirm(`批號 ${tx.lot_no} 已經沒有任何進出貨、耗用紀錄，庫存也是 0。\n\n要一併移除這個批號嗎？（批號管理、NIIS結存輔助、月報表都不會再列出它，包含這個批號的NIIS結存紀錄和月結存紀錄）\n\n如果是批號打錯、已用正確批號重新上傳，建議按「確定」。`)){
+      if(await appConfirm(`批號 ${tx.lot_no} 已經沒有任何進出貨、耗用紀錄，庫存也是 0。\n\n要一併移除這個批號嗎？（批號管理、NIIS結存輔助、月報表都不會再列出它，包含這個批號的NIIS結存紀錄和月結存紀錄）\n\n如果是批號打錯、已用正確批號重新上傳，建議按「確定」。`)){
         await sb.from('niis_declare_log').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
         try{ await sb.from('lot_monthly_closing').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no); }catch(e){}
         const { error: lotDelErr } = await sb.from('lot_details').delete().eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no);
@@ -5900,7 +6063,7 @@ async function recalcWholeVialForDate(date){
 
 // 修改單筆耗用數量（院內系統刪除多開處方、但無法重新匯出那天報表時的備用做法）
 async function editUsageRowQty(u){
-  const input = prompt(`修改耗用數量\n${u.date}　${u.name}\n批號 ${u.lot_no||'—'}\n\n目前 ${u.qty} 劑，請輸入正確的劑數：\n（之後如果重新上傳這天的報表並選「取代」，會改回報表上的數字）`, u.qty);
+  const input = await appPrompt(`修改耗用數量\n${u.date}　${u.name}\n批號 ${u.lot_no||'—'}\n\n目前 ${u.qty} 劑，請輸入正確的劑數：\n（之後如果重新上傳這天的報表並選「取代」，會改回報表上的數字）`, u.qty);
   if(input===null) return;
   const newQty = Number(String(input).trim());
   if(!Number.isFinite(newQty) || newQty<0 || String(input).trim()===''){ alert('請輸入 0 以上的數字'); return; }
@@ -5930,7 +6093,7 @@ async function editUsageRowQty(u){
 
 // 刪除單筆耗用（某天某品項某批號），連動刪除B肝劑別拆分，並重算整瓶扣帳的藥庫庫存
 async function deleteUsageRow(u){
-  if(!confirm(`確定刪除這筆耗用紀錄嗎？\n${u.date}　${u.name}\n批號 ${u.lot_no||'—'}　${u.qty} 劑\n\n如果是整瓶扣帳品項，藥庫庫存會一併重新計算。`)) return;
+  if(!await appConfirm(`${u.date}　${u.name}\n${u.lot_no||'—'}　${u.qty} 劑`, {title:'刪除這筆耗用？', kind:'danger', okText:'刪除'})) return;
   let q = sb.from('usage_uploads').delete().eq('upload_date', u.date).eq('drug_code8', u.drug_code8);
   q = u.lot_no===null || u.lot_no===undefined ? q.is('lot_no', null) : q.eq('lot_no', u.lot_no);
   const { error } = await q;
@@ -5948,7 +6111,7 @@ async function deleteUsageRow(u){
 }
 
 async function deleteUsageDate(date){
-  if(!confirm(`確定刪除 ${date} 的全部耗用上傳紀錄？\n（一般疫苗、流感等這天所有品項都會刪除；整瓶扣帳品項的藥庫庫存會一併還原）`)) return;
+  if(!await appConfirm(`${date} 這天所有品項的耗用都會刪除。`, {title:'刪除整天耗用？', kind:'danger', okText:'全部刪除'})) return;
   const { error } = await sb.from('usage_uploads').delete().eq('upload_date', date);
   if(error){ alert('刪除失敗：'+error.message); return; }
   try{ await sb.from('usage_dose_breakdown').delete().eq('upload_date', date); }catch(e){}
@@ -5959,7 +6122,7 @@ async function deleteUsageDate(date){
 
 async function deleteStockDate(date, station){
   const label = station==='6101'?'斗六':station==='6201'?'虎尾':'藥庫';
-  if(!confirm(`確定刪除 ${date} ${label}(${station}) 的庫存上傳紀錄？`)) return;
+  if(!await appConfirm(`確定刪除 ${date} ${label}(${station}) 的庫存上傳紀錄？`)) return;
   await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', station);
   renderUploadHistory();
 }
@@ -6567,10 +6730,17 @@ async function confirmNiisDeclare(i){
     }
   }
 
-  const confirmMsg = closing < 0
-    ? `⚠️ 結存後庫存量為負數（${closing}）！\n\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n這通常代表：耗用報表批號選錯，或藥庫進出貨有漏登（撥入未登打）。建議先去「批號更正」或「藥庫進出貨」檢查後再結存。\n\n仍要照這個數字確認結存嗎？`
-    : `確認結存：\n${r.niis_name}（批號 ${r.lotNo}）\n申報日期：${declareDate}\n起始庫存量 ${opening} － 消耗量 ${usage}${otherAdjust?` － 其他異動 ${otherAdjust}`:''} ＝ 結存後 ${closing}\n\n記錄後這批號會更新結存數字；如果沒有其他待結存的日期，列表會恢復原本顏色。實際申報仍要自行到政府NIIS系統輸入送出。`;
-  if(!confirm(confirmMsg)) return;
+  const neg = closing < 0;
+  const ok = await appConfirm('', {
+    title: neg ? '結存後為負數' : '確認結存',
+    kind: neg ? 'danger' : 'confirm',
+    okText: neg ? '仍要結存' : '確認結存',
+    html: `<div style="font-weight:600">${appEsc(r.niis_name)}</div>
+      <div style="color:#888;font-size:13px">${appEsc(r.lotNo)}　${declareDate}</div>
+      <div style="margin-top:10px;font-size:16px">起始 ${opening} － 消耗 ${usage}${otherAdjust?` － 其他 ${otherAdjust}`:''} ＝ <b style="color:${neg?'#A32D2D':'#1B3A6B'}">結存後 ${closing}</b></div>
+      ${neg?'<div style="color:#A32D2D;font-size:13px;margin-top:8px">可能是批號選錯或漏登藥庫撥入，建議先檢查。</div>':''}`
+  });
+  if(!ok) return;
 
   // 這次勾選套用的藥庫進出貨明細（一起存進結存紀錄，之後刪除這筆結存時才能把它們還原成「未套用」）
   const checkedItems = [];
@@ -6681,7 +6851,7 @@ async function bulkDeleteZeroNiisLog(){
   if(error){ alert('查詢失敗：'+error.message); return; }
   if(!data || !data.length){ alert('這個日期範圍內沒有消耗量=0的結存紀錄'); return; }
 
-  if(!confirm(`確定刪除 ${data.length} 筆消耗量=0的結存紀錄嗎？（範圍：${from}～${to}）\n\n刪除後這些批號對應的申報日期會重新變成待結存狀態（如果耗用報表資料還在的話）。這個動作無法復原。`)) return;
+  if(!await appConfirm(`確定刪除 ${data.length} 筆消耗量=0的結存紀錄嗎？（範圍：${from}～${to}）\n\n刪除後這些批號對應的申報日期會重新變成待結存狀態（如果耗用報表資料還在的話）。這個動作無法復原。`)) return;
 
   let okCount=0, failCount=0;
   for(const d of data){
@@ -6737,7 +6907,7 @@ async function deleteNiisLog(code8, lotNo, declareDate, niisName){
     msg += `⚠️ 這筆不是這個批號最新的結存（之後還有 ${sameLot.length-1-idx} 筆），刪除後目前的結存數字不會改變，只是這天會重新變成「待結存」。如果要復原數字，請從最新的一筆開始往回刪。`;
   }
   msg += `\n\n這天會重新變成「待結存」狀態（如果耗用報表資料還在的話）。`;
-  if(!confirm(msg)) return;
+  if(!await appConfirm(msg)) return;
 
   const { error } = await sb.from('niis_declare_log').delete().eq('drug_code8', code8).eq('lot_no', lotNo).eq('declare_date', declareDate);
   if(error){ alert('刪除失敗：'+error.message); return; }
@@ -7341,7 +7511,7 @@ function uqLoadGroup(groupId){
 
 async function uqSaveGroup(){
   if(!uqSelected.length){ alert('請先加入至少一個品項再儲存群組'); return; }
-  const name = prompt('這個群組要取什麼名字？', '');
+  const name = await appPrompt('這個群組要取什麼名字？', '');
   if(!name || !name.trim()) return;
   const { error } = await sb.from('usage_query_groups').insert({
     name: name.trim(), drug_codes: uqSelected.map(i=>i.drug_code8), created_by: me.emp_id
@@ -7353,7 +7523,7 @@ async function uqSaveGroup(){
 
 async function uqDeleteGroup(){
   if(!uqCurrentGroupId) return;
-  if(!confirm('確定要刪除這個已存群組嗎？（不會影響現在畫面上選取的品項）')) return;
+  if(!await appConfirm('確定要刪除這個已存群組嗎？（不會影響現在畫面上選取的品項）')) return;
   const { error } = await sb.from('usage_query_groups').delete().eq('id', uqCurrentGroupId);
   if(error){ alert('刪除失敗：'+error.message); return; }
   uqCurrentGroupId = null;
@@ -7820,7 +7990,7 @@ async function exportHbigReportExcel(){
   };
 
   if(igRows.length>3 || vacRows.length>3){
-    if(!confirm(`「結存情況」最多只能列3個批號，目前${igRows.length>3?'免疫球蛋白有'+igRows.length+'個':'遺傳工程疫苗有'+vacRows.length+'個'}批號，匯出時只會列出前3個。確定要繼續嗎？`)) return;
+    if(!await appConfirm(`「結存情況」最多只能列3個批號，目前${igRows.length>3?'免疫球蛋白有'+igRows.length+'個':'遺傳工程疫苗有'+vacRows.length+'個'}批號，匯出時只會列出前3個。確定要繼續嗎？`)) return;
   }
 
   const sum = (rows, field) => rows.reduce((a,r)=>a + (Number(r[field])||0), 0);
@@ -7981,7 +8151,7 @@ async function saveMonthlyClosing(){
   if(!rows.length){ alert('請先填寫本月結存數量'); return; }
   const negRows = rows.filter(r=>r.closing_qty<0);
   const negNote = negRows.length ? `\n\n⚠️ 其中 ${negRows.length} 筆本月結存為負數（${negRows.map(r=>r.drug_code8+' '+r.lot_no).join('、')}），建議先確認是否有耗用報表批號選錯或漏傳，仍可繼續儲存。` : '';
-  if(!confirm(`確定要寫入 ${rows.length} 筆 ${ym} 結存紀錄嗎？若該批號已有本月結存紀錄將會被覆蓋，且會成為下個月試算的基準。${negNote}`)) return;
+  if(!await appConfirm(`確定要寫入 ${rows.length} 筆 ${ym} 結存紀錄嗎？若該批號已有本月結存紀錄將會被覆蓋，且會成為下個月試算的基準。${negNote}`)) return;
   const { error } = await sb.from('lot_monthly_closing').upsert(rows, { onConflict: 'drug_code8,lot_no,year_month' });
   if(error){
     alert(`儲存失敗：${error.message}\n請確認 lot_monthly_closing 是否已建立 (drug_code8, lot_no, year_month) 的唯一鍵限制（unique constraint），例如：\nALTER TABLE lot_monthly_closing ADD CONSTRAINT lot_monthly_closing_uniq UNIQUE (drug_code8, lot_no, year_month);`);
@@ -7998,7 +8168,7 @@ async function exportMonthlyReportExcel(){
     return Number(v) < 0;
   });
   if(negItems.length){
-    if(!confirm(`⚠️ 目前有 ${negItems.length} 筆本月結存為負數（${negItems.map(r=>r.name||r.code8||'').slice(0,5).join('、')}${negItems.length>5?' 等':''}），建議先確認耗用報表批號是否選錯或有無漏傳。\n\n仍要繼續匯出Excel嗎？`)) return;
+    if(!await appConfirm(`⚠️ 目前有 ${negItems.length} 筆本月結存為負數（${negItems.map(r=>r.name||r.code8||'').slice(0,5).join('、')}${negItems.length>5?' 等':''}），建議先確認耗用報表批號是否選錯或有無漏傳。\n\n仍要繼續匯出Excel嗎？`)) return;
   }
   const ym = monthlyReportYm || getMrYm();
   const [yy, mm] = ym.split('-').map(Number);
