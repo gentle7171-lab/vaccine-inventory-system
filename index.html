@@ -5260,7 +5260,10 @@ async function loadLotFixCandidates(){
   const lotSel = document.getElementById('lotfix-wrong-lot');
   const correctSel = document.getElementById('lotfix-correct-lot');
   if(code8){
-    const { data: lots } = await sb.from('lot_details').select('lot_no').eq('drug_code8', code8).eq('status','active');
+    // 別名品項（例如員工用的8碼）沒有自己的批號，要查它共用的正式品項的批號
+    const { data: vmA } = await sb.from('vaccine_master').select('alias_of').eq('drug_code8', code8).maybeSingle();
+    const lotCode = (vmA && vmA.alias_of) || code8;
+    const { data: lots } = await sb.from('lot_details').select('lot_no').eq('drug_code8', lotCode).eq('status','active');
     const uniqLots = [...new Set((lots||[]).map(l=>l.lot_no))];
     correctSel.innerHTML = uniqLots.length
       ? '<option value="">請選擇</option>' + uniqLots.map(l=>`<option value="${l}">${l}</option>`).join('')
