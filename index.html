@@ -6640,6 +6640,9 @@ async function renderNiisMirror(vmaster){
     sb.from('usage_uploads').select('upload_date').gte('upload_date', earliestNeeded),
     sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,qty,tx_date,reason').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', codes).or('niis_adjusted.is.false,niis_adjusted.is.null')
   ]);
+  // 第一次結存的起始庫存要扣掉「申報日期之後」才發生的進出貨，所以另外抓這些批號全部的藥庫進出貨（含整瓶扣帳）
+  const { data: allWhTx } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,qty,tx_date,reason')
+    .eq('campus','wh').in('reason',['receive_import','return_import','wholevial_pull']).in('drug_code8', codes);
   if(declareErr){
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:#A32D2D">尚未建立 niis_declare_log 資料表，請先執行 sql_niis_declare_log.sql（${declareErr.message}）</td></tr>`;
     return;
@@ -6730,6 +6733,27 @@ async function renderNiisMirror(vmaster){
     const wholeVial = !!vmap[code8].whole_vial_deduct;
     const rawUsage = nextPending ? nextPending.usage : 0;
     const defaultUsage = (wholeVial && rawUsage>0) ? Math.ceil(rawUsage / dosesPerVial) : rawUsage;
+    // 第一次結存（從沒結存過）：起始庫存＝現有量 － 申報日期之後的進貨 ＋ 申報日期之後的退貨
+    //   整瓶扣帳品項的現有量已經扣掉耗用時開掉的瓶數，申報日期當天（含）之後扣掉的要加回來
+    let firstOpening = null, firstOpeningNote = '';
+    if(!lastDeclareMap[key]){
+      const D = nextPending ? nextPending.date : (latestOverallUploadDate || todayStr());
+      const cur = lotFallbackMap[key] || 0;
+      let inAfter = 0, outAfter = 0, pullBack = 0;
+      (allWhTx||[]).forEach(t=>{
+        if(canon(t.drug_code8)+'|'+t.lot_no !== key) return;
+        const q = Number(t.qty||0);
+        if(t.reason==='wholevial_pull'){ if(wholeVial && t.tx_date >= D) pullBack += q / dosesPerVial; return; }
+        if(t.tx_date <= D) return;
+        if(t.direction==='in') inAfter += q; else outAfter += q;
+      });
+      firstOpening = Math.round((cur - inAfter + outAfter + pullBack) * 100) / 100;
+      const parts = [`現有 ${Math.round(cur*100)/100}`];
+      if(inAfter) parts.push(`－ ${D} 之後進貨 ${inAfter}`);
+      if(outAfter) parts.push(`＋ ${D} 之後退貨 ${outAfter}`);
+      if(pullBack) parts.push(`＋ ${D} 起已扣的開瓶 ${Math.round(pullBack*100)/100}`);
+      firstOpeningNote = parts.length > 1 ? `${parts.join(' ')} ＝ ${firstOpening}` : '';
+    }
     return {
       code8, lotNo,
       niis_code: vmap[code8].niis_code || '', niis_name: vmap[code8].niis_name || code8,
@@ -6741,7 +6765,8 @@ async function renderNiisMirror(vmaster){
       wholeVial,
       hold: 0,
       autoAdjust: autoAdjustMap[key] || [],
-      targetDate: nextPending ? nextPending.date : (latestOverallUploadDate || todayStr())
+      targetDate: nextPending ? nextPending.date : (latestOverallUploadDate || todayStr()),
+      firstOpening, firstOpeningNote
     };
   }).filter(Boolean).sort((a,b)=>{
     const sa = a.sortOrder===null||a.sortOrder===undefined ? Infinity : a.sortOrder;
@@ -6790,11 +6815,11 @@ function renderNiisMirrorRows(){
       <td colspan="7" style="padding:12px 16px">
         <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
           <div class="fg" style="margin:0"><label>申報日期</label><input type="date" class="inp" id="niis-mirror-date-${i}" value="${r.targetDate}" style="width:150px"></div>
-          ${!r.lastDeclareDate ? `<div class="fg" style="margin:0"><label>起始庫存量${r.wholeVial?'（瓶）':''}<span style="font-weight:400;color:#C77700;font-size:11px">（第一次結存，預設帶批號管理現有量，可改成實際全院數量）</span></label><input type="number" class="inp" id="niis-mirror-opening-${i}" value="${r.qty}" style="width:110px" oninput="updateNiisMirrorPreview(${i})"></div>` : ''}
+          ${!r.lastDeclareDate ? `<div class="fg" style="margin:0"><label>起始庫存量${r.wholeVial?'（瓶）':''}<span style="font-weight:400;color:#C77700;font-size:11px">（第一次結存，只算到申報日期為止的進貨，可自行修改）</span></label><input type="number" class="inp" id="niis-mirror-opening-${i}" value="${r.firstOpening!==null && r.firstOpening!==undefined ? r.firstOpening : r.qty}" style="width:110px" oninput="updateNiisMirrorPreview(${i})">${r.firstOpeningNote ? `<div style="font-size:12px;color:#888;margin-top:2px">${r.firstOpeningNote}</div>` : ''}</div>` : ''}
           <div class="fg" style="margin:0"><label>消耗量${r.wholeVial?'（瓶）':''}${r.rawUsage!==undefined && r.usage!==r.rawUsage ? `<span style="font-weight:400;color:#C77700;font-size:11px">（實際施打${r.rawUsage}人，換算${r.usage}瓶）</span>` : ''}</label><input type="number" class="inp" id="niis-mirror-usage-${i}" value="${r.usage}" style="width:100px" oninput="updateNiisMirrorPreview(${i})"></div>
           <div class="fg" style="margin:0"><label>控留量</label><input type="number" class="inp" id="niis-mirror-hold-${i}" value="${r.hold}" style="width:100px"></div>
           <div class="fg" style="margin:0"><label>其他異動（退回衛生所等，正數＝扣掉、負數＝加回，例如撥入要填負數）</label><input type="number" class="inp" id="niis-mirror-adjust-${i}" value="${r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}" style="width:140px" oninput="updateNiisMirrorPreview(${i})"></div>
-          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;padding:7px 0${(r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?';color:#A32D2D':';color:#1B3A6B'}">${r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}</div><div id="niis-mirror-warn-${i}" style="font-size:11px;color:#A32D2D;${(r.qty - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?'':'display:none'}">⚠️ 結存後為負數，請檢查批號是否選錯或有無漏登藥庫進出貨</div></div>
+          <div class="fg" style="margin:0"><label>結存後庫存量${r.wholeVial?'（瓶）':''}</label><div id="niis-mirror-preview-${i}" style="font-size:18px;font-weight:600;padding:7px 0${((r.firstOpening!=null?r.firstOpening:r.qty) - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?';color:#A32D2D':';color:#1B3A6B'}">${(r.firstOpening!=null?r.firstOpening:r.qty) - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0)}</div><div id="niis-mirror-warn-${i}" style="font-size:11px;color:#A32D2D;${((r.firstOpening!=null?r.firstOpening:r.qty) - r.usage - r.autoAdjust.reduce((a,x)=>a+(x.direction==='out'?x.qty:-x.qty),0))<0?'':'display:none'}">⚠️ 結存後為負數，請檢查批號是否選錯或有無漏登藥庫進出貨</div></div>
           <button class="btn btn-primary btn-sm" onclick="confirmNiisDeclare(${i})">確認結存</button>
         </div>
         <div style="font-size:12px;color:#999;margin-top:6px">「其他異動」是給退回衛生所、藥庫進出貨、報廢、盤損等非耗用的庫存變動用的，只影響這裡的結存基準，不會被當成消耗量、也不會影響月報表</div>
