@@ -5983,7 +5983,7 @@ async function renderUploadHistory(){
     missBox.style.display='none';
   }
 
-  const uDates = Object.keys(uMap).sort().reverse().slice(0,10);
+  const uDates = Object.keys(uMap).sort().reverse();
   document.getElementById('usage-history-body').innerHTML = uDates.length ? `<div class="tbl-wrap"><table data-nosort>
     <thead><tr><th style="width:110px">日期</th><th class="c">品項筆數</th><th style="width:140px">上傳人員</th><th style="width:100px">明細</th></tr></thead>
     <tbody>${uDates.map(d=>`<tr>
@@ -6003,7 +6003,7 @@ async function renderUploadHistory(){
     if(!sByDate[r.upload_date]) sByDate[r.upload_date] = new Set();
     sByDate[r.upload_date].add(r.uploaded_by);
   });
-  const sDates = Object.keys(sMap).sort().reverse().slice(0,10);
+  const sDates = Object.keys(sMap).sort().reverse();
 
   document.getElementById('stock-history-body').innerHTML = sDates.length ? `<div class="tbl-wrap"><table>
     <thead><tr><th style="width:110px">日期</th><th class="c">斗六(6101)</th><th class="c">虎尾(6201)</th><th class="c">藥庫(6000)</th><th style="width:140px">上傳人員</th><th style="width:220px">操作</th></tr></thead>
