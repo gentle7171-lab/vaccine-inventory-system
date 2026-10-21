@@ -1562,6 +1562,12 @@ function parseFlexDate(v){
   let m;
   m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
   if(m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  // 月/日/西元年（文字檔匯出常見，例如 10/8/26、6/30/2027）：第一段≤12、最後一段是2或4位數
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if(m && parseInt(m[1])<=12){
+    const y = m[3].length===2 ? 2000+parseInt(m[3]) : parseInt(m[3]);
+    return y+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  }
   m = s.match(/^(\d{2,3})[-\/](\d{1,2})[-\/](\d{1,2})/);
   if(m) return (parseInt(m[1])+1911)+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
   m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -4721,16 +4727,18 @@ function initReportsTab(){
 // 共用讀檔：真正的 Excel（.xlsx 開頭 PK、舊版 .xls 開頭 D0CF11E0）用 Excel 方式讀；
 // 其他（院內系統常見「副檔名 .xls、內容其實是 Big5 純文字、Tab 分隔」）改用文字方式讀。
 // 讀完一律把 ="6000"、"6000" 這種包裝還原成純文字。
-async function readSheetRows(file){
+async function readSheetRows(file){ return (await readSheetRowsBoth(file)).rows; }
+async function readSheetRowsBoth(file){
   const buf = await file.arrayBuffer();
   const head = new Uint8Array(buf.slice(0,4));
   const isRealXlsx = head[0]===0x50 && head[1]===0x4B;
   const isRealXls = head[0]===0xD0 && head[1]===0xCF && head[2]===0x11 && head[3]===0xE0;
-  let rows;
+  let rows, rawRows = null;
   if(isRealXlsx || isRealXls){
     const wb = XLSX.read(new Uint8Array(buf), {type:'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+    rawRows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
   } else {
     let text;
     try{ text = new TextDecoder('utf-8', {fatal:true}).decode(buf); }
@@ -4740,12 +4748,14 @@ async function readSheetRows(file){
     const delim = (lines[0]||'').includes('\t') ? '\t' : ',';
     rows = lines.map(l=>l.split(delim));
   }
-  return rows.map(r => (r||[]).map(c => {
+  const clean = rs => rs.map(r => (r||[]).map(c => {
     if(typeof c !== 'string') return c;
     const t = c.trim();
     const m = t.match(/^="(.*)"$/) || t.match(/^"(.*)"$/);
     return m ? m[1] : t;
   }));
+  rows = clean(rows);
+  return { rows, raw: rawRows ? clean(rawRows) : rows };
 }
 
 async function handleUsageFile(input){
@@ -5536,9 +5546,8 @@ async function handleWhReceiveFile(input){
   if(!file) return;
   let rows, rowsRaw;
   try{
-    rows = await readSheetRows(file);
     // 日期／效期欄位另外用raw:true抓原始值，不要用顯示文字去猜格式，避免被儲存格格式（如mm-dd-yy）誤判
-    rowsRaw = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    ({ rows, raw: rowsRaw } = await readSheetRowsBoth(file));
   }catch(e){ alert('檔案解析失敗：'+e.message); return; }
   if(!rows || rows.length<2){ alert('檔案內容空白或格式錯誤'); return; }
 
@@ -5721,10 +5730,9 @@ async function handleInitStockFile(input){
   if(!file) return;
   let rows, rowsRaw;
   try{
-    rows = await readSheetRows(file);
     // 效期欄位另外用raw:true抓原始日期值（Excel儲存格內部的日期序號），不要用顯示文字去猜格式，
     // 因為顯示文字會受儲存格格式（例如 mm-dd-yy）影響，容易被誤判成民國年或月日顛倒
-    rowsRaw = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    ({ rows, raw: rowsRaw } = await readSheetRowsBoth(file));
   }catch(e){ alert('檔案解析失敗：'+e.message); return; }
   if(!rows || rows.length<2){ alert('檔案內容空白或格式錯誤'); return; }
 
