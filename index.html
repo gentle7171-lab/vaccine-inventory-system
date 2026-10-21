@@ -512,7 +512,15 @@ input[type=number]{-moz-appearance:textfield}
             <div style="font-size:12px;color:#999;margin-top:4px">如果某天某個藥品的耗用被記到錯的批號（例如最後一支藥師忘記切換批號），用這裡把耗用量從錯的批號搬到對的批號，月報表跟NIIS結存輔助會自動一起連動修正</div>
           </div>
           <div style="margin-top:20px">
-            <div style="font-size:14px;font-weight:600;color:#888;margin-bottom:8px">近期上傳紀錄（14天內）</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <span id="usage-hist-title" style="font-size:14px;font-weight:600;color:#888">上傳紀錄</span>
+              <span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <input type="date" class="inp" id="usage-hist-from" style="width:150px">
+                <span style="color:#999">～</span>
+                <input type="date" class="inp" id="usage-hist-to" style="width:150px">
+                <button class="btn btn-sm" onclick="renderUploadHistory()">🔍 查詢</button>
+              </span>
+            </div>
             <div id="usage-history-body"></div>
           </div>
         </div>
@@ -550,7 +558,15 @@ input[type=number]{-moz-appearance:textfield}
             </div>
           </div>
           <div style="margin-top:20px">
-            <div style="font-size:14px;font-weight:600;color:#888;margin-bottom:8px">近期上傳紀錄（14天內）</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <span id="stock-hist-title" style="font-size:14px;font-weight:600;color:#888">上傳紀錄</span>
+              <span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <input type="date" class="inp" id="stock-hist-from" style="width:150px">
+                <span style="color:#999">～</span>
+                <input type="date" class="inp" id="stock-hist-to" style="width:150px">
+                <button class="btn btn-sm" onclick="renderUploadHistory()">🔍 查詢</button>
+              </span>
+            </div>
             <div id="stock-history-body"></div>
           </div>
         </div>
@@ -592,7 +608,15 @@ input[type=number]{-moz-appearance:textfield}
             <div style="font-size:12px;color:#999;margin-top:4px">如果某天某筆藥庫進出貨被記到錯的批號，用這裡把那筆紀錄搬到對的批號，庫存量跟月報表會自動一起連動修正，不用先刪除再重新上傳</div>
           </div>
           <div style="margin-top:20px">
-            <div style="font-size:14px;font-weight:600;color:#888;margin-bottom:8px">近期上傳紀錄（30天內）— 全院庫存核對數量兜不起來時，可以來這裡查該天有沒有進出貨</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <span id="wh-hist-title" style="font-size:14px;font-weight:600;color:#888">上傳紀錄</span>
+              <span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <input type="date" class="inp" id="wh-hist-from" style="width:150px">
+                <span style="color:#999">～</span>
+                <input type="date" class="inp" id="wh-hist-to" style="width:150px">
+                <button class="btn btn-sm" onclick="renderUploadHistory()">🔍 查詢</button>
+              </span>
+            </div>
             <div id="whrecv-history-body"></div>
           </div>
         </div>
@@ -5897,18 +5921,43 @@ async function commitStockUpload(){
 }
 
 /* ── 上傳紀錄總覽 ── */
-async function renderUploadHistory(){
-  const since = new Date(); since.setDate(since.getDate()-14);
-  const sinceStr = since.toISOString().slice(0,10);
-  const since30 = new Date(); since30.setDate(since30.getDate()-30);
-  const since30Str = since30.toISOString().slice(0,10);
+// 資料庫一次最多回傳1000筆，期間拉長時要分批抓完
+async function fetchAllRows(makeQuery){
+  const all = []; const size = 1000;
+  for(let from=0; from<100000; from+=size){
+    const { data, error } = await makeQuery().range(from, from+size-1);
+    if(error) return { data: all, error };
+    all.push(...(data||[]));
+    if(!data || data.length < size) break;
+  }
+  return { data: all };
+}
 
-  const [{data:usageRows}, {data:stockRows}, {data:whRows}, {data:userRows}] = await Promise.all([
-    sb.from('usage_uploads').select('upload_date,campus,uploaded_by').gte('upload_date', sinceStr),
-    sb.from('stock_uploads').select('upload_date,station_code,uploaded_by').gte('upload_date', sinceStr),
-    sb.from('warehouse_transactions').select('tx_date,direction,qty,created_by').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', since30Str),
-    sb.from('users').select('emp_id,name')
+// 上傳紀錄的查詢期間：預設耗用／庫存報表最近14天、藥庫進出貨最近30天，可自行改日期查詢更早的紀錄
+function uploadHistRange(key, defDays){
+  const fromEl = document.getElementById(key+'-hist-from'), toEl = document.getElementById(key+'-hist-to');
+  if(fromEl && !fromEl.value) fromEl.value = shiftDate(todayStr(), -defDays);
+  if(toEl && !toEl.value) toEl.value = todayStr();
+  let from = fromEl ? fromEl.value : shiftDate(todayStr(), -defDays);
+  let to = toEl ? toEl.value : todayStr();
+  if(from > to){ const t = from; from = to; to = t; if(fromEl) fromEl.value = from; if(toEl) toEl.value = to; }
+  const title = document.getElementById(key+'-hist-title');
+  if(title) title.textContent = `上傳紀錄（${from}～${to}）` + (key==='wh' ? '— 全院庫存核對兜不起來時，可以來這裡查有沒有進出貨' : '');
+  return { from, to };
+}
+
+async function renderUploadHistory(){
+  const uR = uploadHistRange('usage', 14), sR = uploadHistRange('stock', 14), wR = uploadHistRange('wh', 30);
+  const miss7From = shiftDate(todayStr(), -7);
+
+  const [{data:usageRows}, {data:stockRows}, {data:whRows}, {data:userRows}, {data:miss7Rows}] = await Promise.all([
+    fetchAllRows(()=>sb.from('usage_uploads').select('upload_date,campus,uploaded_by').gte('upload_date', uR.from).lte('upload_date', uR.to).order('upload_date')),
+    fetchAllRows(()=>sb.from('stock_uploads').select('upload_date,station_code,uploaded_by').gte('upload_date', sR.from).lte('upload_date', sR.to).order('upload_date')),
+    sb.from('warehouse_transactions').select('tx_date,direction,qty,created_by').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', wR.from).lte('tx_date', wR.to),
+    sb.from('users').select('emp_id,name'),
+    sb.from('usage_uploads').select('upload_date').gte('upload_date', miss7From)
   ]);
+  const miss7Set = new Set((miss7Rows||[]).map(r=>r.upload_date));
   const nameMap = {}; (userRows||[]).forEach(u=>{ nameMap[u.emp_id] = u.name; });
   const namesOf = empIdSet => [...empIdSet].filter(Boolean).map(id => nameMap[id] || id).join('、') || '—';
 
@@ -5924,7 +5973,7 @@ async function renderUploadHistory(){
   const missing = [];
   for(let i=1; i<=7; i++){
     const d = shiftDate(todayStr(), -i);
-    if(!uMap[d]) missing.push(d);
+    if(!miss7Set.has(d)) missing.push(d);
   }
   const missBox = document.getElementById('usage-missing-box');
   if(missing.length){
@@ -6006,7 +6055,7 @@ async function toggleWhReceiveDetail(date){
   box.innerHTML = '載入中...';
 
   const { data, error } = await sb.from('warehouse_transactions')
-    .select('drug_code8,lot_no,direction,reason,qty,tx_date,created_by')
+    .select('drug_code8,lot_no,direction,reason,qty,tx_date,created_by,niis_adjusted')
     .eq('campus','wh').eq('tx_date', date).in('reason',['receive_import','return_import'])
     .order('direction');
   if(error){ box.innerHTML = `查詢失敗：${error.message}`; return; }
@@ -6031,9 +6080,40 @@ async function toggleWhReceiveDetail(date){
       <td style="text-align:center;color:${r.direction==='in'?'#1D9E75':'#A32D2D'}">${r.direction==='in'?'進貨':'退衛生所'}</td>
       <td style="text-align:center">${r.qty}</td>
       <td style="text-align:center;color:#666">${userNameMap[r.created_by] || r.created_by || '—'}</td>
-      <td style="text-align:center"><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteWhReceiveRow(${JSON.stringify({drug_code8:r.drug_code8,lot_no:r.lot_no,direction:r.direction,reason:r.reason,qty:r.qty,tx_date:r.tx_date})})'>刪除</button></td>
+      <td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" style="font-size:12px" onclick='editWhReceiveRowQty(${JSON.stringify({drug_code8:r.drug_code8,lot_no:r.lot_no,direction:r.direction,reason:r.reason,qty:r.qty,tx_date:r.tx_date,applied:!!r.niis_adjusted,name:(vnameMap[r.drug_code8]||r.drug_code8)}).replace(/'/g,'')})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteWhReceiveRow(${JSON.stringify({drug_code8:r.drug_code8,lot_no:r.lot_no,direction:r.direction,reason:r.reason,qty:r.qty,tx_date:r.tx_date})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
+}
+
+// 修改單筆藥庫進出貨的數量（瓶數），藥庫批號庫存依差額自動調整（整瓶扣帳品項會乘上每瓶劑量）
+async function editWhReceiveRowQty(tx){
+  const dirLabel = tx.direction==='in' ? '進貨' : '退衛生所';
+  const warn = tx.applied ? '\n⚠️ 這筆已在 NIIS 結存時套用過，改數量不會更新已結存的數字，要刪結存重新結存。' : '';
+  const input = await appPrompt(`${tx.tx_date}　${tx.name}\n${tx.lot_no}　${dirLabel}\n目前 ${tx.qty} 瓶，請輸入正確的瓶數：${warn}`, tx.qty, {title:'修改進出貨數量', okText:'儲存'});
+  if(input===null) return;
+  const newQty = Number(String(input).trim());
+  if(String(input).trim()==='' || !Number.isFinite(newQty) || newQty<=0){ alert('請輸入大於 0 的數字（要整筆取消請用刪除）'); return; }
+  if(newQty===Number(tx.qty)) return;
+
+  const { error } = await sb.from('warehouse_transactions').update({ qty: newQty })
+    .eq('campus','wh').eq('drug_code8', tx.drug_code8).eq('lot_no', tx.lot_no)
+    .eq('direction', tx.direction).eq('reason', tx.reason).eq('qty', tx.qty).eq('tx_date', tx.tx_date);
+  if(error){ alert('修改失敗：'+error.message); return; }
+
+  const { data: whLot } = await sb.from('lot_details').select('*').eq('drug_code8', tx.drug_code8).eq('campus','wh').eq('lot_no', tx.lot_no).maybeSingle();
+  if(whLot){
+    const { data: vm } = await sb.from('vaccine_master').select('doses_per_vial,whole_vial_deduct').eq('drug_code8', tx.drug_code8).maybeSingle();
+    const factor = (vm && vm.whole_vial_deduct) ? ((vm.doses_per_vial)||1) : 1;
+    const diff = (newQty - Number(tx.qty)) * factor;
+    const delta = tx.direction==='in' ? diff : -diff;
+    await sb.from('lot_details').update({
+      initial_qty: Number(whLot.initial_qty||0) + delta,
+      current_qty: Number(whLot.current_qty||0) + delta
+    }).eq('lot_id', whLot.lot_id);
+  }
+  alert(`✓ ${tx.name}　${tx.lot_no}\n${dirLabel} ${tx.qty} → ${newQty} 瓶`);
+  renderUploadHistory();
+  setTimeout(()=>toggleWhReceiveDetail(tx.tx_date), 100);
 }
 
 // 刪除單筆藥庫進出貨紀錄時，要連動把這筆對藥庫批號庫存造成的加減也一併還原，避免刪除紀錄後庫存跟紀錄對不起來
