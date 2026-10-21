@@ -73,7 +73,27 @@ function appAlert(text, o){
   if(/^\s*✓/.test(t)){ kind='success'; title='完成'; }
   else if(/失敗|錯誤|error/i.test(t)){ kind='error'; title='發生錯誤'; }
   else if(/⚠️/.test(t)){ kind='info'; title='請注意'; }
-  return appDialog({ text:t.replace(/^\s*✓\s*/,''), title:o.title||title, kind:o.kind||kind, okText:o.okText||'知道了' });
+  // 單純告知成功的短訊息 → 綠色小提示，2 秒後自動消失；有附帶警告或提醒的，照樣用視窗
+  if(kind==='success' && !/⚠️|🧾|提醒|記得/.test(t) && t.length <= 80 && t.split('\n').length <= 3){
+    appToast(t.replace(/^\s*✓\s*/,''));
+    return Promise.resolve(true);
+  }
+  return appDialog({ text:t.replace(/^\s*✓\s*/,''), title:o.title||title, kind:o.kind||kind, okText:o.okText||'確定' });
+}
+function appToast(text){
+  let box = document.getElementById('app-toast-box');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'app-toast-box';
+    box.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10001;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;padding-top:env(safe-area-inset-top,0px)';
+    document.body.appendChild(box);
+  }
+  const t = document.createElement('div');
+  t.style.cssText = 'background:#1D7A55;color:#fff;font-size:14px;line-height:1.5;padding:9px 18px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.18);max-width:90vw;opacity:0;transform:translateY(-6px);transition:opacity .2s,transform .2s;white-space:pre-line';
+  t.textContent = '✓ ' + text;
+  box.appendChild(t);
+  requestAnimationFrame(()=>{ t.style.opacity='1'; t.style.transform='translateY(0)'; });
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateY(-6px)'; setTimeout(()=>t.remove(), 250); }, 2000);
 }
 function appPrompt(text, def, o){
   o = o || {};
