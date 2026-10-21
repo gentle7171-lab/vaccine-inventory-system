@@ -5399,6 +5399,13 @@ async function handleStockFile(input){
   }
 
   if(!tsvRows || tsvRows.length<2){ alert('檔案內容空白或格式錯誤'); return; }
+  // 有些匯出檔會把數字包成 ="6000" 或 "6000"（避免Excel把前導0吃掉），先還原成純文字
+  tsvRows = tsvRows.map(r => (r||[]).map(c => {
+    if(typeof c !== 'string') return c;
+    const t = c.trim();
+    const m = t.match(/^="(.*)"$/) || t.match(/^"(.*)"$/);
+    return m ? m[1] : t;
+  }));
 
   const headerIdx = findHeaderRowIdx(tsvRows, ['藥品台大碼','台大碼','藥品8碼']);
   if(headerIdx < 0){ alert('找不到必要欄位（藥品台大碼／庫存量），請確認檔案格式'); return; }
