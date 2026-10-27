@@ -5014,9 +5014,11 @@ async function handleUsageFile(input){
   if(niisListMode && lotMapNotes.length) ubox_msgs.push(`ℹ️ 這份清單沒有藥品8碼，已依批號對應：<br>${lotMapNotes.join('<br>')}`);
   if(aliasNoted.size) ubox_msgs.push(`ℹ️ 以下藥品8碼已設定為別名（${[...aliasNoted].map(c=>`${c}→${aliasMap[c]}`).join('、')}）：消耗紀錄仍會分開存這個8碼，但NIIS結存輔助／月報表計算批號庫存時會自動合併成同一批`);
   if(unmatched.length) ubox_msgs.push(`⚠️ 以下藥品8碼於疫苗主檔查無資料，將不會寫入：${[...new Set(unmatched.map(u=>u.drug_code8))].join('、')}`);
+  const fracRows = usageGrouped.filter(r=>!Number.isInteger(Number(r.usage_qty)));
+  if(fracRows.length) ubox_msgs.push(`⚠️ <b style="color:#A32D2D">以下數量不是整數，系統無法寫入，請先修改檔案再上傳：</b>${fracRows.map(r=>`${r.date} ${r.drug_code8}（${r.lot_no}）${r.usage_qty}`).join('、')}`);
   if(ubox_msgs.length){ ubox.style.display=''; ubox.innerHTML = ubox_msgs.join('<br>'); } else ubox.style.display='none';
 
-  document.getElementById('usage-preview-body').innerHTML = usageGrouped.map(r=>`<tr style="${vmap[r.drug_code8]?'':'background:#FCEBEB'}">
+  document.getElementById('usage-preview-body').innerHTML = usageGrouped.map(r=>`<tr style="${(vmap[r.drug_code8] && Number.isInteger(Number(r.usage_qty)))?'':'background:#FCEBEB'}">
     <td style="font-size:13px;color:#888">${r.date}</td>
     <td style="font-size:14px">${r.drug_code8}</td>
     <td style="font-size:14px">${r.tally_name||'—'}</td>
@@ -5123,6 +5125,12 @@ async function commitUsageUpload(){
   if(!usageGrouped.length){ alert('請先選擇並解析檔案'); return; }
   const validRows = usageGrouped.filter(r=>r.tally_name);
   if(!validRows.length){ alert('沒有可寫入的品項（皆未比對到主檔）'); return; }
+  // 寫入前先檢查：數量不是整數（例如 0.5）資料庫存不進去，寫到一半才失敗會很麻煩，直接擋下
+  const fracRows = validRows.filter(r=>!Number.isInteger(Number(r.usage_qty)));
+  if(fracRows.length){
+    alert(`⚠️ 有 ${fracRows.length} 筆數量不是整數，無法寫入：\n${fracRows.slice(0,10).map(r=>`${r.date}　${r.tally_name}　${r.lot_no}　${r.usage_qty}`).join('\n')}${fracRows.length>10?'\n…':''}\n\n請修改檔案後重新選檔。`);
+    return;
+  }
 
   const byDate = {};
   validRows.forEach(r=>{ (byDate[r.date] = byDate[r.date]||[]).push(r); });
@@ -5193,6 +5201,11 @@ async function commitUsageUpload(){
   const codes = [...new Set(dates.flatMap(d=>fullDay[d].map(r=>r.drug_code8)))];
   const { data: vmasterRows } = codes.length ? await sb.from('vaccine_master').select('drug_code8,doses_per_vial,whole_vial_deduct,alias_of').in('drug_code8', codes) : {data:[]};
   const vmasterMap = {}; (vmasterRows||[]).forEach(v=>vmasterMap[v.drug_code8]=v);
+  // 劑別（第幾劑）只存B肝遺傳工程疫苗（主檔月報表分類＝B肝報表－遺傳工程疫苗；別名看它的正式品項）
+  const { data: hbRows } = await sb.from('vaccine_master').select('drug_code8,alias_of,special_report');
+  const hbOfficial = new Set((hbRows||[]).filter(v=>v.special_report==='hbig_vaccine').map(v=>v.drug_code8));
+  const hbSet = new Set((hbRows||[]).filter(v=>hbOfficial.has(v.drug_code8) || (v.alias_of && hbOfficial.has(v.alias_of))).map(v=>v.drug_code8));
+  const doseFailDates = [];
   // 有些品項是「別名」（跟另一個8碼共用同一批批號，但每次領用單位不同，例如半劑瓶用了就整瓶報銷），
   // 換算成應扣多少庫存量時要用「正式管理批號」那個8碼的每瓶劑量為準，不是別名自己的每瓶劑量
   const aliasTargets = [...new Set((vmasterRows||[]).map(v=>v.alias_of).filter(a=>a && !vmasterMap[a]))];
@@ -5212,20 +5225,31 @@ async function commitUsageUpload(){
 
   for(const date of dates){
     if(!byDate[date].length) continue;
+    // 先備份這天要被取代的舊資料，寫入失敗時還原，避免出錯那天的舊資料被刪掉
+    const { data: backupRows } = await sb.from('usage_uploads').select('*').eq('upload_date', date).in('drug_code8', fileCodes[date]);
     const { error: delErr } = await sb.from('usage_uploads').delete().eq('upload_date', date).in('drug_code8', fileCodes[date]);
     if(delErr){ alert(`清除 ${date} 舊資料失敗：${delErr.message}`); return; }
     const rows = byDate[date].map(r=>({
       upload_date: date, campus:null, drug_code8:r.drug_code8, niis_code:r.niis_code||null, lot_no:r.lot_no, usage_qty:r.usage_qty, uploaded_by: me.emp_id
     }));
     const { error } = await sb.from('usage_uploads').insert(rows);
-    if(error){ alert(`寫入 ${date} 失敗：${error.message}\n（在此之前的日期若已成功寫入，資料庫中仍會保留，請檢查後視情況手動處理或重新上傳）`); return; }
+    if(error){
+      let restoreNote = '';
+      if(backupRows && backupRows.length){
+        const { error: rErr } = await sb.from('usage_uploads').insert(backupRows);
+        restoreNote = rErr ? `\n⚠️ 還原 ${date} 舊資料也失敗了（${rErr.message}），請截圖告知` : `\n${date} 已還原成原本的資料。`;
+      }
+      const doneDates = dates.filter(d=>d<date && byDate[d].length);
+      alert(`寫入 ${date} 失敗：${error.message}${restoreNote}\n${doneDates.length?`已完成：${doneDates.join('、')}\n`:''}${date} 之後的日期都沒有寫入，修正後請重新上傳。`);
+      return;
+    }
 
     // 劑別拆分（第幾劑）只用於B肝報表統計，非必要資料，失敗不影響主流程
     try{
       const dm = {};
-      const fcSet = new Set(fileCodes[date]);
+      const fcSet = new Set(fileCodes[date].filter(c=>hbSet.has(c)));
       {
-        const addCodes = conflicts.filter(c=>c.date===date && modeMap[c.date+'|'+c.code8]==='add').map(c=>c.code8);
+        const addCodes = conflicts.filter(c=>c.date===date && modeMap[c.date+'|'+c.code8]==='add' && hbSet.has(c.code8)).map(c=>c.code8);
         if(addCodes.length){
           const { data: oldDose } = await sb.from('usage_dose_breakdown').select('drug_code8,lot_no,dose_no,qty').eq('upload_date', date).in('drug_code8', addCodes);
           (oldDose||[]).forEach(o=>{ dm[o.drug_code8+'|'+o.lot_no+'|'+o.dose_no] = { upload_date:date, drug_code8:o.drug_code8, lot_no:o.lot_no, dose_no:o.dose_no, qty:Number(o.qty||0) }; });
@@ -5236,10 +5260,15 @@ async function commitUsageUpload(){
         if(dm[k]) dm[k].qty += Number(d.qty||0);
         else dm[k] = { upload_date: d.date, drug_code8: d.drug_code8, lot_no: d.lot_no, dose_no: d.dose_no, qty: Number(d.qty||0) };
       });
-      await sb.from('usage_dose_breakdown').delete().eq('upload_date', date).in('drug_code8', fileCodes[date]);
-      const doseRows = Object.values(dm);
-      if(doseRows.length) await sb.from('usage_dose_breakdown').insert(doseRows);
-    }catch(e){ /* 劑別拆分非必要資料，靜默略過 */ }
+      const hbCodesToday = [...fcSet];
+      if(hbCodesToday.length){
+        const { error: dDelErr } = await sb.from('usage_dose_breakdown').delete().eq('upload_date', date).in('drug_code8', hbCodesToday);
+        const doseRows = Object.values(dm);
+        let dInsErr = null;
+        if(!dDelErr && doseRows.length) ({ error: dInsErr } = await sb.from('usage_dose_breakdown').insert(doseRows));
+        if(dDelErr || dInsErr) doseFailDates.push(`${date}（${(dDelErr||dInsErr).message}）`);
+      }
+    }catch(e){ doseFailDates.push(`${date}（${e.message}）`); }
 
     // 先還原這天先前已經扣過的「整瓶領用」紀錄（避免同一天重複上傳造成重複扣庫存），再依這次最新的耗用量重新計算扣一次
     const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
@@ -5275,7 +5304,7 @@ async function commitUsageUpload(){
     }
   }
 
-  let msg = `✓ 上傳成功，寫入 ${writtenCount} 筆` + (conflicts.length ? `\n（重複品項：取代 ${modeCount.replace}、略過 ${modeCount.skip}、累加 ${modeCount.add}；其他品項未受影響）` : '');
+  let msg = (doseFailDates.length ? `⚠️ B肝劑別沒有存到：\n${doseFailDates.join('\n')}\n請截圖告知，B肝月報表這幾天的劑別會不完整。\n\n` : '') + `✓ 上傳成功，寫入 ${writtenCount} 筆` + (conflicts.length ? `\n（重複品項：取代 ${modeCount.replace}、略過 ${modeCount.skip}、累加 ${modeCount.add}；其他品項未受影響）` : '');
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
   if(vialDeductWarnings.length) msg += `\n\n⚠️ 以下品項無法自動扣庫存：\n${vialDeductWarnings.join('\n')}`;
   try{
