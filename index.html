@@ -1073,7 +1073,7 @@ input[type=number]{-moz-appearance:textfield}
     <div class="vsec">
       <div class="vsec-title">① 基本資料</div>
       <div class="vsec-grid">
-        <div class="fg"><label>藥品8碼</label><input type="text" id="vacc-code8" placeholder="8碼"></div>
+        <div class="fg"><label>藥品8碼</label><input type="text" id="vacc-code8" placeholder="8碼"><div id="vacc-code8-hint" style="display:none;font-size:11px;color:#999;margin-top:2px">8碼不能修改，換8碼請新增品項</div></div>
         <div class="fg"><label>庫存碼</label><input type="text" id="vacc-code4" placeholder="4碼"></div>
         <div class="fg"><label>盤點表名稱（簡稱）</label><input type="text" id="vacc-tally-name" placeholder="盤點頁顯示的名稱"></div>
       </div>
@@ -2117,9 +2117,10 @@ async function saveInv(){
     old_qty: null,
     new_qty: r.tally_qty,
     reason: '初次盤點儲存',
-    operator: me.emp_id
+    operator: me.emp_id,
+    drug_code8: r.drug_code8, campus: r.campus, tally_date: r.tally_date
   }));
-  await sb.from('change_logs').insert(logs);
+  await insertChangeLogs(logs);
 
   saveBtn.textContent = '💾 儲存盤點';
   document.querySelectorAll('.inv-input').forEach(el => el.classList.remove('changed'));
@@ -2254,13 +2255,14 @@ async function confirmRecEdit(){
   if(!rec) return;
 
   await sb.from('tally_records').update({ tally_qty: newVal }).eq('record_id', rec.record_id);
-  await sb.from('change_logs').insert({
+  await insertChangeLogs({
     record_id: rec.record_id,
     action_type: 'edit',
     old_qty: rec.tally_qty,
     new_qty: newVal,
     reason,
-    operator: me.emp_id
+    operator: me.emp_id,
+    drug_code8: rec.drug_code8, campus: rec.campus, tally_date: rec.tally_date
   });
 
   closeModal('modal-rec-edit');
@@ -2291,16 +2293,22 @@ async function confirmRecDelete(){
   const { data: rec } = await sb.from('tally_records').select('*').eq('record_id', recDeletePending.recordId).single();
   if(!rec) return;
 
-  await sb.from('change_logs').insert({
-    record_id: rec.record_id,
+  // 先刪盤點紀錄，成功後才寫「刪除」歷程（避免刪除失敗卻留下刪除紀錄）
+  const { error } = await sb.from('tally_records').delete().eq('record_id', rec.record_id);
+  if(error){
+    if(/foreign key/i.test(error.message||'')) alert('⚠️ 刪除失敗：資料庫還沒更新操作歷程的設定\n請先到 Supabase 執行「盤點紀錄刪除修正」的 SQL。');
+    else alert('刪除失敗：'+error.message);
+    return;
+  }
+  await insertChangeLogs({
+    record_id: null,
     action_type: 'delete',
     old_qty: rec.tally_qty,
     new_qty: null,
     reason,
-    operator: me.emp_id
+    operator: me.emp_id,
+    drug_code8: rec.drug_code8, campus: rec.campus, tally_date: rec.tally_date
   });
-  const { error } = await sb.from('tally_records').delete().eq('record_id', rec.record_id);
-  if(error){ alert('刪除失敗：'+error.message); return; }
 
   closeModal('modal-rec-delete');
   recDeletePending = null;
@@ -3134,6 +3142,16 @@ async function saveOverviewNote(el){
   setTimeout(()=>{ el.style.borderColor = '#d5d5d5'; }, 1200);
 }
 
+// 寫操作歷程：一併記下品項／院區／日期（盤點紀錄被刪掉後，歷程還看得出是哪一筆）；尚未執行新增欄位的SQL時自動退回舊格式
+async function insertChangeLogs(logs){
+  const arr = Array.isArray(logs) ? logs : [logs];
+  let { error } = await sb.from('change_logs').insert(arr);
+  if(error && /drug_code8|tally_date|campus/.test(error.message||'')){
+    ({ error } = await sb.from('change_logs').insert(arr.map(({drug_code8, campus, tally_date, ...rest})=>rest)));
+  }
+  return { error };
+}
+
 /* ══════════════ 操作歷程（管理者限定） ══════════════ */
 async function renderOplog(){
   const dateFrom = document.getElementById('log-from').value || todayStr();
@@ -3154,29 +3172,40 @@ async function renderOplog(){
     document.getElementById('log-empty').textContent = '查詢失敗：' + recErr.message;
     return;
   }
-  if(!recs || recs.length===0){
+  // 已刪除的盤點紀錄：歷程的 record_id 會變成空的，改用記下的品項／院區／日期查
+  let delRows = [];
+  if(!filterType || filterType==='delete'){
+    try{
+      let dq = sb.from('change_logs').select('*').is('record_id', null).eq('action_type','delete').gte('tally_date', dateFrom).lte('tally_date', dateTo);
+      if(filterSite) dq = dq.eq('campus', filterSite);
+      const { data: dl } = await dq.order('ts', { ascending: true });
+      delRows = dl || [];
+    }catch(e){}
+  }
+  if((!recs || recs.length===0) && !delRows.length){
     document.getElementById('log-empty').textContent = '尚無操作紀錄';
     return;
   }
 
-  const recordIds = recs.map(r => r.record_id);
+  const recordIds = (recs||[]).map(r => r.record_id);
   const recordMap = {};
-  recs.forEach(r => recordMap[r.record_id] = r);
+  (recs||[]).forEach(r => recordMap[r.record_id] = r);
 
-  let logQuery = sb.from('change_logs').select('*').in('record_id', recordIds);
+  let logQuery = sb.from('change_logs').select('*').in('record_id', recordIds.length ? recordIds : [-1]);
   if(filterType) logQuery = logQuery.eq('action_type', filterType);
-  const { data: logs, error: logErr } = await logQuery.order('ts', { ascending: true });
+  const { data: logs0, error: logErr } = await logQuery.order('ts', { ascending: true });
+  const logs = logs0 || [];
 
   if(logErr){
     document.getElementById('log-empty').textContent = '查詢失敗：' + logErr.message;
     return;
   }
-  if(!logs || logs.length===0){
+  if(logs.length===0 && !delRows.length){
     document.getElementById('log-empty').textContent = '尚無符合條件的操作紀錄';
     return;
   }
 
-  const codes = [...new Set(recs.map(r => r.drug_code8))];
+  const codes = [...new Set([...(recs||[]).map(r => r.drug_code8), ...delRows.map(d=>d.drug_code8)].filter(Boolean))];
   const { data: vlist } = await sb.from('vaccine_master').select('drug_code8, tally_name').in('drug_code8', codes);
   const nameMap = {};
   (vlist||[]).forEach(v => nameMap[v.drug_code8] = v.tally_name);
@@ -3253,6 +3282,16 @@ async function renderOplog(){
     }
   });
 
+  delRows.forEach(d=>{
+    rows += `<tr style="background:#FDF5F5">
+      <td style="font-size:13px;color:#888">${d.tally_date||'—'}</td>
+      <td>${d.campus ? `<span class="site-pill ${d.campus==='dl'?'pill-dl':d.campus==='hw'?'pill-hw':'pill-wh'}" style="font-size:12px">${siteLabel[d.campus]||d.campus}</span>` : '—'}</td>
+      <td style="font-size:15px;font-weight:500">${nameMap[d.drug_code8] || d.drug_code8 || '—'}</td>
+      <td class="c"><span style="color:#999;text-decoration:line-through">${d.old_qty===null?'—':d.old_qty}</span></td>
+      <td><span class="badge" style="background:#FCEBEB;color:#A32D2D">🗑 已刪除</span></td>
+      <td style="font-size:13px;color:#666">${new Date(d.ts).toLocaleString('zh-TW')}　${d.operator||''}<br><span style="color:#888">${d.reason||''}</span></td>
+    </tr>`;
+  });
   document.getElementById('log-tbody').innerHTML = rows;
 }
 
@@ -3446,6 +3485,16 @@ function toggleAllVaccChk(el, which){
 async function tryDeleteVaccine(code8){
   const { data: vrow } = await sb.from('vaccine_master').select('tally_name').eq('drug_code8', code8).maybeSingle();
   const name = (vrow && vrow.tally_name) || code8;
+
+  // 先檢查有沒有歷史資料，有就整個擋下、什麼都不刪（避免刪了批號才發現品項刪不掉）
+  const cnt = async (t) => { const { count } = await sb.from(t).select('drug_code8', { count:'exact', head:true }).eq('drug_code8', code8); return count||0; };
+  const [cTally, cUsage, cStock, cWh] = await Promise.all([cnt('tally_records'), cnt('usage_uploads'), cnt('stock_uploads'), cnt('warehouse_transactions')]);
+  const used = [];
+  if(cTally) used.push(`盤點 ${cTally} 筆`);
+  if(cUsage) used.push(`耗用 ${cUsage} 筆`);
+  if(cStock) used.push(`庫存報表 ${cStock} 筆`);
+  if(cWh) used.push(`藥庫進出貨 ${cWh} 筆`);
+  if(used.length) return { ok:false, name, blocked:true, reason:`已有歷史資料（${used.join('、')}），請改用停用` };
 
   const { error: e1 } = await sb.from('lot_details').delete().eq('drug_code8', code8);
   if(e1) return { ok:false, name, blocked:false, reason:e1.message };
@@ -3658,6 +3707,14 @@ function toggleInactive(){
 
 async function openVaccineModal(code8){
   document.getElementById('vacc-edit-code').value = code8 || '';
+  {
+    const c8 = document.getElementById('vacc-code8');
+    c8.readOnly = !!code8;
+    c8.style.background = code8 ? '#f3f3f1' : '';
+    c8.title = code8 ? '已建立的品項不能修改8碼；要換8碼請新增品項' : '';
+    const hint = document.getElementById('vacc-code8-hint');
+    if(hint) hint.style.display = code8 ? '' : 'none';
+  }
   // 別名下拉：可選的正式品項＝啟用中、本身不是別名、不是自己
   {
     const { data: allV } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,status');
@@ -4526,11 +4583,14 @@ async function deleteSelectedAccounts(){
   const sel = accCache.filter(u=>u._chk);
   if(!sel.length) return;
   if(!await appConfirm(`確定刪除勾選的 ${sel.length} 個帳號？`)) return;
+  const failed = [];
   for(const u of sel){
-    await sb.from('users').delete().eq('emp_id', u.emp_id);
+    const { error } = await sb.from('users').delete().eq('emp_id', u.emp_id);
+    if(error) failed.push(`${u.emp_id} ${u.name||''}：${/foreign key/i.test(error.message||'') ? '有盤點或操作紀錄，無法刪除' : error.message}`);
   }
   accEdits = {};
   renderAccounts();
+  if(failed.length) alert(`⚠️ ${failed.length} 個帳號無法刪除：\n${failed.join('\n')}`);
 }
 
 function openAccountModal(empId){
