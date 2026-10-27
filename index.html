@@ -862,7 +862,16 @@ input[type=number]{-moz-appearance:textfield}
             <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
           </div>
           <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院（斗六＋虎尾＋藥庫）合計的耗用劑數，直接來自耗用報表原始資料，不做整瓶進位等換算。可以只選一個品項看單一耗用，也可以加好幾個一起比較，還能把常看的組合存成群組下次直接套用。</div>
+          <div id="uq-missing" style="display:none;background:#FFF6E5;border:1px solid #F0D9A8;color:#7A5A12;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <span style="font-size:13px;color:#666">圖表顏色：</span>
+            <div class="subtab active" id="uq-view-type" onclick="uqSetView('type')" style="padding:4px 12px;font-size:13px">一般／員工</div>
+            <div class="subtab" id="uq-view-campus" onclick="uqSetView('campus')" style="padding:4px 12px;font-size:13px">依院區</div>
+            <span id="uq-legend" style="font-size:12px;color:#666;margin-left:8px"></span>
+          </div>
           <div id="uq-chart" style="margin-bottom:16px"></div>
+          <div id="uq-summary" style="margin-bottom:16px"></div>
+          <div id="uq-stock" style="margin-bottom:16px"></div>
           <div id="uq-table"></div>
         </div>
       </div>
@@ -1021,6 +1030,12 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
+        <div id="staffcampus-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B">🏥 員工院區待登記 <span id="staffcampus-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
+          <div style="font-size:12px;color:#999;margin-top:4px">主檔勾「員工用」的品項，近60天有耗用、但斗六＋虎尾還沒登記（或跟耗用數量對不上）的日期。</div>
+          <div id="staffcampus-panel-body" style="margin-top:10px"></div>
+        </div>
+
         <div id="manualedit-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B">✏️ 手動修改待確認 <span id="manualedit-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
           <div style="font-size:12px;color:#999;margin-top:4px">在耗用明細用「修改數量」改過的品項會列在這裡（以實品為準）。到院內系統確認醫療端已經補帳或刪除處方後，按「已確認」。</div>
@@ -1078,6 +1093,10 @@ input[type=number]{-moz-appearance:textfield}
         <div class="fg"><label>盤點表名稱（簡稱）</label><input type="text" id="vacc-tally-name" placeholder="盤點頁顯示的名稱"></div>
       </div>
       <div class="fg" style="margin-top:6px"><label>商品名</label><input type="text" id="vacc-product-name" placeholder="院內商品名"></div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px;font-size:14px">
+        <input type="checkbox" id="vacc-staff-item" style="width:16px;height:16px">
+        員工用（院區要手動登記斗六／虎尾）
+      </label>
     </div>
 
     <!-- ② NIIS 申報 -->
@@ -2522,11 +2541,14 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0;
-async function refreshMasterTabBadge(count, labCount, manualCount){
+let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0;
+async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
-  if(manualCount!==undefined){
+  if(staffCount!==undefined){
+    masterBadgeStaff = staffCount;
+    count = masterBadgeHis;
+  } else if(manualCount!==undefined){
     masterBadgeManual = manualCount;
     count = masterBadgeHis;
   } else if(labCount!==undefined){
@@ -2535,6 +2557,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount){
   } else if(count===undefined){
     try{ masterBadgeLab = (await fetchLabFormPending()).pending.length; }catch(e){ masterBadgeLab = 0; }
     try{ masterBadgeManual = (await fetchManualEditPending()).length; }catch(e){ masterBadgeManual = 0; }
+    try{ masterBadgeStaff = (await fetchStaffCampusPending()).pending.length; }catch(e){ masterBadgeStaff = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -2550,10 +2573,11 @@ async function refreshMasterTabBadge(count, labCount, manualCount){
     count = Object.values(groups).filter(done=>!done).length;
   }
   masterBadgeHis = count;
-  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual;
+  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff;
   const parts = [];
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
+  if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
   const subBadge = document.getElementById('mst-sub-remind-badge');
   const banner = document.getElementById('master-remind-banner');
@@ -2596,6 +2620,52 @@ async function toggleLotHisSetup(lotId, current, code8){
   if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
   await refreshLots(code8);
   renderVaccines();
+}
+
+/* ══════════════ 員工院區待登記 ══════════════ */
+async function fetchStaffCampusPending(){
+  const { data: st, error: stErr } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('staff_item', true).eq('status','active');
+  if(stErr) throw new Error('vaccine_master 尚未新增 staff_item 欄位（'+stErr.message+'）');
+  const names = {}; (st||[]).forEach(v=>names[v.drug_code8]=v.tally_name);
+  const codes = Object.keys(names);
+  if(!codes.length) return { pending:[], noItems:true };
+  const since = shiftDate(todayStr(), -60);
+  const [{ data: us }, { data: cr, error: cErr }] = await Promise.all([
+    sb.from('usage_uploads').select('upload_date,drug_code8,usage_qty').in('drug_code8', codes).gte('upload_date', since),
+    sb.from('usage_campus').select('upload_date,drug_code8,qty').eq('source','manual').in('drug_code8', codes).gte('upload_date', since)
+  ]);
+  if(cErr) throw new Error('尚未建立 usage_campus 資料表（'+cErr.message+'）');
+  const tot = {}, reg = {};
+  (us||[]).forEach(u=>{ const k = u.upload_date+'|'+u.drug_code8; tot[k] = (tot[k]||0) + Number(u.usage_qty||0); });
+  (cr||[]).forEach(c=>{ const k = c.upload_date+'|'+c.drug_code8; reg[k] = (reg[k]||0) + Number(c.qty||0); });
+  const pending = Object.keys(tot).filter(k=>tot[k]>0 && reg[k]!==tot[k]).map(k=>{
+    const [date, code8] = k.split('|');
+    return { date, code8, name:names[code8]||code8, total:tot[k], registered: reg[k]===undefined ? null : reg[k] };
+  }).sort((a,b)=>a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  return { pending };
+}
+
+async function renderStaffCampusPanel(){
+  const body = document.getElementById('staffcampus-panel-body');
+  const badge = document.getElementById('staffcampus-count-badge');
+  if(!body) return;
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+  let res;
+  try{ res = await fetchStaffCampusPending(); }
+  catch(e){ body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">${e.message}，請先到 Supabase 執行SQL</div>`; badge.textContent=''; return; }
+  const { pending, noItems } = res;
+  badge.textContent = pending.length ? `（${pending.length}筆）` : '';
+  refreshMasterTabBadge(undefined, undefined, undefined, pending.length);
+  if(noItems){ body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">還沒有品項勾選「員工用」，請到疫苗主檔編輯品項勾選</div>'; return; }
+  if(!pending.length){ body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待登記的員工院區</div>'; return; }
+  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th style="width:110px;font-size:14px">耗用日期</th><th style="font-size:14px">品項</th><th class="c" style="font-size:14px">耗用</th><th class="c" style="font-size:14px">已登記</th><th style="width:110px"></th></tr></thead>
+    <tbody>${pending.map(p=>{
+      const arg = JSON.stringify({date:p.date, code8:p.code8, total:p.total, dl:null, name:p.name}).replace(/'/g,'');
+      return `<tr><td style="font-size:14px">${p.date}</td><td>${p.name}<div style="font-size:12px;color:#bbb">${p.code8}</div></td>
+        <td class="c">${p.total}</td><td class="c" style="color:${p.registered===null?'#bbb':'#A32D2D'}">${p.registered===null?'—':p.registered+'（對不上）'}</td>
+        <td><button class="btn btn-sm" style="font-size:13px" onclick='registerStaffCampus(${arg})'>登記</button></td></tr>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 /* ══════════════ 手動修改待確認 ══════════════ */
@@ -3577,6 +3647,7 @@ function vaccNameCell(v, withHandle){
   if(v.whole_vial_deduct) tags.push('<span class="vtag vtag-vial">整瓶扣帳</span>');
   if(v.skip_stock_compare) tags.push('<span class="vtag vtag-skip">不比對庫存報表</span>');
   if(v.lab_form_reminder) tags.push('<span class="vtag vtag-lab">檢驗單</span>');
+  if(v.staff_item) tags.push('<span class="vtag vtag-next">員工用</span>');
   if(v.alias_of) tags.push(`<span class="vtag vtag-alias">別名→${v.alias_of}</span>`);
   return `<div style="display:flex;gap:6px;align-items:flex-start">
     ${withHandle ? `<span style="color:#bbb;cursor:grab;padding-top:2px" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>` : ''}
@@ -3752,6 +3823,7 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-skip-stock-compare').checked = !!data.skip_stock_compare;
       document.getElementById('vacc-lab-form-reminder').checked = !!data.lab_form_reminder;
+      document.getElementById('vacc-staff-item').checked = !!data.staff_item;
       document.getElementById('vacc-alias-of').value = data.alias_of||'';
       document.getElementById('vacc-special-report').value = data.special_report||'';
     }
@@ -3776,6 +3848,7 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-skip-stock-compare').checked = false;
     document.getElementById('vacc-lab-form-reminder').checked = false;
+    document.getElementById('vacc-staff-item').checked = false;
     document.getElementById('vacc-alias-of').value = '';
     document.getElementById('vacc-special-report').value = '';
     document.getElementById('vacc-lots-placeholder').style.display = '';
@@ -3847,6 +3920,7 @@ async function saveVaccine(){
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     skip_stock_compare: document.getElementById('vacc-skip-stock-compare').checked,
     lab_form_reminder: document.getElementById('vacc-lab-form-reminder').checked,
+    staff_item: document.getElementById('vacc-staff-item').checked,
     alias_of: document.getElementById('vacc-alias-of').value.trim() || null,
     special_report: document.getElementById('vacc-special-report').value || null,
     status: 'active'
@@ -3870,6 +3944,11 @@ async function saveVaccine(){
     if(targetRow.doses_per_vial != null && Number(targetRow.doses_per_vial) !== dosesPerVial){
       if(!await appConfirm(`這個品項每瓶 ${dosesPerVial} 劑，正式品項 ${row.alias_of} 每瓶 ${targetRow.doses_per_vial} 劑。\n刻意設定（例如半劑瓶）才繼續。`, {title:'每瓶劑量不一致', okText:'仍要儲存'})) return;
     }
+  }
+  if(row.staff_item===false){
+    // 尚未執行新增 staff_item 欄位的SQL時，沒勾就不送這個欄位，避免整個主檔存不進去
+    const { error: colErr } = await sb.from('vaccine_master').select('staff_item').limit(1);
+    if(colErr) delete row.staff_item;
   }
   const { error } = editCode
     ? await sb.from('vaccine_master').update(row).eq('drug_code8', editCode)
@@ -4753,6 +4832,8 @@ async function submitMyPwChange(){
 ══════════════════════════════════════════ */
 let usageGrouped = [];
 let usageDoseGrouped = [];
+let usageCampusGrouped = [];   // 依「窗口」分院區（A＝斗六、D＝虎尾），只有當日施打清單有這欄
+let usageHasWindow = false;
 let lastNiisList = [];
 let niisMirrorRows = [];
 let niisMirrorAllRows = [];
@@ -4783,6 +4864,7 @@ function switchMasterSub(tab){
     renderHisSetupPanel();
     renderLabFormPanel();
     renderManualEditPanel();
+    renderStaffCampusPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -4879,6 +4961,8 @@ async function handleUsageFile(input){
   let idxDoseNo = findColIdx(header, ['疫苗劑別代碼','劑別代碼','疫苗劑別']);
   if(idxDoseNo<0) idxDoseNo = exactIdx(header, ['劑別']);
   const perRowMode = idxQty<0;   // 沒有數量欄位 → 每一列算 1 劑
+  const idxWindow = exactIdx(header, ['窗口']);   // 當日施打清單：A＝斗六、D＝虎尾；員工沒有窗口
+  const WINDOW_CAMPUS = { A:'dl', D:'hw' };
   if(idxLot<0){ alert('找不到必要欄位（批號），請確認檔案格式'); return; }
 
   if(niisListMode){
@@ -4923,6 +5007,7 @@ async function handleUsageFile(input){
   // 逐列讀取施打日期，各列可以是不同日期，依「日期＋藥品8碼＋批號」自動分組（不再整份檔案只取單一日期）
   const map = {};          // key: date|code8|lot -> 彙總
   const doseMap = {};      // key: date|code8|lot|dose_no -> 彙總（只用於B肝報表第幾劑拆分，額外記錄、不影響上面map的耗用計算）
+  const campusMap = {};    // key: date|code8|campus -> 劑數（依窗口）
   const dateCount = {};    // 每個日期幾筆原始列
   let unparsedCount = 0;
   let dateNotice = '';
@@ -4946,6 +5031,13 @@ async function handleUsageFile(input){
     if(!map[key]) map[key] = {date, drug_code8:code8, lot_no:lot, niis_code:niis, usage_qty:0};
     map[key].usage_qty += qty;
 
+    if(idxWindow>=0){
+      const camp = WINDOW_CAMPUS[String(r[idxWindow]||'').trim().toUpperCase()];
+      if(camp){
+        const ck = date+'|'+code8+'|'+camp;
+        campusMap[ck] = (campusMap[ck]||0) + qty;
+      }
+    }
     if(idxDoseNo>=0){
       const doseNo = String(r[idxDoseNo]||'').trim();
       if(doseNo){
@@ -5002,6 +5094,8 @@ async function handleUsageFile(input){
     .map(r=>({...r, tally_name: vmap[r.drug_code8]?vmap[r.drug_code8].tally_name:null}))
     .sort((a,b)=> a.date.localeCompare(b.date) || (a.tally_name||a.drug_code8).localeCompare(b.tally_name||b.drug_code8));
   usageDoseGrouped = Object.values(doseMap);
+  usageHasWindow = idxWindow>=0;
+  usageCampusGrouped = Object.entries(campusMap).map(([k,q])=>{ const [date,drug_code8,campus] = k.split('|'); return {date, drug_code8, campus, qty:q}; });
 
   document.getElementById('usage-raw-count').textContent = dataRows.length;
   document.getElementById('usage-grp-count').textContent = usageGrouped.length;
@@ -5206,6 +5300,7 @@ async function commitUsageUpload(){
   const hbOfficial = new Set((hbRows||[]).filter(v=>v.special_report==='hbig_vaccine').map(v=>v.drug_code8));
   const hbSet = new Set((hbRows||[]).filter(v=>hbOfficial.has(v.drug_code8) || (v.alias_of && hbOfficial.has(v.alias_of))).map(v=>v.drug_code8));
   const doseFailDates = [];
+  const campusFailDates = [];
   // 有些品項是「別名」（跟另一個8碼共用同一批批號，但每次領用單位不同，例如半劑瓶用了就整瓶報銷），
   // 換算成應扣多少庫存量時要用「正式管理批號」那個8碼的每瓶劑量為準，不是別名自己的每瓶劑量
   const aliasTargets = [...new Set((vmasterRows||[]).map(v=>v.alias_of).filter(a=>a && !vmasterMap[a]))];
@@ -5270,6 +5365,19 @@ async function commitUsageUpload(){
       }
     }catch(e){ doseFailDates.push(`${date}（${e.message}）`); }
 
+    // 院區（依窗口）：只有檔案有「窗口」欄位時才更新，一般耗用報表沒有這欄，不會動到已存的院區資料
+    if(usageHasWindow){
+      try{
+        const codesToday = fileCodes[date];
+        const { error: cDelErr } = await sb.from('usage_campus').delete().eq('upload_date', date).eq('source','window').in('drug_code8', codesToday);
+        const cRows = usageCampusGrouped.filter(c=>c.date===date && codesToday.includes(c.drug_code8))
+          .map(c=>({ upload_date:date, drug_code8:c.drug_code8, campus:c.campus, qty:c.qty, source:'window', updated_by: me.emp_id, updated_at: new Date().toISOString() }));
+        let cInsErr = null;
+        if(!cDelErr && cRows.length) ({ error: cInsErr } = await sb.from('usage_campus').upsert(cRows, { onConflict:'upload_date,drug_code8,campus' }));
+        if(cDelErr || cInsErr) campusFailDates.push(`${date}（${(cDelErr||cInsErr).message}）`);
+      }catch(e){ campusFailDates.push(`${date}（${e.message}）`); }
+    }
+
     // 先還原這天先前已經扣過的「整瓶領用」紀錄（避免同一天重複上傳造成重複扣庫存），再依這次最新的耗用量重新計算扣一次
     const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
     for(const pd of (prevDeducts||[])){
@@ -5304,7 +5412,8 @@ async function commitUsageUpload(){
     }
   }
 
-  let msg = (doseFailDates.length ? `⚠️ B肝劑別沒有存到：\n${doseFailDates.join('\n')}\n請截圖告知，B肝月報表這幾天的劑別會不完整。\n\n` : '') + `✓ 上傳成功，寫入 ${writtenCount} 筆` + (conflicts.length ? `\n（重複品項：取代 ${modeCount.replace}、略過 ${modeCount.skip}、累加 ${modeCount.add}；其他品項未受影響）` : '');
+  let msg = (doseFailDates.length ? `⚠️ B肝劑別沒有存到：\n${doseFailDates.join('\n')}\n請截圖告知，B肝月報表這幾天的劑別會不完整。\n\n` : '')
+    + (campusFailDates.length ? `⚠️ 院區（窗口）資料沒有存到：\n${campusFailDates.join('\n')}\n請確認已執行 usage_campus 資料表的SQL。\n\n` : '') + `✓ 上傳成功，寫入 ${writtenCount} 筆` + (conflicts.length ? `\n（重複品項：取代 ${modeCount.replace}、略過 ${modeCount.skip}、累加 ${modeCount.add}；其他品項未受影響）` : '');
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
   if(vialDeductWarnings.length) msg += `\n\n⚠️ 以下品項無法自動扣庫存：\n${vialDeductWarnings.join('\n')}`;
   try{
@@ -5326,6 +5435,7 @@ async function commitUsageUpload(){
   document.getElementById('usage-preview-wrap').style.display='none';
   usageGrouped = [];
   usageDoseGrouped = [];
+  usageCampusGrouped = []; usageHasWindow = false;
   renderUploadHistory();
 }
 
@@ -6284,6 +6394,28 @@ async function toggleUsageDetail(date, keepOpen){
     const { data: edits } = await sb.from('usage_manual_edits').select('drug_code8,lot_no,original_qty,manual_qty').eq('upload_date', date);
     (edits||[]).forEach(e=>{ manualMap[e.drug_code8+'|'+(e.lot_no||'')] = e; });
   }catch(e){}
+  // 員工品項：院區要手動登記（斗六／虎尾）
+  const staffSet = new Set();
+  const campusReg = {};   // code8 -> {dl, hw}
+  try{
+    const { data: st, error: stErr } = await sb.from('vaccine_master').select('drug_code8').eq('staff_item', true).in('drug_code8', detailCodes);
+    if(!stErr) (st||[]).forEach(v=>staffSet.add(v.drug_code8));
+    if(staffSet.size){
+      const { data: cr } = await sb.from('usage_campus').select('drug_code8,campus,qty').eq('upload_date', date).eq('source','manual').in('drug_code8', [...staffSet]);
+      (cr||[]).forEach(c=>{ (campusReg[c.drug_code8] = campusReg[c.drug_code8]||{dl:0,hw:0})[c.campus] = Number(c.qty||0); });
+    }
+  }catch(e){}
+  const codeTotal = {}; data.forEach(r=>{ codeTotal[r.drug_code8] = (codeTotal[r.drug_code8]||0) + Number(r.usage_qty||0); });
+  const firstRowOfCode = new Set(); const seenC = new Set();
+  data.forEach((r,i)=>{ if(!seenC.has(r.drug_code8)){ seenC.add(r.drug_code8); firstRowOfCode.add(i); } });
+  const staffCell = (r,i)=>{
+    if(!staffSet.has(r.drug_code8) || !firstRowOfCode.has(i)) return '';
+    const reg = campusReg[r.drug_code8]; const tot = codeTotal[r.drug_code8];
+    const ok = reg && (reg.dl + reg.hw) === tot;
+    const label = reg ? `斗六 ${reg.dl}／虎尾 ${reg.hw}` : '尚未登記院區';
+    const arg = JSON.stringify({date, code8:r.drug_code8, total:tot, dl: reg?reg.dl:null, name:vnameMap[r.drug_code8]||r.drug_code8}).replace(/'/g,'');
+    return `<div style="margin-top:4px"><button class="btn btn-sm" style="font-size:11px;${ok?'':'color:#A32D2D;border-color:#f0c0c0'}" onclick='registerStaffCampus(${arg})'>🏥 ${label}</button></div>`;
+  };
 
   box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
       <span style="font-size:13px;color:#666">${data.length} 筆，共 ${total} 劑</span>
@@ -6292,7 +6424,7 @@ async function toggleUsageDetail(date, keepOpen){
     <table data-nosort style="width:100%;font-size:13px">
     <thead><tr><th style="text-align:left">疫苗</th><th style="text-align:left">8碼</th><th style="text-align:left">批號</th><th>耗用劑數</th><th>上傳人員</th><th></th></tr></thead>
     <tbody>${data.map(r=>`<tr>
-      <td>${vnameMap[r.drug_code8] || r.drug_code8}</td>
+      <td>${vnameMap[r.drug_code8] || r.drug_code8}${staffCell(r, data.indexOf(r))}</td>
       <td style="font-family:monospace;font-size:12px;color:#888">${r.drug_code8}</td>
       <td style="font-family:monospace">${r.lot_no||'—'}</td>
       <td style="text-align:center">${r.usage_qty}${(manualMap[r.drug_code8+'|'+(r.lot_no||'')] && Number(manualMap[r.drug_code8+'|'+(r.lot_no||'')].manual_qty)===Number(r.usage_qty)) ? `<div style="font-size:11px;color:#C77700;white-space:nowrap">✏️ 手動改過（報表原 ${manualMap[r.drug_code8+'|'+(r.lot_no||'')].original_qty}）</div>` : ''}</td>
@@ -6342,6 +6474,25 @@ async function recalcWholeVialForDate(date){
     });
   }
   return warnings;
+}
+
+// 員工品項登記院區：只填斗六，虎尾＝總數－斗六
+async function registerStaffCampus(x){
+  const input = await appPrompt(`${x.date}　${x.name}\n這天共 ${x.total} 劑，請輸入斗六的劑數（虎尾自動＝總數－斗六）：`, x.dl!=null ? x.dl : '', {title:'登記員工院區', okText:'儲存'});
+  if(input===null) return;
+  const dl = Number(String(input).trim());
+  if(String(input).trim()==='' || !Number.isInteger(dl) || dl<0 || dl>x.total){ alert(`請輸入 0～${x.total} 的整數`); return; }
+  const hw = x.total - dl;
+  const now = new Date().toISOString();
+  const { error } = await sb.from('usage_campus').upsert([
+    { upload_date:x.date, drug_code8:x.code8, campus:'dl', qty:dl, source:'manual', updated_by:me.emp_id, updated_at:now },
+    { upload_date:x.date, drug_code8:x.code8, campus:'hw', qty:hw, source:'manual', updated_by:me.emp_id, updated_at:now }
+  ], { onConflict:'upload_date,drug_code8,campus' });
+  if(error){ alert('登記失敗：'+error.message+'\n請確認已執行 usage_campus 資料表的SQL'); return; }
+  alert(`✓ ${x.date}　${x.name}\n斗六 ${dl}／虎尾 ${hw}`);
+  if(document.getElementById('usage-detail-row-'+x.date)) toggleUsageDetail(x.date, true);
+  if(document.getElementById('staffcampus-panel-body')) renderStaffCampusPanel();
+  if(me && (me.role==='admin'||me.role==='warehouse')) refreshMasterTabBadge();
 }
 
 // 修改單筆耗用數量（院內系統刪除多開處方、但無法重新匯出那天報表時的備用做法）
@@ -7739,7 +7890,8 @@ const UQ_COLORS = ['#1B3A6B','#C77700','#1D9E75','#A32D2D','#6B4FA0','#0E7C86','
 
 async function initUsageQueryTab(){
   // 每次打開這個分頁都重新抓一次品項清單（查詢便宜），避免主檔剛新增的品項因為快取沒更新而找不到
-  const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active').order('tally_name');
+  let { data: vrows, error: vErr } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,staff_item,doses_per_vial,whole_vial_deduct').eq('status','active').order('tally_name');
+  if(vErr) ({ data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,doses_per_vial,whole_vial_deduct').eq('status','active').order('tally_name'));
   uqAllItems = vrows || [];
   document.getElementById('uq-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + uqAllItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
   if(!uqGroupsLoaded){ uqGroupsLoaded = true; await uqLoadGroupList(); }
@@ -7770,6 +7922,8 @@ function uqAddItem(code8){
   const item = uqAllItems.find(v=>v.drug_code8===code8);
   if(!item) return;
   uqSelected.push(item);
+  // 加入正式品項時，它的別名（例如員工用8碼）自動一起加入
+  uqAllItems.filter(v=>v.alias_of===code8 && !uqSelected.some(i=>i.drug_code8===v.drug_code8)).forEach(v=>uqSelected.push(v));
   uqCurrentGroupId = null; // 手動改動品項清單後，就不再視為「跟已存群組完全一致」
   uqRenderChips();
 }
@@ -7866,18 +8020,12 @@ async function runUsageQuery(){
   tableBox.innerHTML = '';
 
   const codes = uqSelected.map(i=>i.drug_code8);
-  let query = sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', fromDate);
-  query = uqMode==='daily' ? query.lte('upload_date', toDate) : query.lt('upload_date', toDate);
-  const { data, error } = await query;
+  const qEnd = q => uqMode==='daily' ? q.lte('upload_date', toDate) : q.lt('upload_date', toDate);
+  const { data, error } = await fetchAllRows(()=>qEnd(sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', fromDate)).order('upload_date'));
   if(error){ chartBox.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
-
-  // 依品項 + 日期/月份分桶加總
-  const perItemMap = {}; // drug_code8 -> {bucket: qty}
-  (data||[]).forEach(r=>{
-    const key = bucketFn(r.upload_date);
-    if(!perItemMap[r.drug_code8]) perItemMap[r.drug_code8] = {};
-    perItemMap[r.drug_code8][key] = (perItemMap[r.drug_code8][key]||0) + Number(r.usage_qty||0);
-  });
+  let campusRows = [];
+  try{ const r = await fetchAllRows(()=>qEnd(sb.from('usage_campus').select('drug_code8,upload_date,campus,qty').in('drug_code8', codes).gte('upload_date', fromDate)).order('upload_date')); campusRows = r.data||[]; }catch(e){}
+  const { data: allDays } = await fetchAllRows(()=>qEnd(sb.from('usage_uploads').select('upload_date').gte('upload_date', fromDate)).order('upload_date'));
 
   const buckets = [];
   if(uqMode==='daily'){
@@ -7889,27 +8037,158 @@ async function runUsageQuery(){
     while(ym <= endYm){ buckets.push(ym); ym = shiftYm(ym, 1); }
   }
 
-  const series = uqSelected.map(item => ({
-    name: item.tally_name,
-    code8: item.drug_code8,
-    values: buckets.map(b => (perItemMap[item.drug_code8] && perItemMap[item.drug_code8][b]) || 0)
-  }));
+  // 缺資料：區間內（到今天為止）沒有任何耗用報表的日期
+  {
+    const have = new Set((allDays||[]).map(r=>r.upload_date));
+    const lastDay = uqMode==='daily' ? toDate : shiftDate(toDate, -1);
+    const miss = [];
+    for(let d = fromDate; d <= lastDay && d <= todayStr(); d = shiftDate(d,1)) if(!have.has(d)) miss.push(d);
+    const mb = document.getElementById('uq-missing');
+    mb.style.display = miss.length ? '' : 'none';
+    mb.innerHTML = miss.length ? `⚠️ 區間內沒有耗用報表的日期（${miss.length} 天）：${miss.slice(0,20).map(d=>d.slice(5)).join('、')}${miss.length>20?' …':''}　若那幾天有開診，總量會偏低` : '';
+  }
 
-  chartBox.innerHTML = renderUsageQueryChart(buckets.map(labelFn), series);
+  const itemOf = c => uqSelected.find(i=>i.drug_code8===c) || uqAllItems.find(i=>i.drug_code8===c) || {drug_code8:c, tally_name:c};
+  const canonOf = c => { const it = itemOf(c); return (it.alias_of && codes.includes(it.alias_of)) ? it.alias_of : (it.alias_of || c); };
+  // 每個8碼每天的耗用
+  const dayQty = {};  // code|date -> qty
+  (data||[]).forEach(r=>{ const k = r.drug_code8+'|'+r.upload_date; dayQty[k] = (dayQty[k]||0) + Number(r.usage_qty||0); });
+  const dayCampus = {}; // code|date -> {dl,hw}
+  campusRows.forEach(c=>{ const k = c.drug_code8+'|'+c.upload_date; (dayCampus[k] = dayCampus[k]||{dl:0,hw:0})[c.campus] = (dayCampus[k][c.campus]||0) + Number(c.qty||0); });
 
-  const totals = series.map(s => s.values.reduce((a,b)=>a+b,0));
-  tableBox.innerHTML = `
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">
-      ${series.map((s,i)=>`<div style="font-size:13px"><span style="color:${UQ_COLORS[i%UQ_COLORS.length]};font-weight:600">●</span> ${s.name}　區間總耗用：<b>${totals[i]}</b> 劑</div>`).join('')}
-    </div>
-    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto"><table>
+  // 依「正式品項」分組（別名併進來），保留選取順序
+  const groupOrder = [];
+  codes.forEach(c=>{ const g = canonOf(c); if(!groupOrder.includes(g)) groupOrder.push(g); });
+  const groups = groupOrder.map(g=>{
+    const members = codes.filter(c=>canonOf(c)===g);
+    const gi = itemOf(g);
+    const segs = {};  // segKey -> values per bucket
+    const add = (key, bi, v)=>{ if(!v) return; (segs[key] = segs[key]||buckets.map(()=>0))[bi] += v; };
+    const perCode = {};
+    members.forEach(c=>{
+      const it = itemOf(c); const staff = !!it.staff_item;
+      const dpv = Number(it.doses_per_vial||1)||1; const wv = !!it.whole_vial_deduct;
+      const pc = perCode[c] = { code:c, name:it.tally_name, staff, total:0, dl:0, hw:0, un:0, vials:0, wv };
+      Object.keys(dayQty).forEach(k=>{
+        const [code, date] = k.split('|'); if(code!==c) return;
+        const bi = buckets.indexOf(bucketFn(date)); if(bi<0) return;
+        const q = dayQty[k]; const cp = dayCampus[k] || {dl:0,hw:0};
+        const dl = Math.min(cp.dl||0, q), hw = Math.min(cp.hw||0, q - dl), un = q - dl - hw;
+        pc.total += q; pc.dl += dl; pc.hw += hw; pc.un += un; if(wv) pc.vials += Math.ceil(q/dpv);
+        add(staff?'staff':'general', bi, q);
+        add((staff?'s_':'g_')+'dl', bi, dl); add((staff?'s_':'g_')+'hw', bi, hw); add('un', bi, un);
+      });
+    });
+    const total = Object.values(perCode).reduce((a,p)=>a+p.total,0);
+    return { code:g, name:gi.tally_name, members, perCode, segs, total, wv: Object.values(perCode).some(p=>p.wv) };
+  });
+  uqLastResult = { groups, buckets, labels: buckets.map(labelFn), mode: uqMode };
+  uqRenderChart();
+
+  // 區間總量表
+  const grand = groups.reduce((a,g)=>a+g.total,0) || 1;
+  const shown = groups.filter(g=>g.total>0).sort((a,b)=>b.total-a.total);
+  const hidden = groups.filter(g=>g.total===0);
+  const fmt = n => Math.round(n).toLocaleString();
+  const numCells = (p, bold) => `<td class="c"${bold?' style="font-weight:600"':''}>${fmt(p.total)}${p.wv&&p.vials?`<div style="font-size:11px;color:#888;font-weight:400">開 ${fmt(p.vials)} 瓶</div>`:''}</td>`;
+  const campCells = p => `<td class="c">${fmt(p.dl)}</td><td class="c">${fmt(p.hw)}</td><td class="c" style="color:${p.un?'#C77700':'#bbb'}">${fmt(p.un)}</td>`;
+  document.getElementById('uq-summary').innerHTML = `
+    <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">區間總量</div>
+    <div class="tbl-wrap"><table data-nosort style="font-size:14px">
+      <thead><tr><th>品項</th><th class="c" style="width:90px">耗用（劑）</th><th class="c" style="width:70px">佔比</th><th class="c" style="width:70px">斗六</th><th class="c" style="width:70px">虎尾</th><th class="c" style="width:80px">未分院區</th></tr></thead>
+      <tbody>${shown.map((g,gi)=>{
+        const sum = { total:g.total, dl:0, hw:0, un:0, vials:0, wv:g.wv };
+        Object.values(g.perCode).forEach(p=>{ sum.dl+=p.dl; sum.hw+=p.hw; sum.un+=p.un; sum.vials+=p.vials; });
+        const multi = g.members.length>1;
+        const head = `<tr${multi?` style="cursor:pointer" onclick="uqToggleSub('uqs-${gi}')"`:''}>
+          <td style="font-weight:600">${multi?`<span id="uqs-${gi}-ico" style="color:#999">▸</span> `:''}${g.name}</td>
+          ${numCells(sum,true)}<td class="c">${(g.total/grand*100).toFixed(1)}%</td>${campCells(sum)}</tr>`;
+        const subs = multi ? g.members.map(c=>{ const p = g.perCode[c];
+          return `<tr class="uqs-${gi}" style="display:none;background:#fafaf8"><td style="padding-left:28px;color:#555">↳ ${p.name}<span style="font-size:11px;color:#bbb;margin-left:4px">${c}${p.staff?'・員工':''}</span></td>${numCells(p,false)}<td></td>${campCells(p)}</tr>`; }).join('') : '';
+        return head + subs;
+      }).join('')}
+      <tr style="border-top:2px solid #ddd"><td style="font-weight:600">合計</td><td class="c" style="font-weight:600">${fmt(groups.reduce((a,g)=>a+g.total,0))}</td><td class="c">100%</td><td colspan="3"></td></tr>
+      </tbody></table></div>
+    ${hidden.length?`<div style="font-size:12px;color:#bbb;margin-top:4px">區間內沒有耗用（已隱藏）：${hidden.map(g=>g.name).join('、')}</div>`:''}
+    <div style="font-size:12px;color:#999;margin-top:4px">斗六／虎尾：一般民眾依當日施打清單的窗口（A／D），員工依手動登記；沒有資料的算「未分院區」。</div>`;
+
+  // 進貨與耗用對照（以正式品項為單位）
+  const offCodes = shown.map(g=>g.code);
+  let stockHtml = '';
+  if(offCodes.length){
+    const txEnd = uqMode==='daily' ? toDate : shiftDate(toDate,-1);
+    const [{ data: txs }, { data: logs }] = await Promise.all([
+      sb.from('warehouse_transactions').select('drug_code8,direction,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', offCodes).gte('tx_date', fromDate).lte('tx_date', txEnd),
+      sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock').in('drug_code8', offCodes)
+    ]);
+    const latest = {};
+    (logs||[]).forEach(l=>{ const k = l.drug_code8+'|'+l.lot_no; if(!latest[k] || l.declare_date > latest[k].declare_date) latest[k] = l; });
+    stockHtml = `<div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">進貨與耗用對照</div>
+      <div class="tbl-wrap"><table data-nosort style="font-size:14px">
+      <thead><tr><th>品項</th><th class="c">進貨（瓶）</th><th class="c">退貨（瓶）</th><th class="c">耗用</th><th class="c">目前庫存<div style="font-size:11px;font-weight:400;color:#999">NIIS最新結存</div></th></tr></thead>
+      <tbody>${shown.map(g=>{
+        const inQ = (txs||[]).filter(t=>t.drug_code8===g.code && t.direction==='in').reduce((a,t)=>a+Number(t.qty||0),0);
+        const outQ = (txs||[]).filter(t=>t.drug_code8===g.code && t.direction!=='in').reduce((a,t)=>a+Number(t.qty||0),0);
+        const stock = Object.values(latest).filter(l=>l.drug_code8===g.code).reduce((a,l)=>a+Number(l.closing_stock||0),0);
+        const hasStock = Object.values(latest).some(l=>l.drug_code8===g.code);
+        const vials = Object.values(g.perCode).reduce((a,p)=>a+p.vials,0);
+        return `<tr><td>${g.name}</td><td class="c">${fmt(inQ)}</td><td class="c">${fmt(outQ)}</td><td class="c">${fmt(g.total)} 劑${g.wv?`<div style="font-size:11px;color:#888">開 ${fmt(vials)} 瓶</div>`:''}</td><td class="c">${hasStock?fmt(stock):'—'}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      <div style="font-size:12px;color:#999;margin-top:4px">進貨、退貨是查詢區間內的藥庫進出貨；目前庫存是各批號最新一次 NIIS 結存的合計（還沒結存過的批號不列入）。</div>`;
+  }
+  document.getElementById('uq-stock').innerHTML = stockHtml;
+
+  // 原本的每日／每月明細表（收合）
+  const series = uqSelected.map(item => ({ name: item.tally_name, values: buckets.map(b=>{ let t=0; Object.keys(dayQty).forEach(k=>{ const [c,d]=k.split('|'); if(c===item.drug_code8 && bucketFn(d)===b) t+=dayQty[k]; }); return t; }) }));
+  tableBox.innerHTML = `<details><summary style="cursor:pointer;font-size:14px;color:#1B3A6B;margin-bottom:6px">${uqMode==='daily'?'每日':'每月'}明細表（每個8碼）</summary>
+    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto"><table data-nosort>
       <thead><tr><th>${uqMode==='daily'?'日期':'月份'}</th>${series.map(s=>`<th class="c">${s.name}</th>`).join('')}${series.length>1?'<th class="c">合計</th>':''}</tr></thead>
-      <tbody>${buckets.map((b,i)=>{
-        const rowVals = series.map(s=>s.values[i]);
-        const rowTotal = rowVals.reduce((a,c)=>a+c,0);
-        return `<tr><td>${b}</td>${rowVals.map(v=>`<td class="c">${v}</td>`).join('')}${series.length>1?`<td class="c" style="font-weight:600">${rowTotal}</td>`:''}</tr>`;
-      }).join('')}</tbody>
-    </table></div>`;
+      <tbody>${buckets.map((b,i)=>{ const rv = series.map(s=>s.values[i]); const rt = rv.reduce((a,c)=>a+c,0);
+        return `<tr><td>${b}</td>${rv.map(v=>`<td class="c">${v}</td>`).join('')}${series.length>1?`<td class="c" style="font-weight:600">${rt}</td>`:''}</tr>`; }).join('')}</tbody>
+    </table></div></details>`;
+}
+
+let uqLastResult = null;
+let uqView = 'type';
+function uqSetView(v){
+  uqView = v;
+  document.getElementById('uq-view-type').classList.toggle('active', v==='type');
+  document.getElementById('uq-view-campus').classList.toggle('active', v==='campus');
+  uqRenderChart();
+}
+function uqToggleSub(cls){
+  const rows = document.querySelectorAll('.'+cls);
+  const open = rows.length && rows[0].style.display==='none';
+  rows.forEach(r=>r.style.display = open ? '' : 'none');
+  const ico = document.getElementById(cls+'-ico'); if(ico) ico.textContent = open ? '▾' : '▸';
+}
+// 每支藥一張小長條圖：一般／員工 或 依院區 分顏色堆疊
+function uqRenderChart(){
+  const box = document.getElementById('uq-chart');
+  if(!uqLastResult){ return; }
+  const { groups, labels } = uqLastResult;
+  const SEG = uqView==='type'
+    ? [['general','一般','#534AB7'],['staff','員工','#AFA9EC']]
+    : [['g_dl','斗六','#1B3A6B'],['s_dl','斗六員工','#85B7EB'],['g_hw','虎尾','#993C1D'],['s_hw','虎尾員工','#F0997B'],['un','未分院區','#B4B2A9']];
+  document.getElementById('uq-legend').innerHTML = SEG.map(([,n,c])=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${n}</span>`).join('');
+  const list = groups.filter(g=>g.total>0);
+  if(!list.length){ box.innerHTML = '<div style="padding:20px;text-align:center;color:#bbb">區間內沒有耗用</div>'; return; }
+  const n = labels.length;
+  const stepL = Math.max(Math.ceil(n/8),1);
+  box.innerHTML = list.map(g=>{
+    const totals = labels.map((_,i)=>SEG.reduce((a,[k])=>a+((g.segs[k]||[])[i]||0),0));
+    const mx = Math.max(...totals,1);
+    const segTot = SEG.map(([k,nm])=>[nm,(g.segs[k]||[]).reduce((a,b)=>a+b,0)]).filter(x=>x[1]>0);
+    return `<div style="display:grid;grid-template-columns:150px minmax(0,1fr) 150px;gap:10px;align-items:end;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:600;line-height:1.4">${g.name}</div>
+      <div><div style="display:flex;align-items:flex-end;gap:${n>40?1:3}px;height:64px;border-bottom:1px solid #e5e5e5">${labels.map((l,i)=>{
+        const t = totals[i]; const h = Math.round(t/mx*60);
+        return `<div title="${l}：${t} 劑" style="flex:1;height:${h}px;display:flex;flex-direction:column-reverse;border-radius:2px 2px 0 0;overflow:hidden">${SEG.map(([k,,c])=>{ const v=(g.segs[k]||[])[i]||0; return v?`<div style="height:${v/t*100}%;background:${c}"></div>`:''; }).join('')}</div>`;
+      }).join('')}</div>
+      <div style="display:flex;font-size:10px;color:#aaa;margin-top:2px">${labels.map((l,i)=>`<div style="flex:1;text-align:left;white-space:nowrap;overflow:visible">${i%stepL===0?l:''}</div>`).join('')}</div></div>
+      <div style="font-size:12px;line-height:1.5;text-align:right"><b>${g.total.toLocaleString()}</b> 劑<br><span style="color:#888">${segTot.map(([nm,v])=>`${nm} ${v.toLocaleString()}`).join('・')}</span></div>
+    </div>`;
+  }).join('');
 }
 
 // 純SVG畫的多品項折線圖，不依賴任何外部圖表套件
