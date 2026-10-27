@@ -854,14 +854,16 @@ input[type=number]{-moz-appearance:textfield}
             <span style="color:#999">至</span>
             <input type="date" id="uq-daily-to" class="inp" style="width:150px">
             <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
           </div>
           <div id="uq-range-monthly" style="display:none;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
             <input type="month" id="uq-monthly-from" class="inp" style="width:150px">
             <span style="color:#999">至</span>
             <input type="month" id="uq-monthly-to" class="inp" style="width:150px">
             <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
           </div>
-          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院（斗六＋虎尾＋藥庫）合計的耗用劑數，直接來自耗用報表原始資料，不做整瓶進位等換算。可以只選一個品項看單一耗用，也可以加好幾個一起比較，還能把常看的組合存成群組下次直接套用。</div>
+          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院合計的耗用劑數，來自耗用報表。加入正式品項時別名會自動帶入；常看的組合可以存成群組。</div>
           <div id="uq-missing" style="display:none;background:#FFF6E5;border:1px solid #F0D9A8;color:#7A5A12;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px"></div>
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
             <span style="font-size:13px;color:#666">圖表顏色：</span>
@@ -8021,7 +8023,7 @@ async function runUsageQuery(){
 
   const codes = uqSelected.map(i=>i.drug_code8);
   const qEnd = q => uqMode==='daily' ? q.lte('upload_date', toDate) : q.lt('upload_date', toDate);
-  const { data, error } = await fetchAllRows(()=>qEnd(sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', fromDate)).order('upload_date'));
+  const { data, error } = await fetchAllRows(()=>qEnd(sb.from('usage_uploads').select('drug_code8,upload_date,lot_no,usage_qty').in('drug_code8', codes).gte('upload_date', fromDate)).order('upload_date'));
   if(error){ chartBox.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
   let campusRows = [];
   try{ const r = await fetchAllRows(()=>qEnd(sb.from('usage_campus').select('drug_code8,upload_date,campus,qty').in('drug_code8', codes).gte('upload_date', fromDate)).order('upload_date')); campusRows = r.data||[]; }catch(e){}
@@ -8082,7 +8084,8 @@ async function runUsageQuery(){
     const total = Object.values(perCode).reduce((a,p)=>a+p.total,0);
     return { code:g, name:gi.tally_name, members, perCode, segs, total, wv: Object.values(perCode).some(p=>p.wv) };
   });
-  uqLastResult = { groups, buckets, labels: buckets.map(labelFn), mode: uqMode };
+  uqLastResult = { groups, buckets, labels: buckets.map(labelFn), mode: uqMode, raw: data||[], dayQty, dayCampus, codes: codes.slice(), fromDate, toDate, bucketOf: bucketFn,
+    itemOf, canonOf };
   uqRenderChart();
 
   // 區間總量表
@@ -8138,17 +8141,87 @@ async function runUsageQuery(){
   }
   document.getElementById('uq-stock').innerHTML = stockHtml;
 
-  // 原本的每日／每月明細表（收合）
-  const series = uqSelected.map(item => ({ name: item.tally_name, values: buckets.map(b=>{ let t=0; Object.keys(dayQty).forEach(k=>{ const [c,d]=k.split('|'); if(c===item.drug_code8 && bucketFn(d)===b) t+=dayQty[k]; }); return t; }) }));
-  tableBox.innerHTML = `<details><summary style="cursor:pointer;font-size:14px;color:#1B3A6B;margin-bottom:6px">${uqMode==='daily'?'每日':'每月'}明細表（每個8碼）</summary>
-    <div class="tbl-wrap" style="max-height:360px;overflow-y:auto"><table data-nosort>
-      <thead><tr><th>${uqMode==='daily'?'日期':'月份'}</th>${series.map(s=>`<th class="c">${s.name}</th>`).join('')}${series.length>1?'<th class="c">合計</th>':''}</tr></thead>
-      <tbody>${buckets.map((b,i)=>{ const rv = series.map(s=>s.values[i]); const rt = rv.reduce((a,c)=>a+c,0);
-        return `<tr><td>${b}</td>${rv.map(v=>`<td class="c">${v}</td>`).join('')}${series.length>1?`<td class="c" style="font-weight:600">${rt}</td>`:''}</tr>`; }).join('')}</tbody>
-    </table></div></details>`;
+  tableBox.innerHTML = '';
 }
 
 let uqLastResult = null;
+
+// 匯出 Excel：耗用原始資料／每日明細／區間總量／每日院區
+async function exportUsageQueryExcel(){
+  if(!uqLastResult){ alert('請先按查詢，再匯出'); return; }
+  const R = uqLastResult;
+  const it = c => R.itemOf(c);
+  const typeOf = c => it(c).staff_item ? '員工' : '一般';
+  const offName = c => it(R.canonOf(c)).tally_name || R.canonOf(c);
+  const rangeLabel = `${R.fromDate}～${R.mode==='daily' ? R.toDate : shiftDate(R.toDate,-1)}`;
+
+  // 1. 耗用原始資料（每天、每個8碼、每個批號一列）
+  const raw = [['日期','品項名稱','藥品8碼','正式品項','類別','批號','耗用劑數']];
+  R.raw.slice().sort((a,b)=>a.upload_date.localeCompare(b.upload_date) || offName(a.drug_code8).localeCompare(offName(b.drug_code8)) || a.drug_code8.localeCompare(b.drug_code8))
+    .forEach(r=>raw.push([r.upload_date, it(r.drug_code8).tally_name||r.drug_code8, r.drug_code8, offName(r.drug_code8), typeOf(r.drug_code8), r.lot_no||'', Number(r.usage_qty||0)]));
+
+  // 2. 每日明細（日期一列、8碼一欄，同一支藥排在一起）
+  const colCodes = [];
+  R.groups.forEach(g=>g.members.forEach(c=>colCodes.push(c)));
+  const daily = [[R.mode==='daily'?'日期':'月份', ...colCodes.map(c=>`${it(c).tally_name||c}（${c}）`), '合計']];
+  R.buckets.forEach(b=>{
+    const vals = colCodes.map(c=>{ let t=0; Object.keys(R.dayQty).forEach(k=>{ const [code,d]=k.split('|'); if(code===c && R.bucketOf(d)===b) t+=R.dayQty[k]; }); return t; });
+    daily.push([b, ...vals, vals.reduce((a,v)=>a+v,0)]);
+  });
+  const colTot = colCodes.map((_,ci)=>daily.slice(1).reduce((a,row)=>a+row[ci+1],0));
+  daily.push(['合計', ...colTot, colTot.reduce((a,v)=>a+v,0)]);
+
+  // 3. 區間總量
+  const grand = R.groups.reduce((a,g)=>a+g.total,0) || 1;
+  const sum = [['品項','藥品8碼','類別','耗用（劑）','佔比','開瓶數（整瓶扣帳）','斗六','虎尾','未分院區']];
+  R.groups.slice().sort((a,b)=>b.total-a.total).forEach(g=>{
+    const t = { dl:0, hw:0, un:0, vials:0 };
+    Object.values(g.perCode).forEach(p=>{ t.dl+=p.dl; t.hw+=p.hw; t.un+=p.un; t.vials+=p.vials; });
+    sum.push([g.name, g.code, '合計', g.total, Math.round(g.total/grand*1000)/10+'%', g.wv?t.vials:'', t.dl, t.hw, t.un]);
+    if(g.members.length>1) g.members.forEach(c=>{ const p = g.perCode[c]; sum.push(['　↳ '+p.name, c, p.staff?'員工':'一般', p.total, '', p.wv?p.vials:'', p.dl, p.hw, p.un]); });
+  });
+  sum.push(['合計','','', R.groups.reduce((a,g)=>a+g.total,0), '100%', '', '', '', '']);
+
+  // 4. 每日院區（每天、每個8碼）
+  const camp = [['日期','品項名稱','藥品8碼','類別','耗用（劑）','斗六','虎尾','未分院區','院區來源']];
+  Object.keys(R.dayQty).sort((a,b)=>{ const [ca,da]=a.split('|'), [cb,db]=b.split('|'); return da.localeCompare(db) || ca.localeCompare(cb); }).forEach(k=>{
+    const [c,d] = k.split('|'); const q = R.dayQty[k]; const cp = R.dayCampus[k] || {dl:0,hw:0};
+    const dl = Math.min(cp.dl||0,q), hw = Math.min(cp.hw||0,q-dl);
+    camp.push([d, it(c).tally_name||c, c, typeOf(c), q, dl, hw, q-dl-hw, (dl+hw)===0 ? '—' : (it(c).staff_item ? '手動登記' : '當日清單窗口')]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const add = (aoa, name, cols) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = cols; XLSX.utils.book_append_sheet(wb, ws, name); };
+  add(raw, '耗用原始資料', [{wch:12},{wch:44},{wch:12},{wch:40},{wch:6},{wch:22},{wch:10}]);
+  add(daily, '每日明細', [{wch:12}, ...colCodes.map(()=>({wch:16})), {wch:8}]);
+  add(sum, '區間總量', [{wch:44},{wch:12},{wch:6},{wch:10},{wch:8},{wch:12},{wch:8},{wch:8},{wch:10}]);
+  add(camp, '每日院區', [{wch:12},{wch:44},{wch:12},{wch:6},{wch:10},{wch:8},{wch:8},{wch:10},{wch:12}]);
+
+  // 每個工作表都凍結第一列；每日明細另外凍結第一欄（SheetJS 免費版不支援，寫完後用 JSZip 補上）
+  let out = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+  try{
+    if(window.JSZip){
+      const zip = await JSZip.loadAsync(out);
+      for(let i=1;i<=4;i++){
+        const path = `xl/worksheets/sheet${i}.xml`;
+        const f = zip.file(path); if(!f) continue;
+        let xml = await f.async('string');
+        const pane = i===2
+          ? '<sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView>'
+          : '<sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView>';
+        xml = xml.replace('<sheetView workbookViewId="0"/>', pane);
+        zip.file(path, xml);
+      }
+      out = await zip.generateAsync({ type:'uint8array' });
+    }
+  }catch(e){}
+  const blob = new Blob([out], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `品項耗用_${rangeLabel.replace(/～/,'_')}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
 let uqView = 'type';
 function uqSetView(v){
   uqView = v;
