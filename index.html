@@ -337,6 +337,7 @@ input[type=number]{-moz-appearance:textfield}
         <!-- 子分頁切換 -->
         <div class="subtabs" style="margin-bottom:14px">
           <div class="subtab active" id="rec-sub-tally" onclick="switchRecSub('tally')">📋 盤點紀錄</div>
+          <div class="subtab" id="rec-sub-daily" onclick="switchRecSub('daily')">📅 每日總表</div>
           <div class="subtab" id="rec-sub-oplog" onclick="switchRecSub('oplog')" style="display:none">🕘 操作歷程</div>
         </div>
 
@@ -370,6 +371,19 @@ input[type=number]{-moz-appearance:textfield}
               </table>
             </div>
           </div>
+        </div>
+
+        <!-- 每日盤點總表 -->
+        <div id="rec-panel-daily" style="display:none">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+            <select id="td-site" class="inp" style="width:130px" onchange="renderTallyDaily()">
+              <option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option>
+            </select>
+            <input type="month" id="td-month" class="inp" style="width:160px" onchange="renderTallyDaily()">
+            <button class="btn btn-sm" onclick="exportTallyDaily()">📥 匯出 Excel</button>
+            <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合（游標移上去看報表數字）</span>
+          </div>
+          <div id="td-wrap"></div>
         </div>
 
         <!-- 操作歷程子頁（管理者限定） -->
@@ -445,24 +459,10 @@ input[type=number]{-moz-appearance:textfield}
           <option value="pending">只看尚未盤點/未上傳報表</option>
         </select>
       </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr>
-            <th style="width:220px">疫苗名稱</th>
-            <th class="c" style="width:85px">斗六盤點</th>
-            <th class="c" style="width:85px">斗六庫存報表</th>
-            <th class="c" style="width:80px">斗六狀態</th>
-            <th class="c" style="width:85px">虎尾盤點</th>
-            <th class="c" style="width:85px">虎尾庫存報表</th>
-            <th class="c" style="width:80px">虎尾狀態</th>
-            <th class="c" style="width:85px">藥庫盤點</th>
-            <th class="c" style="width:85px">藥庫庫存報表</th>
-            <th class="c" style="width:80px">藥庫狀態</th>
-            <th style="width:160px">備註</th>
-          </tr></thead>
-          <tbody id="ov-body"></tbody>
-        </table>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn btn-sm" onclick="ovAddGroup()">＋ 新增分類</button>
       </div>
+      <div id="ov-groups"></div>
     </div>
 
     <!-- ══ 報表（報表上傳／NIIS申報輔助／月報表）══ -->
@@ -1842,9 +1842,118 @@ function getMrYm(){
 function switchRecSub(tab){
   document.getElementById('rec-sub-tally').classList.toggle('active', tab==='tally');
   document.getElementById('rec-sub-oplog').classList.toggle('active', tab==='oplog');
+  document.getElementById('rec-sub-daily').classList.toggle('active', tab==='daily');
   document.getElementById('rec-panel-tally').style.display = tab==='tally'?'':'none';
   document.getElementById('rec-panel-oplog').style.display = tab==='oplog'?'':'none';
+  document.getElementById('rec-panel-daily').style.display = tab==='daily'?'':'none';
   if(tab==='oplog') renderOplog();
+  if(tab==='daily') initTallyDaily();
+}
+
+/* ── 每日盤點總表：一個院區、一個月，一列一天、一欄一個品項（照盤點分頁順序） ── */
+let tdLast = null;
+function initTallyDaily(){
+  const isManager = me.role==='admin'||me.role==='warehouse';
+  const sel = document.getElementById('td-site');
+  if(!isManager){ sel.value = mySite(); sel.disabled = true; }
+  else if(!sel.dataset.init){ sel.value = invSite || 'dl'; sel.dataset.init = '1'; }
+  const m = document.getElementById('td-month');
+  if(!m.value) m.value = todayStr().slice(0,7);
+  renderTallyDaily();
+}
+async function renderTallyDaily(){
+  const site = document.getElementById('td-site').value;
+  const ym = document.getElementById('td-month').value;
+  const wrap = document.getElementById('td-wrap');
+  if(!ym){ return; }
+  wrap.innerHTML = '<div style="padding:24px;text-align:center;color:#bbb">載入中...</div>';
+  const from = ym+'-01', to = shiftDate(shiftYm(ym,1)+'-01', -1);
+  const station = {dl:'6101', hw:'6201', wh:'6000'}[site];
+  const [{ data: pages }, { data: items, error }, { data: recs }, { data: stocks }] = await Promise.all([
+    sb.from('tally_pages').select('page_id,page_name,sort_order').eq('campus', site).order('sort_order'),
+    sb.from('vaccine_campus_items').select('drug_code8,page_id,item_sort_order, vaccine_master(tally_name, stock_code4, status, skip_stock_compare)').eq('campus', site).eq('status','active'),
+    fetchAllRows(()=>sb.from('tally_records').select('drug_code8,tally_date,tally_qty').eq('campus', site).gte('tally_date', from).lte('tally_date', to).order('tally_date')),
+    fetchAllRows(()=>sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code', station).gte('upload_date', from).lte('upload_date', to).order('upload_date'))
+  ]);
+  if(error){ wrap.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
+  const pOrder = {}; (pages||[]).forEach((p,i)=>pOrder[p.page_id]=i);
+  const cols = (items||[]).filter(it=>it.page_id && pOrder[it.page_id]!==undefined && it.vaccine_master && it.vaccine_master.status==='active')
+    .sort((a,b)=> (pOrder[a.page_id]-pOrder[b.page_id]) || ((a.item_sort_order??999)-(b.item_sort_order??999)))
+    .map(it=>({ code:it.drug_code8, page:it.page_id, name:it.vaccine_master.tally_name, code4:it.vaccine_master.stock_code4||'', skip:!!it.vaccine_master.skip_stock_compare }));
+  if(!cols.length){ wrap.innerHTML = '<div style="padding:24px;text-align:center;color:#bbb">這個院區沒有分配到盤點分頁的品項</div>'; return; }
+  const tq = {}, sq = {};
+  (recs||[]).forEach(r=>{ const k = r.drug_code8+'|'+r.tally_date; tq[k] = (tq[k]||0) + Number(r.tally_qty||0); });
+  (stocks||[]).forEach(r=>{ const k = r.drug_code8+'|'+r.upload_date; sq[k] = (sq[k]||0) + Number(r.stock_qty||0); });
+  const days = []; for(let d=from; d<=to; d=shiftDate(d,1)) days.push(d);
+  const wk = ['日','一','二','三','四','五','六'];
+  const dow = d => new Date(d+'T00:00:00').getDay();
+  tdLast = { site, ym, cols, days, tq, sq, pages };
+
+  // 分頁色帶
+  const bands = ['#EAF0F8','#FDF1DE','#E6F4EE','#F1ECF8','#FBE9EE','#E8F4F6'];
+  const pageSpans = []; cols.forEach(c=>{ const last = pageSpans[pageSpans.length-1]; if(last && last.page===c.page) last.n++; else pageSpans.push({ page:c.page, n:1 }); });
+  const pageName = id => ((pages||[]).find(p=>p.page_id===id)||{}).page_name || '';
+  const colBg = c => bands[pOrder[c.page] % bands.length];
+  const stL = 'position:sticky;left:0;z-index:2;background:#fff';
+  const stL2 = 'position:sticky;left:96px;z-index:2;background:#fff';
+  const th = 'position:sticky;z-index:3;font-size:12px;padding:4px 6px;text-align:center;border:1px solid #e6e6e6';
+  let html = `<div id="td-scroll" style="overflow:auto;max-height:70vh;border:1px solid #e8e8e8;border-radius:10px;background:#fff">
+    <table data-nosort style="border-collapse:separate;border-spacing:0;font-size:14px;min-width:100%">
+    <thead>
+      <tr class="td-h">${`<th rowspan="3" style="${th};left:0;z-index:5;background:#F5F7FA;width:96px;min-width:96px">日期</th><th rowspan="3" style="${th};left:96px;z-index:5;background:#F5F7FA;width:44px;min-width:44px">星期</th>`}
+        ${pageSpans.map(p=>`<th colspan="${p.n}" style="${th};background:${bands[pOrder[p.page]%bands.length]};color:#1B3A6B;font-weight:600">${pageName(p.page)}</th>`).join('')}</tr>
+      <tr class="td-h">${cols.map(c=>`<th style="${th};background:${colBg(c)};color:#666;font-weight:400">${c.code4||'—'}</th>`).join('')}</tr>
+      <tr class="td-h">${cols.map(c=>`<th style="${th};background:${colBg(c)};min-width:64px;max-width:96px;white-space:normal;line-height:1.3">${c.name}</th>`).join('')}</tr>
+    </thead><tbody>`;
+  const today = todayStr();
+  days.forEach(d=>{
+    const w = dow(d), weekend = w===0||w===6;
+    const bg = weekend ? '#F7F7F5' : '#fff';
+    const anyTally = cols.some(c=>tq[c.code+'|'+d]!==undefined);
+    html += `<tr>
+      <td style="${stL};background:${bg};border:1px solid #eee;padding:4px 8px;white-space:nowrap;${d===today?'font-weight:600;color:#1B3A6B':''}">${d}</td>
+      <td style="${stL2};background:${bg};border:1px solid #eee;text-align:center;color:${weekend?'#aaa':'#555'}">${wk[w]}</td>
+      ${cols.map(c=>{
+        const k = c.code+'|'+d, t = tq[k], st = sq[k];
+        if(t===undefined) return `<td style="background:${bg};border:1px solid #eee"></td>`;
+        const bad = !c.skip && st!==undefined && st!==t;
+        return `<td style="background:${bad?'#FBEAEA':bg};border:1px solid #eee;text-align:right;padding:4px 8px;${bad?'color:#A32D2D;font-weight:600':''}"${bad?` title="庫存報表 ${st}"`:''}>${t}</td>`;
+      }).join('')}
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  wrap.innerHTML = html;
+  // 三列表頭各自往下疊的 sticky 位置
+  const hs = wrap.querySelectorAll('tr.td-h'); let top = 0;
+  hs.forEach(r=>{ r.querySelectorAll('th').forEach(x=>{ if(x.rowSpan>1){ if(r===hs[0]) x.style.top='0px'; } else x.style.top = top+'px'; }); top += r.getBoundingClientRect().height; });
+}
+async function exportTallyDaily(){
+  if(!tdLast){ alert('請先選擇院區和月份'); return; }
+  const { site, ym, cols, days, tq, pages } = tdLast;
+  const label = {dl:'斗六', hw:'虎尾', wh:'藥庫'}[site];
+  const wk = ['日','一','二','三','四','五','六'];
+  const pageName = id => ((pages||[]).find(p=>p.page_id===id)||{}).page_name || '';
+  const aoa = [
+    ['日期','星期', ...cols.map(c=>pageName(c.page))],
+    ['','', ...cols.map(c=>c.code4)],
+    ['','', ...cols.map(c=>c.name)],
+    ...days.map(d=>[d, wk[new Date(d+'T00:00:00').getDay()], ...cols.map(c=>{ const v = tq[c.code+'|'+d]; return v===undefined ? '' : v; })])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:12},{wch:5}, ...cols.map(()=>({wch:12}))];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, label+'每日盤點');
+  let out = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+  try{
+    if(window.JSZip){
+      const zip = await JSZip.loadAsync(out); const path = 'xl/worksheets/sheet1.xml';
+      let xml = await zip.file(path).async('string');
+      xml = xml.replace('<sheetView workbookViewId="0"/>', '<sheetView workbookViewId="0"><pane xSplit="2" ySplit="3" topLeftCell="C4" activePane="bottomRight" state="frozen"/></sheetView>');
+      zip.file(path, xml); out = await zip.generateAsync({ type:'uint8array' });
+    }
+  }catch(e){}
+  const blob = new Blob([out], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${label}每日盤點_${ym}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
 }
 
 function mySite(){
@@ -3025,12 +3134,12 @@ async function renderOverview(){
   const selDate = document.getElementById('ov-date').value || todayStr();
   document.getElementById('ov-date').value = selDate;
 
-  document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#bbb">載入中...</td></tr>';
+  ovMsg('載入中...');
 
   // 撈全部 active 品項（不分院區）
   const { data: itemsRaw, error: itemErr } = await sb.from('vaccine_campus_items').select('*, vaccine_master(tally_name, stock_code4, status, skip_stock_compare, master_sort_order)').eq('status','active');
   if(itemErr){
-    document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${itemErr.message}</td></tr>`;
+    ovMsg(`<span style="color:#A32D2D">查詢失敗：${itemErr.message}</span>`);
     return;
   }
   const items = (itemsRaw || []).filter(it => it.vaccine_master && it.vaccine_master.status === 'active');
@@ -3091,7 +3200,7 @@ async function renderOverview(){
 
   if(uniqueVaccines.length === 0){
     ovRowsCache = [];
-    document.getElementById('ov-body').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">尚無資料</td></tr>';
+    ovMsg('尚無資料');
     ['ov-total','ov-dl-ok','ov-hw-ok','ov-wh-ok','ov-err'].forEach(id => document.getElementById(id).textContent = 0);
     return;
   }
@@ -3161,6 +3270,7 @@ async function renderOverview(){
       masterKey: (mso===null||mso===undefined) ? Infinity : Number(mso) });
   }
 
+  await ovLoadGroups();
   document.getElementById('ov-total').textContent = uniqueVaccines.length;
   document.getElementById('ov-dl-ok').textContent = dlOk;
   document.getElementById('ov-hw-ok').textContent = hwOk;
@@ -3171,42 +3281,163 @@ async function renderOverview(){
 }
 
 let ovRowsCache = [];
+function ovMsg(html){
+  document.getElementById('ov-groups').innerHTML = `<div style="padding:24px;text-align:center;color:#bbb;background:#fff;border:1px solid #e8e8e8;border-radius:12px">${html}</div>`;
+}
+
+/* ── 管理總覽分類：分類存在 app_settings（overview_groups），收合狀態存在這台電腦 ── */
+let ovGroups = [];
+let ovDrag = null; // {type:'item', code} 或 {type:'group', gid}
+async function ovLoadGroups(){
+  const { data } = await sb.from('app_settings').select('value').eq('key','overview_groups').maybeSingle();
+  try{ ovGroups = data && data.value ? JSON.parse(data.value) : []; }catch(e){ ovGroups = []; }
+}
+async function ovSaveGroups(){
+  const { error } = await sb.from('app_settings').upsert({ key:'overview_groups', value:JSON.stringify(ovGroups), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  if(error) alert('分類儲存失敗：'+error.message);
+}
+function ovCollapsed(){ try{ return JSON.parse(localStorage.getItem('ovCollapsed')||'[]'); }catch(e){ return []; } }
+function ovToggleGroup(gid){
+  let c = ovCollapsed();
+  c = c.includes(gid) ? c.filter(x=>x!==gid) : [...c, gid];
+  try{ localStorage.setItem('ovCollapsed', JSON.stringify(c)); }catch(e){}
+  renderOverviewRows();
+}
+async function ovAddGroup(){
+  const name = await appPrompt('分類名稱', '');
+  if(!name || !name.trim()) return;
+  ovGroups.push({ id:'g'+Date.now(), name:name.trim(), codes:[] });
+  await ovSaveGroups(); renderOverviewRows();
+}
+async function ovRenameGroup(gid){
+  const g = ovGroups.find(x=>x.id===gid); if(!g) return;
+  const name = await appPrompt('分類名稱', g.name);
+  if(!name || !name.trim()) return;
+  g.name = name.trim(); await ovSaveGroups(); renderOverviewRows();
+}
+async function ovDeleteGroup(gid){
+  const g = ovGroups.find(x=>x.id===gid); if(!g) return;
+  if(!await appConfirm(`裡面的品項會回到「未分類」。`, {title:`刪除分類「${g.name}」？`, kind:'danger', okText:'刪除'})) return;
+  ovGroups = ovGroups.filter(x=>x.id!==gid); await ovSaveGroups(); renderOverviewRows();
+}
+
 function renderOverviewRows(){
   const kw = (document.getElementById('ov-search').value||'').trim().toLowerCase();
   const statusFilter = document.getElementById('ov-status-filter').value;
-
-  const filtered = ovRowsCache.filter(r=>{
+  const filtering = !!kw || statusFilter!=='all';
+  const pass = r=>{
     if(kw && !(r.name.toLowerCase().includes(kw) || r.code8.toLowerCase().includes(kw) || (r.code4||'').toLowerCase().includes(kw))) return false;
     if(statusFilter==='mismatch' && !r.mismatch) return false;
     if(statusFilter==='pending' && !r.pending) return false;
     return true;
-  });
+  };
+  if(!ovRowsCache.length){ ovMsg('尚無資料'); return; }
 
-  // 預設依盤點表順序；點欄位標題可另外排序
+  const byCode = {}; ovRowsCache.forEach(r=>byCode[r.code8]=r);
+  const used = new Set();
   const zh = (a,b) => String(a||'').localeCompare(String(b||''), 'zh-Hant');
-  filtered.sort((a,b)=> (a.tallyKey-b.tallyKey) || (a.masterKey-b.masterKey) || zh(a.name,b.name));
+  const sections = ovGroups.map(g=>{
+    const rows = (g.codes||[]).filter(c=>byCode[c] && !used.has(c)).map(c=>{ used.add(c); return byCode[c]; });
+    return { id:g.id, name:g.name, rows, custom:true };
+  });
+  const rest = ovRowsCache.filter(r=>!used.has(r.code8)).sort((a,b)=> (a.tallyKey-b.tallyKey) || (a.masterKey-b.masterKey) || zh(a.name,b.name));
+  sections.push({ id:'_un', name: ovGroups.length ? '未分類' : '全部品項', rows:rest, custom:false });
 
-  if(!filtered.length){
-    document.getElementById('ov-body').innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#bbb">${ovRowsCache.length?'沒有符合條件的品項':'尚無資料'}</td></tr>`;
-    return;
-  }
-
-  document.getElementById('ov-body').innerHTML = filtered.map(r=>{
-    const { dl, hw, wh } = r;
-    return `<tr>
-      <td style="font-size:15px">${r.name}${r.code4?`<div style="font-size:12px;color:#999">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.code8}</div></td>
-      <td class="c">${dl.tally===null?'—':dl.tally}</td>
-      <td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td>
-      <td class="c">${dl.badge}</td>
-      <td class="c">${hw.tally===null?'—':hw.tally}</td>
-      <td class="c" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td>
-      <td class="c">${hw.badge}</td>
-      <td class="c">${wh.tally===null?'—':wh.tally}</td>
-      <td class="c" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td>
-      <td class="c">${wh.badge}</td>
+  const collapsed = ovCollapsed();
+  const head = `<thead><tr>
+      <th style="width:220px">疫苗名稱</th>
+      <th class="c" style="width:85px">斗六盤點</th><th class="c" style="width:85px">斗六庫存報表</th><th class="c" style="width:80px">斗六狀態</th>
+      <th class="c" style="width:85px">虎尾盤點</th><th class="c" style="width:85px">虎尾庫存報表</th><th class="c" style="width:80px">虎尾狀態</th>
+      <th class="c" style="width:85px">藥庫盤點</th><th class="c" style="width:85px">藥庫庫存報表</th><th class="c" style="width:80px">藥庫狀態</th>
+      <th style="width:160px">備註</th></tr></thead>`;
+  const rowHtml = r=>{ const { dl, hw, wh } = r;
+    return `<tr draggable="false" data-code8="${r.code8}" ondragstart="ovItemDragStart(event)" ondragover="ovRowDragOver(event)" ondragleave="ovRowDragLeave(event)" ondrop="ovRowDrop(event)" ondragend="ovDragEnd()" style="border-top:2px solid transparent;border-bottom:2px solid transparent">
+      <td style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${r.name}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
+      <td class="c">${dl.tally===null?'—':dl.tally}</td><td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td><td class="c">${dl.badge}</td>
+      <td class="c">${hw.tally===null?'—':hw.tally}</td><td class="c" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td><td class="c">${hw.badge}</td>
+      <td class="c">${wh.tally===null?'—':wh.tally}</td><td class="c" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td><td class="c">${wh.badge}</td>
       <td><input type="text" class="ov-note-input" data-code="${r.code8}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
-    </tr>`;
+    </tr>`; };
+
+  let shownAny = false;
+  const html = sections.map(sec=>{
+    const rows = sec.rows.filter(pass);
+    if(filtering && !rows.length) return '';
+    if(!sec.custom && !sec.rows.length && ovGroups.length) return '';
+    shownAny = true;
+    const isCol = collapsed.includes(sec.id);
+    const mis = sec.rows.filter(r=>r.mismatch).length;
+    return `<div class="ov-grp" data-gid="${sec.id}" ondragover="ovGroupDragOver(event)" ondragleave="ovGroupDragLeave(event)" ondrop="ovGroupDrop(event)"
+        style="background:#fff;border:1px solid #e3e3e3;border-radius:12px;margin-bottom:12px;overflow:hidden">
+      <div draggable="false" ondragstart="ovGroupDragStart(event)" ondragend="ovDragEnd()" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#F5F7FA;border-bottom:${isCol?'0':'1px solid #e8e8e8'}">
+        ${sec.custom?`<span style="color:#aaa;cursor:grab" title="拖曳調整分類順序" onmousedown="this.parentElement.setAttribute('draggable','true')">☰</span>`:''}
+        <span style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer;flex:1" onclick="ovToggleGroup('${sec.id}')">${isCol?'▸':'▾'} ${sec.name}
+          <span style="font-size:13px;font-weight:400;color:#888;margin-left:6px">${sec.rows.length} 項${mis?`・<span style="color:#A32D2D">不吻合 ${mis}</span>`:''}${filtering?`・符合 ${rows.length}`:''}</span></span>
+        ${sec.custom?`<button class="btn btn-sm" style="font-size:12px" onclick="ovRenameGroup('${sec.id}')">改名</button><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="ovDeleteGroup('${sec.id}')">刪除</button>`:''}
+      </div>
+      ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="11" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
+    </div>`;
   }).join('');
+  if(!shownAny){ ovMsg('沒有符合條件的品項'); return; }
+  document.getElementById('ov-groups').innerHTML = html;
+}
+
+function ovItemDragStart(e){ ovDrag = { type:'item', code:e.currentTarget.dataset.code8 }; e.dataTransfer.effectAllowed='move'; e.stopPropagation(); }
+function ovGroupDragStart(e){ ovDrag = { type:'group', gid:e.currentTarget.closest('.ov-grp').dataset.gid }; e.dataTransfer.effectAllowed='move'; }
+function ovRowDragOver(e){
+  if(!ovDrag || ovDrag.type!=='item') return;
+  e.preventDefault(); e.stopPropagation();
+  const row = e.currentTarget, rect = row.getBoundingClientRect(), before = (e.clientY-rect.top) < rect.height/2;
+  row.style.borderTopColor = before ? '#1B3A6B' : 'transparent';
+  row.style.borderBottomColor = before ? 'transparent' : '#1B3A6B';
+}
+function ovRowDragLeave(e){ e.currentTarget.style.borderTopColor='transparent'; e.currentTarget.style.borderBottomColor='transparent'; }
+function ovGroupDragOver(e){
+  if(!ovDrag) return;
+  e.preventDefault();
+  const box = e.currentTarget;
+  if(ovDrag.type==='group' && box.dataset.gid==='_un') return;
+  box.style.boxShadow = '0 0 0 2px #1B3A6B55';
+}
+function ovGroupDragLeave(e){ if(!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.style.boxShadow=''; }
+function ovMoveItem(code, gid, refCode, before){
+  ovGroups.forEach(g=>{ g.codes = (g.codes||[]).filter(c=>c!==code); });
+  if(gid==='_un') return;
+  const g = ovGroups.find(x=>x.id===gid); if(!g) return;
+  let idx = refCode ? g.codes.indexOf(refCode) : -1;
+  if(idx<0) g.codes.push(code); else g.codes.splice(before?idx:idx+1, 0, code);
+}
+async function ovRowDrop(e){
+  if(!ovDrag || ovDrag.type!=='item') return;
+  e.preventDefault(); e.stopPropagation();
+  const row = e.currentTarget, rect = row.getBoundingClientRect(), before = (e.clientY-rect.top) < rect.height/2;
+  const gid = row.closest('.ov-grp').dataset.gid, code = ovDrag.code;
+  ovDragEnd();
+  if(code===row.dataset.code8) return;
+  ovMoveItem(code, gid, row.dataset.code8, before);
+  renderOverviewRows(); await ovSaveGroups();
+}
+async function ovGroupDrop(e){
+  if(!ovDrag) return;
+  e.preventDefault();
+  const box = e.currentTarget, gid = box.dataset.gid, d = ovDrag;
+  ovDragEnd();
+  if(d.type==='item'){
+    ovMoveItem(d.code, gid, null, false);
+  } else {
+    if(gid==='_un' || gid===d.gid) return;
+    const from = ovGroups.findIndex(x=>x.id===d.gid); const g = ovGroups.splice(from,1)[0];
+    let to = ovGroups.findIndex(x=>x.id===gid);
+    const rect = box.getBoundingClientRect();
+    if(e.clientY - rect.top > rect.height/2) to++;
+    ovGroups.splice(to, 0, g);
+  }
+  renderOverviewRows(); await ovSaveGroups();
+}
+function ovDragEnd(){
+  ovDrag = null;
+  document.querySelectorAll('#ov-groups tr[data-code8]').forEach(r=>{ r.style.borderTopColor='transparent'; r.style.borderBottomColor='transparent'; r.setAttribute('draggable','false'); });
+  document.querySelectorAll('#ov-groups .ov-grp').forEach(b=>{ b.style.boxShadow=''; const h=b.firstElementChild; if(h) h.setAttribute('draggable','false'); });
 }
 
 // 管理總覽的「當天備註」：對應 drug_code8 + note_date + source='overview'，換日期查詢就不會帶出來，只跟當天那一列綁定，也不會跟全院庫存核對的備註互相干擾
