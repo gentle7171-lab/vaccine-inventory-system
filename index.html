@@ -705,6 +705,7 @@ input[type=number]{-moz-appearance:textfield}
           <div class="subtab" id="mr-rep-tab-3" onclick="switchMrReport('3')">③ B肝報表</div>
           <div class="subtab" id="mr-rep-tab-4" onclick="switchMrReport('4')">④ 卡介苗報表</div>
           <div class="subtab" id="mr-rep-tab-5" onclick="switchMrReport('5')">📈 品項耗用查詢</div>
+          <div class="subtab" id="mr-rep-tab-6" onclick="switchMrReport('6')">🍂 流感季</div>
         </div>
         <div id="mr-shared-controls" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
           <select id="mr-year" class="inp" style="width:100px" onchange="renderMonthlyReport()"></select>
@@ -875,6 +876,27 @@ input[type=number]{-moz-appearance:textfield}
           <div id="uq-summary" style="margin-bottom:16px"></div>
           <div id="uq-stock" style="margin-bottom:16px"></div>
           <div id="uq-table"></div>
+        </div>
+      </div>
+
+      <div id="mr-report-6" style="display:none">
+        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <select id="flu-season" class="inp" style="width:200px" onchange="renderFluSeason()"></select>
+            <button class="btn btn-sm" onclick="fluToggleSetting()">⚙️ 設定品項</button>
+            <span id="flu-code-count" style="font-size:13px;color:#999"></span>
+          </div>
+          <div id="flu-setting" style="display:none;background:#F7F8FB;border:1px solid #E3E7EF;border-radius:10px;padding:12px;margin-bottom:14px">
+            <div style="font-size:13px;color:#666;margin-bottom:8px">要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+              <select id="flu-item-add" class="inp" style="width:260px;max-width:100%" onchange="fluAddItem(this.value); this.value=''"></select>
+              <button class="btn btn-primary btn-sm" onclick="fluSaveCodes()">💾 儲存</button>
+              <button class="btn btn-sm" onclick="fluToggleSetting(false)">取消</button>
+            </div>
+            <div id="flu-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          </div>
+          <div id="flu-current" style="margin-bottom:20px"></div>
+          <div id="flu-history"></div>
         </div>
       </div>
       </div>
@@ -7876,13 +7898,216 @@ let mrActiveReport = '1';
 
 function switchMrReport(n){
   mrActiveReport = n;
-  ['1','2','3','4','5'].forEach(k=>{
+  ['1','2','3','4','5','6'].forEach(k=>{
     document.getElementById('mr-report-'+k).style.display = (k===n) ? '' : 'none';
     document.getElementById('mr-rep-tab-'+k).classList.toggle('active', k===n);
   });
-  document.getElementById('mr-shared-controls').style.display = (n==='5') ? 'none' : '';
+  document.getElementById('mr-shared-controls').style.display = (n==='5'||n==='6') ? 'none' : '';
+  if(n==='6') initFluTab();
   if(n==='3' && lastMonthlyReport.length) renderHbigReport();
   if(n==='5') initUsageQueryTab();
+}
+
+/* ══════════════ 流感季：本季累計＋歷年比較（系統資料，季別＝9/1～隔年8/31，以民國年命名） ══════════════ */
+let fluCodes = null;      // 已儲存的流感8碼
+let fluDraft = [];        // 設定視窗中編輯中的8碼
+let fluItems = [];        // 主檔品項
+let fluData = null;       // { qty:{code|date:n}, camp:{code|date:{dl,hw}} }
+const FLU_COLORS = ['#9AA3B2','#C77700','#1D9E75','#6B4FA0','#0E7C86','#B23A6B','#A32D2D'];
+
+function fluSeasonOf(d){ const y = +d.slice(0,4), m = +d.slice(5,7); return (m>=9 ? y : y-1) - 1911; }
+function fluStart(season){ return (season+1911)+'-09-01'; }
+function fluOff(d, season){ const a = fluStart(season).split('-'), b = d.split('-'); return Math.round((Date.UTC(+b[0],b[1]-1,+b[2]) - Date.UTC(+a[0],a[1]-1,+a[2]))/864e5); }
+function fluItem(c){ return fluItems.find(v=>v.drug_code8===c) || {drug_code8:c, tally_name:c}; }
+
+async function initFluTab(){
+  let { data: vrows, error } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,staff_item').eq('status','active').order('tally_name');
+  if(error) ({ data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of').eq('status','active').order('tally_name'));
+  fluItems = vrows || [];
+  if(fluCodes===null){
+    const { data } = await sb.from('app_settings').select('value').eq('key','flu_season_codes').maybeSingle();
+    try{ fluCodes = data && data.value ? JSON.parse(data.value) : []; }catch(e){ fluCodes = []; }
+  }
+  document.getElementById('flu-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + fluItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+  if(!fluCodes.length){
+    fluDraft = fluItems.filter(v=>/流感/.test(v.tally_name||'') && !/自費|幼兒|小兒|兒童/.test(v.tally_name||'')).map(v=>v.drug_code8);
+    fluToggleSetting(true);
+    document.getElementById('flu-current').innerHTML = '<div style="padding:20px;text-align:center;color:#999">先在上方設定要算進流感季的品項，按儲存後顯示。已先帶入名稱有「流感」的品項，請確認。</div>';
+    document.getElementById('flu-history').innerHTML = '';
+    document.getElementById('flu-code-count').textContent = '';
+    fillFluSeasonSelect([]);
+    return;
+  }
+  await loadFluData();
+  renderFluSeason();
+}
+
+function fluToggleSetting(open){
+  const box = document.getElementById('flu-setting');
+  const show = open===undefined ? box.style.display==='none' : open;
+  if(show && open===undefined) fluDraft = (fluCodes||[]).slice();
+  box.style.display = show ? '' : 'none';
+  if(show) fluRenderChips();
+}
+function fluAddItem(c){
+  if(!c || fluDraft.includes(c)) return;
+  fluDraft.push(c);
+  fluItems.filter(v=>v.alias_of===c && !fluDraft.includes(v.drug_code8)).forEach(v=>fluDraft.push(v.drug_code8));
+  fluRenderChips();
+}
+function fluRemoveItem(c){ fluDraft = fluDraft.filter(x=>x!==c); fluRenderChips(); }
+function fluRenderChips(){
+  const box = document.getElementById('flu-chips');
+  box.innerHTML = fluDraft.length ? fluDraft.map(c=>{ const it = fluItem(c);
+    return `<span style="display:inline-flex;align-items:center;gap:5px;background:#1B3A6B12;color:#1B3A6B;border:1px solid #1B3A6B44;border-radius:999px;padding:4px 10px;font-size:13px">${it.tally_name}<span style="font-size:11px;color:#999">${c}${it.staff_item?'・員工':''}</span><span style="cursor:pointer;font-weight:600" onclick="fluRemoveItem('${c}')">✕</span></span>`;
+  }).join('') : '<span style="font-size:13px;color:#bbb">尚未選擇品項</span>';
+}
+async function fluSaveCodes(){
+  if(!fluDraft.length){ alert('請至少加入一個品項'); return; }
+  const { error } = await sb.from('app_settings').upsert({ key:'flu_season_codes', value:JSON.stringify(fluDraft), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  if(error){ alert('儲存失敗：'+error.message); return; }
+  fluCodes = fluDraft.slice();
+  fluToggleSetting(false);
+  alert('✓ 已儲存流感季品項');
+  await loadFluData();
+  renderFluSeason();
+}
+
+async function loadFluData(){
+  document.getElementById('flu-current').innerHTML = '<div style="padding:20px;text-align:center;color:#bbb">載入中...</div>';
+  document.getElementById('flu-history').innerHTML = '';
+  const from = '2025-09-01';
+  const { data, error } = await fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', fluCodes).gte('upload_date', from).order('upload_date'));
+  if(error){ document.getElementById('flu-current').innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; fluData = null; return; }
+  let camp = [];
+  try{ const r = await fetchAllRows(()=>sb.from('usage_campus').select('drug_code8,upload_date,campus,qty').in('drug_code8', fluCodes).gte('upload_date', from).order('upload_date')); camp = r.data||[]; }catch(e){}
+  const qty = {}, cp = {};
+  (data||[]).forEach(r=>{ const k = r.drug_code8+'|'+r.upload_date; qty[k] = (qty[k]||0) + Number(r.usage_qty||0); });
+  camp.forEach(c=>{ const k = c.drug_code8+'|'+c.upload_date; (cp[k] = cp[k]||{dl:0,hw:0})[c.campus] = (cp[k][c.campus]||0) + Number(c.qty||0); });
+  let txs = [];
+  try{ const r = await fetchAllRows(()=>sb.from('warehouse_transactions').select('drug_code8,direction,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', fluCodes).gte('tx_date', from).order('tx_date')); txs = r.data||[]; }catch(e){}
+  fluData = { qty, camp: cp, txs };
+  document.getElementById('flu-code-count').textContent = `已設定 ${fluCodes.length} 個 8 碼`;
+  const seasons = [...new Set([...Object.keys(qty).map(k=>fluSeasonOf(k.split('|')[1])), ...txs.filter(t=>t.tx_date).map(t=>fluSeasonOf(t.tx_date))])];
+  fillFluSeasonSelect(seasons);
+}
+
+function fillFluSeasonSelect(seasons){
+  const cur = fluSeasonOf(todayStr());
+  const list = [...new Set([...seasons, cur])].sort((a,b)=>b-a);
+  const sel = document.getElementById('flu-season');
+  const keep = sel.value;
+  sel.innerHTML = list.map(y=>`<option value="${y}">${y} 年流感季（${y+1911}/9～${y+1912}/8）</option>`).join('');
+  sel.value = list.includes(+keep) ? keep : String(cur);
+}
+
+// 一季的統計；upToOff：只算到季開始後第幾天（含），null＝整季
+function fluStat(season, upToOff){
+  const st = { season, total:0, dl:0, hw:0, un:0, staff:0, general:0, first:null, last:null, m:{}, per:{}, daily:{}, txIn:0, txOut:0 };
+  (fluData.txs||[]).forEach(t=>{
+    if(!t.tx_date || fluSeasonOf(t.tx_date)!==season) return;
+    if(upToOff!=null && fluOff(t.tx_date, season)>upToOff) return;
+    if(t.direction==='in') st.txIn += Number(t.qty||0); else st.txOut += Number(t.qty||0);
+  });
+  Object.keys(fluData.qty).forEach(k=>{
+    const [c, d] = k.split('|');
+    if(fluSeasonOf(d)!==season) return;
+    const off = fluOff(d, season);
+    if(upToOff!=null && off>upToOff) return;
+    const q = fluData.qty[k]; if(!q) return;
+    const cp = fluData.camp[k] || {dl:0,hw:0};
+    const dl = Math.min(cp.dl||0, q), hw = Math.min(cp.hw||0, q-dl), un = q-dl-hw;
+    const staff = !!fluItem(c).staff_item;
+    st.total += q; st.dl += dl; st.hw += hw; st.un += un;
+    if(staff) st.staff += q; else st.general += q;
+    if(!st.first || d<st.first) st.first = d;
+    if(!st.last || d>st.last) st.last = d;
+    const mo = +d.slice(5,7); const mk = (mo===9||mo===10) ? '10' : (mo===11||mo===12) ? String(mo) : '1+';
+    st.m[mk] = (st.m[mk]||0) + q;
+    const p = st.per[c] = st.per[c] || { total:0, dl:0, hw:0, un:0 };
+    p.total += q; p.dl += dl; p.hw += hw; p.un += un;
+    st.daily[off] = (st.daily[off]||0) + q;
+  });
+  return st;
+}
+
+function renderFluSeason(){
+  if(!fluData || !fluCodes || !fluCodes.length) return;
+  const season = +document.getElementById('flu-season').value;
+  const today = todayStr();
+  const curSeason = fluSeasonOf(today);
+  const isCur = season===curSeason;
+  const todayOff = fluOff(today, curSeason);
+  const fmt = n => Math.round(n).toLocaleString();
+  const md = d => d ? (+d.slice(5,7))+'/'+(+d.slice(8,10)) : '—';
+
+  // ── 本季累計 ──
+  const st = fluStat(season, isCur ? todayOff : null);
+  const prevAll = fluStat(season-1, null);
+  const prev = fluStat(season-1, isCur ? todayOff : null);
+  const hasPrev = prevAll.total > 0;
+  const diff = hasPrev && prev.total ? Math.round((st.total-prev.total)/prev.total*100) : null;
+  const card = (label, main, sub) => `<div style="flex:1 1 160px;border:1px solid #e8e8e8;border-radius:10px;padding:10px 14px">
+      <div style="font-size:12px;color:#888">${label}</div>
+      <div style="font-size:22px;font-weight:600;color:#1B3A6B;margin:2px 0">${main}</div>
+      <div style="font-size:12px;color:#888">${sub||''}</div></div>`;
+  const cmpLabel = isCur ? `去年同期（到 ${md(today)}）` : '前一季全季';
+  const cmpMain = hasPrev ? fmt(prev.total)+' 劑' : '—';
+  const cmpSub = !hasPrev ? `${season-1} 年系統沒有資料` : (diff===null ? '' : `今年${diff>=0?'多':'少'} ${Math.abs(diff)}%`);
+  const codesSorted = fluCodes.filter(c=>st.per[c]).sort((a,b)=>st.per[b].total-st.per[a].total);
+  const noUse = fluCodes.filter(c=>!st.per[c]);
+  document.getElementById('flu-current').innerHTML = `
+    <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:8px">${season} 年本季累計
+      <span style="font-size:13px;font-weight:400;color:#888;margin-left:6px">${st.first ? `開打 ${md(st.first)}・${isCur?`到今天 ${md(today)}`:`最後 ${md(st.last)}`}` : '本季尚無耗用'}</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      ${card('累計耗用', fmt(st.total)+' 劑', '')}
+      ${card('院區', `${fmt(st.dl)} ／ ${fmt(st.hw)}`, `斗六 ／ 虎尾${st.un?`・未分院區 ${fmt(st.un)}`:''}`)}
+      ${card('一般 ／ 員工', `${fmt(st.general)} ／ ${fmt(st.staff)}`, '')}
+      ${card('撥入 ／ 退回', `${fmt(st.txIn)} ／ ${fmt(st.txOut)}`, '藥庫進出貨（衛生所），單位：支')}
+      ${card(cmpLabel, cmpMain, cmpSub)}
+    </div>
+    ${codesSorted.length ? `<div class="tbl-wrap"><table data-nosort style="font-size:14px">
+      <thead><tr><th>品項</th><th class="c" style="width:90px">耗用（劑）</th><th class="c" style="width:70px">佔比</th><th class="c" style="width:70px">斗六</th><th class="c" style="width:70px">虎尾</th><th class="c" style="width:80px">未分院區</th></tr></thead>
+      <tbody>${codesSorted.map(c=>{ const p = st.per[c], it = fluItem(c);
+        return `<tr><td>${it.tally_name}<span style="font-size:11px;color:#bbb;margin-left:4px">${c}${it.staff_item?'・員工':''}</span></td><td class="c">${fmt(p.total)}</td><td class="c">${(p.total/(st.total||1)*100).toFixed(1)}%</td><td class="c">${fmt(p.dl)}</td><td class="c">${fmt(p.hw)}</td><td class="c" style="color:${p.un?'#C77700':'#bbb'}">${fmt(p.un)}</td></tr>`;
+      }).join('')}
+      <tr style="border-top:2px solid #ddd"><td style="font-weight:600">合計</td><td class="c" style="font-weight:600">${fmt(st.total)}</td><td class="c">100%</td><td class="c">${fmt(st.dl)}</td><td class="c">${fmt(st.hw)}</td><td class="c">${fmt(st.un)}</td></tr>
+      </tbody></table></div>` : ''}
+    ${noUse.length && codesSorted.length ? `<div style="font-size:12px;color:#bbb;margin-top:4px">本季沒有耗用：${noUse.map(c=>fluItem(c).tally_name).join('、')}</div>` : ''}`;
+
+  // ── 歷年比較 ──
+  const seasons = [...new Set([...Object.keys(fluData.qty).map(k=>fluSeasonOf(k.split('|')[1])), ...(fluData.txs||[]).filter(t=>t.tx_date).map(t=>fluSeasonOf(t.tx_date))])].sort((a,b)=>a-b);
+  if(!seasons.length){ document.getElementById('flu-history').innerHTML = ''; return; }
+  const stats = seasons.map(y=>({ y, all: fluStat(y, null), same: fluStat(y, todayOff) }));
+  // 累計曲線
+  const w = 760, h = 240, padL = 46, padR = 12, padT = 12, padB = 28;
+  const cw = w-padL-padR, ch = h-padT-padB;
+  let maxOff = 0;
+  stats.forEach(s=>{ Object.keys(s.all.daily).forEach(o=>{ if(+o>maxOff) maxOff = +o; }); });
+  maxOff = Math.min(Math.max(maxOff, isCur ? todayOff : 0, 120), 364);
+  const curves = stats.map(s=>{ const pts = []; let acc = 0; const end = s.y===curSeason ? Math.min(todayOff, maxOff) : maxOff;
+    for(let o=0;o<=end;o++){ acc += s.all.daily[o]||0; pts.push(acc); } return { y:s.y, pts }; });
+  const maxV = Math.max(1, ...curves.map(c=>c.pts.length ? c.pts[c.pts.length-1] : 0));
+  const xAt = o => padL + o/maxOff*cw, yAt = v => padT + ch - v/maxV*ch;
+  const monthTicks = []; for(let i=0;i<12;i++){ const y0 = 2000, m = (8+i)%12+1; const d = new Date(Date.UTC(y0+(m<9?1:0), m-1, 1)); const off = Math.round((d - Date.UTC(y0,8,1))/864e5); if(off<=maxOff) monthTicks.push([off, m+'月']); }
+  const grid = [0,0.5,1].map(f=>`<line x1="${padL}" y1="${yAt(f*maxV).toFixed(1)}" x2="${w-padR}" y2="${yAt(f*maxV).toFixed(1)}" stroke="#f0f0f0"/><text x="${padL-6}" y="${(yAt(f*maxV)+3).toFixed(1)}" font-size="10" fill="#999" text-anchor="end">${fmt(f*maxV)}</text>`).join('')
+    + monthTicks.map(([o,l])=>`<line x1="${xAt(o).toFixed(1)}" y1="${padT}" x2="${xAt(o).toFixed(1)}" y2="${padT+ch}" stroke="#f5f5f5"/><text x="${(xAt(o)+2).toFixed(1)}" y="${h-10}" font-size="10" fill="#999">${l}</text>`).join('');
+  const colorOf = (y,i) => y===season ? '#1B3A6B' : FLU_COLORS[i % FLU_COLORS.length];
+  const lines = curves.map((c,i)=>{ if(c.pts.length<2) return ''; const d = c.pts.map((v,o)=>`${o?'L':'M'}${xAt(o).toFixed(1)},${yAt(v).toFixed(1)}`).join('');
+    return `<path d="${d}" fill="none" stroke="${colorOf(c.y,i)}" stroke-width="${c.y===season?2.6:1.6}"/>`; }).join('');
+  const todayLine = isCur ? `<line x1="${xAt(todayOff).toFixed(1)}" y1="${padT}" x2="${xAt(todayOff).toFixed(1)}" y2="${padT+ch}" stroke="#C77700" stroke-dasharray="3,3"/>` : '';
+  const legend = curves.map((c,i)=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px"><span style="width:14px;height:3px;background:${colorOf(c.y,i)};display:inline-block"></span>${c.y} 年</span>`).join('');
+  const sameHead = `同期<div style="font-size:11px;font-weight:400;color:#999">到 ${md(today)}</div>`;
+  document.getElementById('flu-history').innerHTML = `
+    <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">歷年比較</div>
+    <div style="font-size:12px;color:#666;margin-bottom:4px">${legend}<span style="color:#C77700">┆ 今天</span></div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;height:auto;display:block;margin-bottom:10px">${grid}${todayLine}${lines}</svg>
+    <div class="tbl-wrap"><table data-nosort style="font-size:14px">
+      <thead><tr><th>季</th><th class="c">開打</th><th class="c">9～10月</th><th class="c">11月</th><th class="c">12月</th><th class="c">1月後</th><th class="c">全季</th><th class="c">撥入</th><th class="c">退回</th><th class="c">斗六</th><th class="c">虎尾</th><th class="c">員工</th><th class="c">${sameHead}</th></tr></thead>
+      <tbody>${stats.slice().reverse().map(s=>{ const a = s.all;
+        return `<tr${s.y===season?' style="background:#F3F6FB"':''}><td style="font-weight:600">${s.y} 年${s.y===curSeason?'<span style="font-size:11px;color:#C77700;margin-left:4px">進行中</span>':''}</td><td class="c">${md(a.first)}</td><td class="c">${fmt(a.m['10']||0)}</td><td class="c">${fmt(a.m['11']||0)}</td><td class="c">${fmt(a.m['12']||0)}</td><td class="c">${fmt(a.m['1+']||0)}</td><td class="c" style="font-weight:600">${fmt(a.total)}</td><td class="c">${fmt(a.txIn)}</td><td class="c">${fmt(a.txOut)}</td><td class="c">${fmt(a.dl)}</td><td class="c">${fmt(a.hw)}</td><td class="c">${fmt(a.staff)}</td><td class="c">${fmt(s.same.total)}</td></tr>`;
+      }).join('')}</tbody></table></div>
+    <div style="font-size:12px;color:#999;margin-top:4px">${seasons.length<2 ? '系統從 115 年開始記錄，明年起會出現往年的線可以比較。' : '季別＝9/1～隔年 8/31；同期＝每季從 9/1 算到今天的同一個日期。'}</div>`;
 }
 
 /* ══════════════ 品項耗用查詢 ══════════════ */
