@@ -5235,6 +5235,8 @@ async function commitUsageUpload(){
   // 只取代「這份檔案裡有出現的品項」在該日期的舊資料；同一天其他品項（例如另一份報表上傳的流感疫苗）完全不動
   const fileCodes = {};
   dates.forEach(d=>{ fileCodes[d] = [...new Set(byDate[d].map(r=>r.drug_code8))]; });
+  const fileCodesAll = {};   // 這份檔案原本有的品項（不管之後選取代或略過），院區資料用這個
+  dates.forEach(d=>{ fileCodesAll[d] = fileCodes[d].slice(); });
   const { data: existRows, error: existErr } = await sb.from('usage_uploads').select('upload_date,drug_code8,niis_code,lot_no,usage_qty').in('upload_date', dates);
   if(existErr){ alert('讀取既有耗用資料失敗：'+existErr.message); return; }
   const fullDay = {};          // 該日期寫入後的完整耗用（本檔品項＋其他報表保留的品項），整瓶扣帳要依整天重算
@@ -5288,7 +5290,7 @@ async function commitUsageUpload(){
     });
     writtenCount = dates.reduce((t,d)=>t+byDate[d].length,0);
     replacedInfo = [];
-    if(!writtenCount){ alert('全部品項都選了「略過」，沒有需要寫入的資料。'); return; }
+    if(!writtenCount && !usageHasWindow){ alert('全部品項都選了「略過」，沒有需要寫入的資料。'); return; }
   }
   const modeCount = { replace:0, skip:0, add:0 };
   Object.values(modeMap).forEach(v=>{ modeCount[v]++; });
@@ -5367,18 +5369,6 @@ async function commitUsageUpload(){
       }
     }catch(e){ doseFailDates.push(`${date}（${e.message}）`); }
 
-    // 院區（依窗口）：只有檔案有「窗口」欄位時才更新，一般耗用報表沒有這欄，不會動到已存的院區資料
-    if(usageHasWindow){
-      try{
-        const codesToday = fileCodes[date];
-        const { error: cDelErr } = await sb.from('usage_campus').delete().eq('upload_date', date).eq('source','window').in('drug_code8', codesToday);
-        const cRows = usageCampusGrouped.filter(c=>c.date===date && codesToday.includes(c.drug_code8))
-          .map(c=>({ upload_date:date, drug_code8:c.drug_code8, campus:c.campus, qty:c.qty, source:'window', updated_by: me.emp_id, updated_at: new Date().toISOString() }));
-        let cInsErr = null;
-        if(!cDelErr && cRows.length) ({ error: cInsErr } = await sb.from('usage_campus').upsert(cRows, { onConflict:'upload_date,drug_code8,campus' }));
-        if(cDelErr || cInsErr) campusFailDates.push(`${date}（${(cDelErr||cInsErr).message}）`);
-      }catch(e){ campusFailDates.push(`${date}（${e.message}）`); }
-    }
 
     // 先還原這天先前已經扣過的「整瓶領用」紀錄（避免同一天重複上傳造成重複扣庫存），再依這次最新的耗用量重新計算扣一次
     const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
@@ -5414,6 +5404,21 @@ async function commitUsageUpload(){
     }
   }
 
+  // 院區（依窗口）：只有檔案有「窗口」欄位時才更新；不管耗用選取代或略過，都照檔案寫入（當日清單的窗口就是最準的院區來源）
+  // 一般耗用報表沒有窗口欄位，不會動到已存的院區資料
+  if(usageHasWindow){
+    for(const date of dates){
+      try{
+        const codesToday = fileCodesAll[date];
+        const { error: cDelErr } = await sb.from('usage_campus').delete().eq('upload_date', date).eq('source','window').in('drug_code8', codesToday);
+        const cRows = usageCampusGrouped.filter(c=>c.date===date && codesToday.includes(c.drug_code8))
+          .map(c=>({ upload_date:date, drug_code8:c.drug_code8, campus:c.campus, qty:c.qty, source:'window', updated_by: me.emp_id, updated_at: new Date().toISOString() }));
+        let cInsErr = null;
+        if(!cDelErr && cRows.length) ({ error: cInsErr } = await sb.from('usage_campus').upsert(cRows, { onConflict:'upload_date,drug_code8,campus' }));
+        if(cDelErr || cInsErr) campusFailDates.push(`${date}（${(cDelErr||cInsErr).message}）`);
+      }catch(e){ campusFailDates.push(`${date}（${e.message}）`); }
+    }
+  }
   let msg = (doseFailDates.length ? `⚠️ B肝劑別沒有存到：\n${doseFailDates.join('\n')}\n請截圖告知，B肝月報表這幾天的劑別會不完整。\n\n` : '')
     + (campusFailDates.length ? `⚠️ 院區（窗口）資料沒有存到：\n${campusFailDates.join('\n')}\n請確認已執行 usage_campus 資料表的SQL。\n\n` : '') + `✓ 上傳成功，寫入 ${writtenCount} 筆` + (conflicts.length ? `\n（重複品項：取代 ${modeCount.replace}、略過 ${modeCount.skip}、累加 ${modeCount.add}；其他品項未受影響）` : '');
   if(vialDeductCount) msg += `\n（含 ${vialDeductCount} 筆「整瓶領用」品項已自動依整瓶扣藥庫庫存）`;
