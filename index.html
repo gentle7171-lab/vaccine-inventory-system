@@ -917,7 +917,7 @@ input[type=number]{-moz-appearance:textfield}
       <div class="subtabs" style="margin-bottom:14px">
         <div class="subtab active" id="mst-sub-vaccines" onclick="switchMasterSub('vaccines')">💉 疫苗主檔</div>
         <div class="subtab" id="mst-sub-pages" onclick="switchMasterSub('pages')">📑 分頁設定</div>
-        <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理<span id="roster-badge-sub" title="班表名冊有異動" style="display:none;width:8px;height:8px;background:#f59e0b;border-radius:50%;margin-left:4px;vertical-align:middle"></span></div>
+        <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理<span id="roster-badge-sub" title="班表名冊有異動，點我處理" onclick="event.stopPropagation();openRosterSyncModal()" style="display:none;width:8px;height:8px;background:#A32D2D;border-radius:50%;cursor:pointer;margin-left:4px;vertical-align:middle"></span></div>
         <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')">🎯 起始庫存匯入</div>
         <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
       </div>
@@ -1008,6 +1008,7 @@ input[type=number]{-moz-appearance:textfield}
             <option value="warehouse">藥庫</option>
             <option value="pharm">一般</option>
           </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:14px;color:#666;cursor:pointer"><input type="checkbox" id="acc-show-inactive" onchange="renderAccounts()"> 顯示已停用</label>
         </div>
         <div class="tbl-wrap">
           <table>
@@ -1510,9 +1511,9 @@ input[type=number]{-moz-appearance:textfield}
     </div>
     <div id="roster-gone-section">
       <div style="font-size:15px;font-weight:600;color:#C77700;margin-bottom:2px">⚠ 名冊上已查無此人（可能已異動／離職）</div>
-      <div style="font-size:13px;color:#999;margin-bottom:6px">勾選＝刪除帳號；不勾就保留。有盤點或操作紀錄的帳號無法刪除。</div>
+      <div style="font-size:13px;color:#999;margin-bottom:6px">勾選＝停用帳號（不能登入、清單不顯示，過去紀錄保留）；不勾就維持原狀。</div>
       <div class="tbl-wrap" style="max-height:240px;overflow-y:auto"><table data-nosort style="font-size:14px">
-        <thead><tr><th style="width:36px"></th><th>員編</th><th>姓名</th><th>院區</th><th>角色</th></tr></thead>
+        <thead><tr><th style="width:36px"><input type="checkbox" onchange="document.querySelectorAll('.roster-gone-chk').forEach(c=>c.checked=this.checked)"></th><th>員編</th><th>姓名</th><th>院區</th><th>角色</th></tr></thead>
         <tbody id="roster-gone-tbody"></tbody>
       </table></div>
     </div>
@@ -1730,6 +1731,7 @@ async function login(){
   if(!data || data.length===0){ err.textContent = '員編不存在，請確認後重試'; err.style.display='block'; return; }
 
   const user = data[0];
+  if(user.is_active === false){ err.textContent = '帳號已停用'; err.style.display='block'; return; }
   if(user.password.toLowerCase() !== pw.toLowerCase()){
     err.textContent = '密碼錯誤'; err.style.display='block'; return;
   }
@@ -1779,7 +1781,7 @@ async function initApp(){
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
-    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}${t.id==='master'?'<span id="roster-badge" title="班表名冊有異動" style="display:none;width:8px;height:8px;background:#f59e0b;border-radius:50%;margin-left:4px;vertical-align:middle"></span> <span id="tab-badge-master" title="點我直接看待處理事項" onclick="event.stopPropagation();goMasterReminders()" style="cursor:pointer;display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span>':''}</div>`
+    `<div class="tab" data-id="${t.id}" onclick="showTab('${t.id}')">${t.label}${t.id==='master'?'<span id="roster-badge" title="班表名冊有異動，點我處理" onclick="event.stopPropagation();openRosterSyncModal()" style="display:none;width:8px;height:8px;background:#A32D2D;border-radius:50%;cursor:pointer;margin-left:4px;vertical-align:middle"></span> <span id="tab-badge-master" title="點我直接看待處理事項" onclick="event.stopPropagation();goMasterReminders()" style="cursor:pointer;display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span>':''}</div>`
   ).join('');
 
   document.getElementById('inv-date').value = todayStr();
@@ -1792,7 +1794,8 @@ async function initApp(){
   setupDropzones();
   if(isManager) refreshMasterTabBadge();
   document.getElementById('btn-roster-sync').style.display = me.role==='admin' ? '' : 'none';
-  if(me.role==='admin') checkRosterDiff();
+  rosterAutoShown = false;
+  if(me.role==='admin') checkRosterDiff(true);
 }
 
 /* ══════════════ 拖曳上傳（耗用/庫存/藥庫進出貨） ══════════════ */
@@ -4884,7 +4887,9 @@ async function renderAccounts(){
   const fs = document.getElementById('acc-filter-site').value||'';
   const fr = document.getElementById('acc-filter-role').value||'';
 
+  const showInactive = document.getElementById('acc-show-inactive').checked;
   const list = accCache.filter(u => {
+    if(u.is_active===false && !showInactive) return false;
     if(fs && u.campus !== fs && !(fs==='dl'&&!u.campus) && !(fs==='hw'&&!u.campus)) return !u.campus?false:u.campus===fs;
     if(fr && u.role !== fr) return false;
     if(kw && !u.name.toLowerCase().includes(kw) && !u.emp_id.toLowerCase().includes(kw)) return false;
@@ -4905,14 +4910,16 @@ async function renderAccounts(){
   const hasEdit = Object.keys(accEdits).length > 0;
   document.getElementById('btn-del-acc').style.display = hasSel?'':'none';
   document.getElementById('btn-save-acc').style.display = hasEdit?'':'none';
-  document.getElementById('acc-count').textContent = `顯示 ${list.length} / ${accCache.length} 筆`;
+  const inactiveN = accCache.filter(u=>u.is_active===false).length;
+  document.getElementById('acc-count').textContent = `顯示 ${list.length} / ${accCache.length} 筆` + (inactiveN ? `（已停用 ${inactiveN}）` : '');
 
   document.getElementById('acc-tbody').innerHTML = list.map(u => {
     const edited = accEdits[u.emp_id];
-    return `<tr style="${edited?'background:#fffbe6':''}">
+    const off = u.is_active===false;
+    return `<tr style="${edited?'background:#fffbe6':(off?'background:#f5f5f3;color:#999':'')}">
       <td><input type="checkbox" ${u._chk?'checked':''} onchange="toggleAccChk('${u.emp_id}',this)"></td>
       <td style="font-size:14px;font-family:monospace">${u.emp_id}</td>
-      <td>${u.name}</td>
+      <td>${u.name}${off?' <span style="font-size:12px;background:#eee;color:#888;border-radius:8px;padding:1px 6px">已停用</span>':''}</td>
       <td>
         <select style="font-size:14px;padding:3px 6px;border-radius:6px;border:1px solid #d5d5d5" onchange="markAccEdit('${u.emp_id}','campus',this.value)">
           ${['dl','hw',''].map(v=>`<option value="${v}" ${(u.campus||'')=== v?'selected':''}>${campusLabel[v]}</option>`).join('')}
@@ -4925,9 +4932,19 @@ async function renderAccounts(){
       </td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" style="font-size:13px" onclick="openResetPw('${u.emp_id}','${u.name}')">🔑 重設</button>
+        ${u.emp_id===me.emp_id ? '' : `<button class="btn btn-sm" style="font-size:13px;${off?'':'color:#A32D2D;border-color:#f0c0c0'}" onclick="setAccActive('${u.emp_id}', ${off})">${off?'恢復':'停用'}</button>`}
       </td>
     </tr>`;
   }).join('');
+}
+
+async function setAccActive(empId, active){
+  const u = accCache.find(x=>x.emp_id===empId);
+  if(!active && !await appConfirm('停用後無法登入，帳號管理預設不顯示；過去的紀錄照樣保留。', {title:`停用 ${u?u.name:''}（${empId}）？`, kind:'danger', okText:'停用'})) return;
+  const { error } = await sb.from('users').update({ is_active: active }).eq('emp_id', empId);
+  if(error){ alert('更新失敗：'+error.message+(/is_active/.test(error.message)?'\n請先執行 SQL：ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;':'')); return; }
+  appToast(active ? '已恢復帳號' : '已停用帳號');
+  renderAccounts(); checkRosterDiff();
 }
 
 function toggleAccChk(empId, el){
@@ -5095,11 +5112,12 @@ async function rosterGetEntries(){
 }
 function rosterCompare(entries, users){
   const local = {};
-  (users||[]).forEach(u=>{ const id = String(u.emp_id||'').trim().toUpperCase(); if(ROSTER_ID_RE.test(id)) local[id] = u; });
+  const inactive = {};
+  (users||[]).forEach(u=>{ const id = String(u.emp_id||'').trim().toUpperCase(); if(!ROSTER_ID_RE.test(id)) return; if(u.is_active===false) inactive[id] = u; else local[id] = u; });
   const newcomers = [], renamed = [], gone = [];
   Object.keys(entries).sort().forEach(id=>{
     const u = local[id], nm = entries[id];
-    if(!u) newcomers.push({ eid:id, name:nm });
+    if(!u) newcomers.push({ eid: inactive[id] ? inactive[id].emp_id : id, name:nm, reactivate: !!inactive[id] });
     else if(nm && (u.name||'').trim()!==nm) renamed.push({ emp_id:u.emp_id, eid:id, oldName:u.name||'', newName:nm });
   });
   Object.keys(local).sort().forEach(id=>{ if(!(id in entries)){ const u = local[id]; gone.push({ emp_id:u.emp_id, eid:id, name:u.name||'', role:u.role, campus:u.campus }); } });
@@ -5109,15 +5127,18 @@ function rosterSetBadge(on){
   ['roster-badge','roster-badge-sub'].forEach(id=>{ const b = document.getElementById(id); if(b) b.style.display = on ? 'inline-block' : 'none'; });
 }
 // 唯讀比對，只負責顯示橘點
-async function checkRosterDiff(){
+let rosterAutoShown = false;
+async function checkRosterDiff(autoOpen){
   if(!me || me.role!=='admin'){ rosterSetBadge(false); return; }
   try{
     const entries = await rosterGetEntries();
     if(Object.keys(entries).length < 3){ rosterSetBadge(false); return; }
-    const { data: users, error } = await sb.from('users').select('emp_id,name');
+    const { data: users, error } = await sb.from('users').select('*');
     if(error){ rosterSetBadge(false); return; }
     const d = rosterCompare(entries, users);
-    rosterSetBadge(d.newcomers.length + d.renamed.length + d.gone.length > 0);
+    const has = d.newcomers.length + d.renamed.length + d.gone.length > 0;
+    rosterSetBadge(has);
+    if(has && autoOpen && !rosterAutoShown){ rosterAutoShown = true; openRosterSyncModal(); }
   }catch(e){ console.error('班表名冊比對失敗：', e); }
 }
 async function openRosterSyncModal(){
@@ -5127,7 +5148,7 @@ async function openRosterSyncModal(){
   catch(e){ console.error(e); alert('讀取班表系統失敗，請稍後再試。'); return; }
   const n = Object.keys(entries).length;
   if(n < 3){ alert(`班表系統回傳的名冊筆數異常（${n} 筆），已中止，避免誤判。請稍後再試。`); return; }
-  const { data: users, error } = await sb.from('users').select('emp_id,name,campus,role');
+  const { data: users, error } = await sb.from('users').select('*');
   if(error){ alert('讀取現有帳號失敗：'+error.message); return; }
   rosterDiff = rosterCompare(entries, users);
   const { newcomers, renamed, gone } = rosterDiff;
@@ -5138,7 +5159,7 @@ async function openRosterSyncModal(){
   const sel = 'font-size:14px;padding:3px 6px;border-radius:6px;border:1px solid #d5d5d5';
   document.getElementById('roster-new-tbody').innerHTML = newcomers.map((x,i)=>`<tr data-i="${i}">
       <td><input type="checkbox" class="roster-new-chk" checked></td>
-      <td style="font-family:monospace">${x.eid}</td><td>${esc(x.name)}</td>
+      <td style="font-family:monospace">${x.eid}</td><td>${esc(x.name)}${x.reactivate?' <span style="font-size:12px;color:#C77700">已停用，套用後恢復</span>':''}</td>
       <td><select class="roster-new-campus" style="${sel}"><option value="dl" selected>斗六</option><option value="hw">虎尾</option><option value="">兩院區</option></select></td>
       <td><select class="roster-new-role" style="${sel}"><option value="pharm" selected>一般</option><option value="warehouse">藥庫</option><option value="admin">管理者</option></select></td></tr>`).join('');
   document.getElementById('roster-rename-tbody').innerHTML = renamed.map(x=>`<tr><td style="font-family:monospace">${esc(x.emp_id)}</td><td style="color:#999">${esc(x.oldName)}</td><td style="font-weight:600">${esc(x.newName)}</td></tr>`).join('');
@@ -5162,7 +5183,7 @@ async function rosterApply(){
   document.querySelectorAll('#roster-new-tbody tr[data-i]').forEach(tr=>{
     if(!tr.querySelector('.roster-new-chk').checked) return;
     const x = newcomers[+tr.dataset.i];
-    addRows.push({ emp_id:x.eid, name:x.name, campus: tr.querySelector('.roster-new-campus').value || null, role: tr.querySelector('.roster-new-role').value, password:x.eid });
+    addRows.push({ emp_id:x.eid, name:x.name, campus: tr.querySelector('.roster-new-campus').value || null, role: tr.querySelector('.roster-new-role').value, password:x.eid, is_active:true });
   });
   if(addRows.length){
     const { error } = await sb.from('users').upsert(addRows, { onConflict:'emp_id' });
@@ -5175,13 +5196,13 @@ async function rosterApply(){
   const delList = [];
   document.querySelectorAll('#roster-gone-tbody tr[data-i]').forEach(tr=>{ if(tr.querySelector('.roster-gone-chk').checked) delList.push(gone[+tr.dataset.i]); });
   for(const x of delList){
-    const { error } = await sb.from('users').delete().eq('emp_id', x.emp_id);
-    if(error) fails.push(`${x.emp_id} ${x.name}：${/foreign key/i.test(error.message||'') ? '有盤點或操作紀錄，無法刪除' : error.message}`);
+    const { error } = await sb.from('users').update({ is_active:false }).eq('emp_id', x.emp_id);
+    if(error) fails.push(`${x.emp_id} ${x.name}：${error.message}`);
     else deleted++;
   }
   closeModal('modal-roster');
   rosterDiff = null;
-  const msg = `已套用：新增 ${created} 位、更新姓名 ${renamedCnt} 位、刪除 ${deleted} 位`;
+  const msg = `已套用：新增 ${created} 位、更新姓名 ${renamedCnt} 位、停用 ${deleted} 位`;
   if(fails.length) alert(`${msg}\n\n⚠️ 以下未完成：\n${fails.join('\n')}`); else appToast(msg);
   renderAccounts();
   checkRosterDiff();
