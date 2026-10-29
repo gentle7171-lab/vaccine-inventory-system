@@ -6947,7 +6947,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
     sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded),
     sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded),
-    sb.from('lot_details').select('drug_code8,used_dl,used_hw,used_wh').eq('status','active').in('drug_code8', codes),
+    sb.from('vaccine_campus_items').select('drug_code8,campus,page_id').eq('status','active').not('page_id','is',null).in('drug_code8', codes),
     sb.from('tally_records').select('drug_code8,campus,tally_qty,tally_date').in('drug_code8', codes).gte('tally_date', earliestNeeded).lte('tally_date', latestNeeded)
   ]);
   const noteMap = {}; (noteRows||[]).forEach(n=>{ noteMap[n.drug_code8+'|'+n.note_date] = n.note; });
@@ -6964,19 +6964,15 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     if(st) tallyStations[key].add(st);
   });
 
-  // 每個品項實際需要比對「哪幾站」，用批號管理裡的斗六/虎尾/藥庫燈號決定，不是每個品項都固定要三站都有資料
-  // （例如猴痘疫苗這種只有藥庫在管理的品項，斗六/虎尾本來就不會有庫存報表，不能永遠要求三站齊全）
+  // 每個品項需要比對「哪幾站」：看這個品項被放進哪幾個院區的盤點分頁（不看批號管理的院區燈號）
   const requiredStationsByCode = {};
   (lotFlagRows||[]).forEach(l=>{
-    const code = l.drug_code8;
-    if(!requiredStationsByCode[code]) requiredStationsByCode[code] = new Set();
-    if(l.used_dl) requiredStationsByCode[code].add('6101');
-    if(l.used_hw) requiredStationsByCode[code].add('6201');
-    if(l.used_wh) requiredStationsByCode[code].add('6000');
+    const st = campusToStation[l.campus]; if(!st) return;
+    (requiredStationsByCode[l.drug_code8] = requiredStationsByCode[l.drug_code8] || new Set()).add(st);
   });
   function requiredStationsFor(code8){
     const set = requiredStationsByCode[code8];
-    // 沒有任何批號標記院區旗標時，保守起見還是要求三站都有（維持原本行為，避免誤判成「已齊全」漏掉真正的異常）
+    // 沒有放進任何院區的盤點分頁時，保守起見要求三站都有
     return (set && set.size) ? set : new Set(['6101','6201','6000']);
   }
 
