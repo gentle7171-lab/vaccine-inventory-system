@@ -1722,12 +1722,14 @@ function loginLookupName(){
   document.getElementById('u-err').style.display = 'none';
   if(eid.length < 3){ box.textContent = ''; return; }
   loginLookupTimer = setTimeout(async ()=>{
-    const { data } = await sb.from('users').select('emp_id,name,is_active').ilike('emp_id', eid);
+    const { data } = await sb.from('users').select('emp_id,name,campus,is_active').ilike('emp_id', eid);
     if(document.getElementById('u-user').value.trim() !== eid) return;
     const u = data && data[0];
     if(!u){ box.style.color = '#bbb'; box.textContent = '查無此員編'; return; }
     if(u.is_active === false){ box.style.color = '#A32D2D'; box.textContent = `${u.name}（帳號已停用）`; return; }
-    box.style.color = '#1B3A6B'; box.textContent = `${u.name} ✓`;
+    const camp = {dl:'斗六院區', hw:'虎尾院區'}[u.campus] || '兩院區';
+    box.style.color = '#1B3A6B';
+    box.innerHTML = `👤 ${String(u.name||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}<span style="font-size:13px;font-weight:400;color:#555;margin-left:8px;padding:2px 8px;border:1px solid #d5d5d5;border-radius:8px;vertical-align:middle">${camp}</span>`;
   }, 250);
 }
 
