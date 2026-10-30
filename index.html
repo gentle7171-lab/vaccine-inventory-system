@@ -2168,7 +2168,7 @@ async function renderInvList(){
   const [{data: existing}, {data: prevRecords}, {data: lotRows}, lotRecRes] = await Promise.all([
     sb.from('tally_records').select('*').eq('campus', site).eq('tally_date', selDate).in('drug_code8', codes),
     sb.from('tally_records').select('drug_code8,tally_qty').eq('campus', site).eq('tally_date', prevDate).in('drug_code8', codes),
-    sb.from('lot_details').select('drug_code8,lot_no,campus,status,expiry_date').in('drug_code8', codes),
+    sb.from('lot_details').select('lot_id,drug_code8,lot_no,campus,status,expiry_date,used_dl,used_hw,used_wh').in('drug_code8', codes),
     fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,lot_no,tally_date,qty').eq('campus', site).gte('tally_date', shiftDate(selDate,-60)).lte('tally_date', selDate).in('drug_code8', codes).order('tally_date'))
   ]);
   invBuildLotCtx(site, selDate, prevDate, codes, lotRows||[], (lotRecRes&&lotRecRes.data)||[]);
@@ -2240,15 +2240,22 @@ function invBuildLotCtx(site, selDate, prevDate, codes, lotRows, lotRecs){
     const rows = lotRows.filter(l=>l.drug_code8===code);
     const byLot = {};
     rows.forEach(l=>{ (byLot[l.lot_no] = byLot[l.lot_no] || []).push(l); });
-    const active = Object.keys(byLot).filter(lot=>{ const g = byLot[lot]; const p = g.find(r=>r.campus==='wh') || g.find(r=>r.campus==='dl') || g[0]; return p.status==='active'; })
-      .map(lot=>({ lot, exp: (byLot[lot].find(r=>r.expiry_date)||{}).expiry_date || '' }))
+    const prim = lot => { const g = byLot[lot]; return g.find(r=>r.campus==='wh') || g.find(r=>r.campus==='dl') || g[0]; };
+    const flag = 'used_'+site;
+    const active = Object.keys(byLot).filter(lot=>prim(lot).status==='active')
+      .map(lot=>({ lot, exp: (byLot[lot].find(r=>r.expiry_date)||{}).expiry_date || '', lotId: prim(lot).lot_id, lit: !!prim(lot)[flag] }))
       .sort((a,b)=> (a.exp||'9999').localeCompare(b.exp||'9999') || a.lot.localeCompare(b.lot));
     const recs = lotRecs.filter(r=>r.drug_code8===code);
     const latest = {}, today = {}, prev = {};
     recs.forEach(r=>{ if(r.tally_date < selDate) latest[r.lot_no] = Number(r.qty); if(r.tally_date===selDate) today[r.lot_no] = Number(r.qty); if(r.tally_date===prevDate) prev[r.lot_no] = Number(r.qty); });
     const extra = invExtraLots[`${site}|${selDate}|${code}`] || [];
-    let shown = active.filter(a => today[a.lot]!==undefined || extra.includes(a.lot) || !(latest[a.lot]===0));
-    if(!shown.length && active.length) shown = active.slice();
+    // 有亮這個院區燈號的批號才顯示；這個院區完全沒有亮燈的批號時，先列出所有使用中批號（最近盤到 0 的除外）
+    let shown;
+    if(active.some(a=>a.lit)) shown = active.filter(a => a.lit || today[a.lot]!==undefined || extra.includes(a.lot));
+    else {
+      shown = active.filter(a => today[a.lot]!==undefined || extra.includes(a.lot) || !(latest[a.lot]===0));
+      if(!shown.length && active.length) shown = active.slice();
+    }
     const others = active.filter(a=>!shown.some(x=>x.lot===a.lot));
     invLotCtx[code] = { shown, others, today, prev };
   });
@@ -2427,6 +2434,16 @@ async function saveInv(){
   if(lotRowsToSave.length){
     const { error: lotErr } = await sb.from('tally_lot_records').upsert(lotRowsToSave, { onConflict:'campus,tally_date,drug_code8,lot_no' });
     if(lotErr) alert('⚠️ 盤點總數已儲存，但批號明細儲存失敗：' + lotErr.message);
+    else if(selDate >= shiftDate(todayStr(), -1)){
+      // 燈號跟著盤點走：盤到 0 → 關這個院區的燈；有數量但沒亮燈 → 開燈（只在盤今天或昨天時調整，補登舊日期不動）
+      const flag = 'used_'+site;
+      for(const r of lotRowsToSave){
+        const a = ((invLotCtx[r.drug_code8]||{}).shown||[]).find(x=>x.lot===r.lot_no);
+        if(!a || !a.lotId) continue;
+        if(r.qty===0 && a.lit) await sb.from('lot_details').update({ [flag]: false }).eq('lot_id', a.lotId);
+        else if(r.qty>0 && !a.lit) await sb.from('lot_details').update({ [flag]: true }).eq('lot_id', a.lotId);
+      }
+    }
   }
 
   const logs = inserted.map(r => ({
@@ -6476,9 +6493,9 @@ async function commitWhReceive(){
     if(whLot){
       const newInitial = Number(whLot.initial_qty||0) + qtyInStockUnit;
       const newCurrent = Number(whLot.current_qty||0) + qtyInStockUnit;
-      await sb.from('lot_details').update({ initial_qty: newInitial, current_qty: newCurrent, expiry_date: r.expiry_date || whLot.expiry_date }).eq('lot_id', whLot.lot_id);
+      await sb.from('lot_details').update({ initial_qty: newInitial, current_qty: newCurrent, expiry_date: r.expiry_date || whLot.expiry_date, ...(r.direction==='in' ? { used_wh:true } : {}) }).eq('lot_id', whLot.lot_id);
     } else if(r.qty>0){
-      await sb.from('lot_details').insert({ drug_code8:r.drug_code8, campus:'wh', lot_no:r.lot_no, status:'active', initial_qty:qtyInStockUnit, current_qty:qtyInStockUnit, expiry_date:r.expiry_date||null });
+      await sb.from('lot_details').insert({ drug_code8:r.drug_code8, campus:'wh', lot_no:r.lot_no, status:'active', initial_qty:qtyInStockUnit, current_qty:qtyInStockUnit, expiry_date:r.expiry_date||null, used_wh:true });
     }
     // 若是負數(退回衛生所)但藥庫沒有這個批號，仍留紀錄提醒，但沒有批號可扣，不建立負庫存的批號
     await sb.from('warehouse_transactions').insert({
