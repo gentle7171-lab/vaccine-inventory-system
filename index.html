@@ -700,8 +700,6 @@ input[type=number]{-moz-appearance:textfield}
           <div class="subtab" id="mr-rep-tab-2" onclick="switchMrReport('2')">② 肺炎鏈球菌報表</div>
           <div class="subtab" id="mr-rep-tab-3" onclick="switchMrReport('3')">③ B肝報表</div>
           <div class="subtab" id="mr-rep-tab-4" onclick="switchMrReport('4')">④ 卡介苗報表</div>
-          <div class="subtab" id="mr-rep-tab-5" onclick="switchMrReport('5')">📈 品項耗用查詢</div>
-          <div class="subtab" id="mr-rep-tab-6" onclick="switchMrReport('6')">🍂 流感季</div>
         </div>
         <div id="mr-shared-controls" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
           <select id="mr-year" class="inp" style="width:100px" onchange="renderMonthlyReport()"></select>
@@ -824,85 +822,6 @@ input[type=number]{-moz-appearance:textfield}
         <div style="font-size:13px;color:#666;margin-top:16px">填表人:＿＿＿＿＿＿＿＿＿＿</div>
       </div>
 
-      <div id="mr-report-5" style="display:none">
-        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
-
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
-            <select id="uq-item-add" class="inp" style="width:240px;max-width:100%" onchange="uqAddItem(this.value); this.value=''">
-              <option value="">＋ 加入品項...</option>
-            </select>
-            <select id="uq-group-select" class="inp" style="width:180px" onchange="uqLoadGroup(this.value)">
-              <option value="">套用已存群組...</option>
-            </select>
-            <button class="btn btn-sm" onclick="uqSaveGroup()">💾 另存新群組</button>
-            <button class="btn btn-sm" id="uq-delgroup-btn" style="display:none;color:#A32D2D;border-color:#f0c0c0" onclick="uqDeleteGroup()">🗑 刪除此群組</button>
-          </div>
-
-          <div id="uq-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
-
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
-            <div class="subtabs" style="margin-bottom:0">
-              <div class="subtab active" id="uq-mode-daily" onclick="switchUsageQueryMode('daily')">每日</div>
-              <div class="subtab" id="uq-mode-monthly" onclick="switchUsageQueryMode('monthly')">每月</div>
-            </div>
-          </div>
-          <div id="uq-range-daily" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
-            <input type="date" id="uq-daily-from" class="inp" style="width:150px">
-            <span style="color:#999">至</span>
-            <input type="date" id="uq-daily-to" class="inp" style="width:150px">
-            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
-            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
-          </div>
-          <div id="uq-range-monthly" style="display:none;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
-            <input type="month" id="uq-monthly-from" class="inp" style="width:150px">
-            <span style="color:#999">至</span>
-            <input type="month" id="uq-monthly-to" class="inp" style="width:150px">
-            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
-            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
-          </div>
-          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院合計的耗用劑數，來自耗用報表。加入正式品項時別名會自動帶入；常看的組合可以存成群組。</div>
-          <div id="uq-missing" style="display:none;background:#FFF6E5;border:1px solid #F0D9A8;color:#7A5A12;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px"></div>
-          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-            <span style="font-size:13px;color:#666">圖表顏色：</span>
-            <div class="subtab active" id="uq-view-type" onclick="uqSetView('type')" style="padding:4px 12px;font-size:13px">一般／員工</div>
-            <div class="subtab" id="uq-view-campus" onclick="uqSetView('campus')" style="padding:4px 12px;font-size:13px">依院區</div>
-            <span id="uq-legend" style="font-size:12px;color:#666;margin-left:8px"></span>
-          </div>
-          <div id="uq-chart" style="margin-bottom:16px"></div>
-          <div id="uq-summary" style="margin-bottom:16px"></div>
-          <div id="uq-stock" style="margin-bottom:16px"></div>
-          <div id="uq-table"></div>
-        </div>
-      </div>
-
-      <div id="mr-report-6" style="display:none">
-        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
-            <select id="flu-season" class="inp" style="width:200px" onchange="fluClearRange()"></select>
-            <button class="btn btn-sm" onclick="fluToggleSetting()">⚙️ 設定品項</button>
-            <span id="flu-code-count" style="font-size:13px;color:#999"></span>
-          </div>
-          <div id="flu-setting" style="display:none;background:#F7F8FB;border:1px solid #E3E7EF;border-radius:10px;padding:12px;margin-bottom:14px">
-            <div style="font-size:13px;color:#666;margin-bottom:8px">要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）</div>
-            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
-              <select id="flu-item-add" class="inp" style="width:260px;max-width:100%" onchange="fluAddItem(this.value); this.value=''"></select>
-              <button class="btn btn-primary btn-sm" onclick="fluSaveCodes()">💾 儲存</button>
-              <button class="btn btn-sm" onclick="fluToggleSetting(false)">取消</button>
-            </div>
-            <div id="flu-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
-            <span style="font-size:13px;color:#666">區間</span>
-            <input type="date" id="flu-from" class="inp" style="width:150px" onchange="renderFluSeason()">
-            <span style="color:#999">至</span>
-            <input type="date" id="flu-to" class="inp" style="width:150px" onchange="renderFluSeason()">
-            <button class="btn btn-sm" onclick="fluClearRange()">整季</button>
-            <button class="btn btn-sm" onclick="fluOpenUsageQuery()">📈 在品項耗用查詢開啟</button>
-          </div>
-          <div id="flu-current" style="margin-bottom:20px"></div>
-          <div id="flu-history"></div>
-        </div>
-      </div>
       </div>
     </div>
 
@@ -914,7 +833,9 @@ input[type=number]{-moz-appearance:textfield}
         <div class="subtab active" id="mst-sub-vaccines" onclick="switchMasterSub('vaccines')">💉 疫苗主檔</div>
         <div class="subtab" id="mst-sub-pages" onclick="switchMasterSub('pages')">📑 分頁設定</div>
         <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理<span id="roster-badge-sub" title="班表名冊有異動，點我處理" onclick="event.stopPropagation();openRosterSyncModal()" style="display:none;width:8px;height:8px;background:#A32D2D;border-radius:50%;cursor:pointer;margin-left:4px;vertical-align:middle"></span></div>
-        <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')">🎯 起始庫存匯入</div>
+        <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')" style="display:none">🎯 起始庫存匯入</div>
+        <div class="subtab" id="mst-sub-usage" onclick="switchMasterSub('usage')">📈 品項耗用查詢</div>
+        <div class="subtab" id="mst-sub-flu" onclick="switchMasterSub('flu')">🍂 流感季</div>
         <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
       </div>
 
@@ -1050,6 +971,85 @@ input[type=number]{-moz-appearance:textfield}
         </div>
       </div>
 
+      <div id="master-panel-usage" style="display:none">
+        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+            <select id="uq-item-add" class="inp" style="width:240px;max-width:100%" onchange="uqAddItem(this.value); this.value=''">
+              <option value="">＋ 加入品項...</option>
+            </select>
+            <select id="uq-group-select" class="inp" style="width:180px" onchange="uqLoadGroup(this.value)">
+              <option value="">套用已存群組...</option>
+            </select>
+            <button class="btn btn-sm" onclick="uqSaveGroup()">💾 另存新群組</button>
+            <button class="btn btn-sm" id="uq-delgroup-btn" style="display:none;color:#A32D2D;border-color:#f0c0c0" onclick="uqDeleteGroup()">🗑 刪除此群組</button>
+          </div>
+
+          <div id="uq-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <div class="subtabs" style="margin-bottom:0">
+              <div class="subtab active" id="uq-mode-daily" onclick="switchUsageQueryMode('daily')">每日</div>
+              <div class="subtab" id="uq-mode-monthly" onclick="switchUsageQueryMode('monthly')">每月</div>
+            </div>
+          </div>
+          <div id="uq-range-daily" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <input type="date" id="uq-daily-from" class="inp" style="width:150px">
+            <span style="color:#999">至</span>
+            <input type="date" id="uq-daily-to" class="inp" style="width:150px">
+            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
+          </div>
+          <div id="uq-range-monthly" style="display:none;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <input type="month" id="uq-monthly-from" class="inp" style="width:150px">
+            <span style="color:#999">至</span>
+            <input type="month" id="uq-monthly-to" class="inp" style="width:150px">
+            <button class="btn btn-primary btn-sm" onclick="runUsageQuery()">🔍 查詢</button>
+            <button class="btn btn-sm" onclick="exportUsageQueryExcel()">📥 匯出 Excel</button>
+          </div>
+          <div style="font-size:12px;color:#999;margin-bottom:12px">數字是全院合計的耗用劑數，來自耗用報表。加入正式品項時別名會自動帶入；常看的組合可以存成群組。</div>
+          <div id="uq-missing" style="display:none;background:#FFF6E5;border:1px solid #F0D9A8;color:#7A5A12;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <span style="font-size:13px;color:#666">圖表顏色：</span>
+            <div class="subtab active" id="uq-view-type" onclick="uqSetView('type')" style="padding:4px 12px;font-size:13px">一般／員工</div>
+            <div class="subtab" id="uq-view-campus" onclick="uqSetView('campus')" style="padding:4px 12px;font-size:13px">依院區</div>
+            <span id="uq-legend" style="font-size:12px;color:#666;margin-left:8px"></span>
+          </div>
+          <div id="uq-chart" style="margin-bottom:16px"></div>
+          <div id="uq-summary" style="margin-bottom:16px"></div>
+          <div id="uq-stock" style="margin-bottom:16px"></div>
+          <div id="uq-table"></div>
+        </div>
+      </div>
+
+      <div id="master-panel-flu" style="display:none">
+        <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
+            <select id="flu-season" class="inp" style="width:200px" onchange="fluClearRange()"></select>
+            <button class="btn btn-sm" onclick="fluToggleSetting()">⚙️ 設定品項</button>
+            <span id="flu-code-count" style="font-size:13px;color:#999"></span>
+          </div>
+          <div id="flu-setting" style="display:none;background:#F7F8FB;border:1px solid #E3E7EF;border-radius:10px;padding:12px;margin-bottom:14px">
+            <div style="font-size:13px;color:#666;margin-bottom:8px">要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
+              <select id="flu-item-add" class="inp" style="width:260px;max-width:100%" onchange="fluAddItem(this.value); this.value=''"></select>
+              <button class="btn btn-primary btn-sm" onclick="fluSaveCodes()">💾 儲存</button>
+              <button class="btn btn-sm" onclick="fluToggleSetting(false)">取消</button>
+            </div>
+            <div id="flu-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+            <span style="font-size:13px;color:#666">區間</span>
+            <input type="date" id="flu-from" class="inp" style="width:150px" onchange="renderFluSeason()">
+            <span style="color:#999">至</span>
+            <input type="date" id="flu-to" class="inp" style="width:150px" onchange="renderFluSeason()">
+            <button class="btn btn-sm" onclick="fluClearRange()">整季</button>
+            <button class="btn btn-sm" onclick="fluOpenUsageQuery()">📈 在品項耗用查詢開啟</button>
+          </div>
+          <div id="flu-current" style="margin-bottom:20px"></div>
+          <div id="flu-history"></div>
+        </div>
+      </div>
       <div id="master-panel-reminders" style="display:none">
         <div id="hissetup-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleHisSetupPanel()">
@@ -5578,12 +5578,14 @@ function findColIdx(header, keywords){
    主檔維護（疫苗主檔／分頁設定／帳號管理）
 ══════════════════════════════════════════ */
 function switchMasterSub(tab){
-  ['vaccines','pages','accounts','init-stock','reminders'].forEach(t=>{
+  ['vaccines','pages','accounts','init-stock','usage','flu','reminders'].forEach(t=>{
     document.getElementById('mst-sub-'+t).classList.toggle('active', t===tab);
     document.getElementById('master-panel-'+t).style.display = t===tab?'':'none';
   });
   if(tab==='vaccines') renderVaccines();
   if(tab==='pages') renderPages();
+  if(tab==='usage') initUsageQueryTab();
+  if(tab==='flu') initFluTab();
   if(tab==='accounts'){ renderAccounts(); checkRosterDiff(); }
   if(tab==='reminders'){
     renderHisSetupPanel();
@@ -8596,14 +8598,12 @@ let mrActiveReport = '1';
 
 function switchMrReport(n){
   mrActiveReport = n;
-  ['1','2','3','4','5','6'].forEach(k=>{
+  ['1','2','3','4'].forEach(k=>{
     document.getElementById('mr-report-'+k).style.display = (k===n) ? '' : 'none';
     document.getElementById('mr-rep-tab-'+k).classList.toggle('active', k===n);
   });
-  document.getElementById('mr-shared-controls').style.display = (n==='5'||n==='6') ? 'none' : '';
-  if(n==='6') initFluTab();
+  document.getElementById('mr-shared-controls').style.display = '';
   if(n==='3' && lastMonthlyReport.length) renderHbigReport();
-  if(n==='5') initUsageQueryTab();
 }
 
 /* ══════════════ 流感季：本季累計＋歷年比較 ══════════════
@@ -8746,7 +8746,7 @@ async function fluOpenUsageQuery(){
   const st = fluStat(season, {});
   const from = document.getElementById('flu-from').value || st.first || fluOrigin(season);
   const to = document.getElementById('flu-to').value || todayStr();
-  switchMrReport('5');
+  switchMasterSub('usage');
   await initUsageQueryTab();
   uqSelected = fluCodes.map(c=>uqAllItems.find(v=>v.drug_code8===c)).filter(Boolean);
   uqCurrentGroupId = null;
@@ -9097,29 +9097,84 @@ async function runUsageQuery(){
     ${hidden.length?`<div style="font-size:12px;color:#bbb;margin-top:4px">區間內沒有耗用（已隱藏）：${hidden.map(g=>g.name).join('、')}</div>`:''}
     <div style="font-size:12px;color:#999;margin-top:4px">斗六／虎尾：一般民眾依當日施打清單的窗口（A／D），員工依手動登記；沒有資料的算「未分院區」。</div>`;
 
-  // 進貨與耗用對照（以正式品項為單位）
-  const offCodes = shown.map(g=>g.code);
+  // 進貨與耗用對照（以正式品項為單位）：帳面＝各批號第一次 NIIS 結存（沒結存過、有進貨的新批號從 0 開始）＋進貨－退貨－耗用
+  const stockGroups = [...shown, ...hidden];
+  const offCodes = stockGroups.map(g=>g.code);
   let stockHtml = '';
   if(offCodes.length){
-    const txEnd = uqMode==='daily' ? toDate : shiftDate(toDate,-1);
-    const [{ data: txs }, { data: logs }] = await Promise.all([
-      sb.from('warehouse_transactions').select('drug_code8,direction,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', offCodes).gte('tx_date', fromDate).lte('tx_date', txEnd),
-      sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock').in('drug_code8', offCodes)
+    const endDate = uqMode==='daily' ? toDate : shiftDate(toDate,-1);
+    const preDate = shiftDate(fromDate,-1);
+    const allCodes = [...new Set(stockGroups.flatMap(g=>g.members))];
+    const [vmR, logR, txR, useR, tallyR, ciR] = await Promise.all([
+      sb.from('vaccine_master').select('drug_code8,doses_per_vial,whole_vial_deduct').in('drug_code8', offCodes),
+      sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock').in('drug_code8', offCodes),
+      fetchAllRows(()=>sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','wholevial_pull']).in('drug_code8', offCodes).lte('tx_date', endDate).order('tx_date')),
+      fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,lot_no,upload_date,usage_qty').in('drug_code8', allCodes).lte('upload_date', endDate).order('upload_date')),
+      sb.from('tally_records').select('drug_code8,campus,tally_qty').in('drug_code8', offCodes).eq('tally_date', endDate),
+      sb.from('vaccine_campus_items').select('drug_code8,campus').eq('status','active').not('page_id','is',null).in('drug_code8', offCodes)
     ]);
-    const latest = {};
-    (logs||[]).forEach(l=>{ const k = l.drug_code8+'|'+l.lot_no; if(!latest[k] || l.declare_date > latest[k].declare_date) latest[k] = l; });
-    stockHtml = `<div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">進貨與耗用對照</div>
+    const vinfo = {}; (vmR.data||[]).forEach(v=>vinfo[v.drug_code8] = { wv:!!v.whole_vial_deduct, dpv:Number(v.doses_per_vial)||1 });
+    const groupOf = {}; stockGroups.forEach(g=>g.members.forEach(c=>groupOf[c]=g.code));
+    const L = {}; // key: 正式8碼|批號
+    const lotOf = (code, lot) => { const k = code+'|'+String(lot||'').trim(); return L[k] = L[k] || { code, lot:String(lot||'').trim(), anchor:null, anchorQty:0, flows:[], hasIn:false }; };
+    (logR.data||[]).forEach(l=>{ const o = lotOf(l.drug_code8, l.lot_no); if(!o.anchor || l.declare_date < o.anchor){ o.anchor = l.declare_date; o.anchorQty = Number(l.closing_stock||0); } });
+    (txR.data||[]).forEach(t=>{
+      const vi = vinfo[t.drug_code8] || { wv:false, dpv:1 }, o = lotOf(t.drug_code8, t.lot_no), q = Number(t.qty||0);
+      if(t.reason==='receive_import'){ o.flows.push({ d:t.tx_date, k:'in', q: vi.wv ? q*vi.dpv : q }); o.hasIn = true; }
+      else if(t.reason==='return_import') o.flows.push({ d:t.tx_date, k:'out', q: vi.wv ? q*vi.dpv : q });
+      else if(t.reason==='wholevial_pull' && vi.wv) o.flows.push({ d:t.tx_date, k:'use', q });
+    });
+    (useR.data||[]).forEach(u=>{
+      const code = groupOf[u.drug_code8]; if(!code) return;
+      if((vinfo[code]||{}).wv) return; // 整瓶扣帳品項的耗用以開瓶扣帳計
+      lotOf(code, u.lot_no).flows.push({ d:u.upload_date, k:'use', q:Number(u.usage_qty||0) });
+    });
+    // 某批號在某天的帳面；第一次結存之前算不出來（null）
+    const book = (o, D) => {
+      if(o.anchor){ if(D < o.anchor) return null; return o.anchorQty + o.flows.filter(f=>f.d>o.anchor && f.d<=D).reduce((a,f)=>a+(f.k==='in'?f.q:-f.q),0); }
+      return o.flows.filter(f=>f.d<=D).reduce((a,f)=>a+(f.k==='in'?f.q:-f.q),0);
+    };
+    const tallySum = {}, tallyCamps = {};
+    (tallyR.data||[]).forEach(t=>{ tallySum[t.drug_code8] = (tallySum[t.drug_code8]||0) + Number(t.tally_qty||0); (tallyCamps[t.drug_code8] = tallyCamps[t.drug_code8] || new Set()).add(t.campus); });
+    const needCamps = {}; (ciR.data||[]).forEach(c=>{ (needCamps[c.drug_code8] = needCamps[c.drug_code8] || new Set()).add(c.campus); });
+    const campName = {dl:'斗六', hw:'虎尾', wh:'藥庫'};
+    const md = d => d ? (+d.slice(5,7))+'/'+(+d.slice(8,10)) : '';
+    const rows = stockGroups.map(g=>{
+      const vi = vinfo[g.code] || { wv:false, dpv:1 };
+      const lots = Object.values(L).filter(o=>o.code===g.code);
+      const tracked = lots.filter(o=>o.anchor || o.hasIn);
+      const untracked = lots.filter(o=>!o.anchor && !o.hasIn && o.flows.some(f=>f.d>=fromDate && f.d<=endDate)).map(o=>o.lot||'（無批號）');
+      let open = 0, openOk = true, lateAnchor = null, inQ = 0, outQ = 0, useQ = 0;
+      tracked.forEach(o=>{
+        const b = book(o, preDate);
+        if(b===null){ openOk = false; if(!lateAnchor || o.anchor>lateAnchor) lateAnchor = o.anchor; } else open += b;
+        o.flows.forEach(f=>{ if(f.d<fromDate || f.d>endDate) return; if(o.anchor && f.d<=o.anchor) return; if(f.k==='in') inQ+=f.q; else if(f.k==='out') outQ+=f.q; else useQ+=f.q; });
+      });
+      const calc = openOk ? open + inQ - outQ - useQ : null;
+      let actual = null, actualNote = '';
+      if(vi.wv) actualNote = '整瓶扣帳不比對';
+      else {
+        const need = needCamps[g.code] || new Set(['dl','hw','wh']);
+        const miss = [...need].filter(c=>!(tallyCamps[g.code]||new Set()).has(c));
+        if(miss.length) actualNote = '缺'+miss.map(c=>campName[c]).join('、')+'盤點';
+        else actual = tallySum[g.code]||0;
+      }
+      const diff = (calc!==null && actual!==null) ? actual - calc : null;
+      return { g, vi, open: openOk ? open : null, lateAnchor, inQ, outQ, useQ, calc, actual, actualNote, diff, untracked, tracked: tracked.length };
+    });
+    const cell = (v, sub) => `<td class="c">${v===null?'—':fmt(v)}${sub?`<div style="font-size:11px;color:#999;font-weight:400">${sub}</div>`:''}</td>`;
+    stockHtml = `<div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">進貨與耗用對照 <span style="font-size:12px;font-weight:400;color:#888">${fromDate} ～ ${endDate}・單位：劑</span></div>
       <div class="tbl-wrap"><table data-nosort style="font-size:14px">
-      <thead><tr><th>品項</th><th class="c">進貨（瓶）</th><th class="c">退貨（瓶）</th><th class="c">耗用</th><th class="c">目前庫存<div style="font-size:11px;font-weight:400;color:#999">NIIS最新結存</div></th></tr></thead>
-      <tbody>${shown.map(g=>{
-        const inQ = (txs||[]).filter(t=>t.drug_code8===g.code && t.direction==='in').reduce((a,t)=>a+Number(t.qty||0),0);
-        const outQ = (txs||[]).filter(t=>t.drug_code8===g.code && t.direction!=='in').reduce((a,t)=>a+Number(t.qty||0),0);
-        const stock = Object.values(latest).filter(l=>l.drug_code8===g.code).reduce((a,l)=>a+Number(l.closing_stock||0),0);
-        const hasStock = Object.values(latest).some(l=>l.drug_code8===g.code);
-        const vials = Object.values(g.perCode).reduce((a,p)=>a+p.vials,0);
-        return `<tr><td>${g.name}</td><td class="c">${fmt(inQ)}</td><td class="c">${fmt(outQ)}</td><td class="c">${fmt(g.total)} 劑${g.wv?`<div style="font-size:11px;color:#888">開 ${fmt(vials)} 瓶</div>`:''}</td><td class="c">${hasStock?fmt(stock):'—'}</td></tr>`;
-      }).join('')}</tbody></table></div>
-      <div style="font-size:12px;color:#999;margin-top:4px">進貨、退貨是查詢區間內的藥庫進出貨；目前庫存是各批號最新一次 NIIS 結存的合計（還沒結存過的批號不列入）。</div>`;
+      <thead><tr><th>品項</th><th class="c">期初<div style="font-size:11px;font-weight:400;color:#999">帳面・${md(preDate)}</div></th><th class="c">＋進貨</th><th class="c">－退貨</th><th class="c">－耗用</th><th class="c">＝推算期末</th><th class="c">實際期末<div style="font-size:11px;font-weight:400;color:#999">盤點・${md(endDate)}</div></th><th class="c">差異</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${r.g.name}${r.untracked.length?`<div style="font-size:11px;color:#C77700">未結存批號不列入：${r.untracked.join('、')}</div>`:''}</td>
+        ${cell(r.open, r.open===null && r.lateAnchor ? `${md(r.lateAnchor)} 第一次結存後才能計算` : (!r.tracked ? '沒有結存或進貨紀錄' : ''))}
+        ${cell(r.inQ, r.vi.wv && r.inQ ? `${fmt(r.inQ/r.vi.dpv)} 瓶` : '')}${cell(r.outQ, r.vi.wv && r.outQ ? `${fmt(r.outQ/r.vi.dpv)} 瓶` : '')}${cell(r.useQ, r.vi.wv ? '開瓶扣帳' : '')}
+        <td class="c" style="font-weight:600">${r.calc===null?'—':fmt(r.calc)}</td>
+        ${cell(r.actual, r.actualNote)}
+        <td class="c" style="${r.diff?'color:#A32D2D;font-weight:600;background:#FBEAEA':'color:#bbb'}">${r.diff===null?'—':(r.diff>0?'+':'')+fmt(r.diff)}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <div style="font-size:12px;color:#999;margin-top:4px">帳面逐批號計算：起點是各批號第一次 NIIS 結存，還沒結存的新批號從進貨日以 0 開始。實際期末＝區間最後一天各院區（依盤點分頁）盤點量合計；差異＝實際－推算。</div>`;
   }
   document.getElementById('uq-stock').innerHTML = stockHtml;
 
