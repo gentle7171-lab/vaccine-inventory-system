@@ -176,6 +176,11 @@ table.as-off th.as-th{cursor:default !important}
 .inv-input:focus{border-color:#1B3A6B;outline:none;box-shadow:0 0 0 2px rgba(24,95,165,0.1)}
 .inv-input.changed{border-color:#1D9E75;background:#f0faf5}
 .inv-input.carried{border-color:#C77700;background:#FFF8EC}
+.inv-note{max-width:220px !important}
+@media (max-width:640px){
+  .inv-input{width:96px;padding:11px 8px;font-size:20px}
+  .inv-note{max-width:110px !important;padding:11px 8px !important}
+}
 .save-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#fff;border:1px solid #e8e8e8;margin-top:12px;border-radius:12px}
 
 .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;font-size:15px;border-radius:8px;border:1px solid #e0e0e0;background:#fff;color:#1a1a1a;cursor:pointer;font-family:inherit}
@@ -265,20 +270,11 @@ input[type=number]{-moz-appearance:textfield}
       <div style="padding:30px 32px 32px">
         <div class="field">
           <label class="lbl">員工編號</label>
-          <input class="inp" type="text" id="u-user" placeholder="請輸入員編" autocomplete="off">
+          <input class="inp" type="text" id="u-user" placeholder="請輸入員編" autocomplete="off" oninput="loginLookupName()">
         </div>
-        <div class="field">
-          <label class="lbl">密碼</label>
-          <div style="position:relative">
-            <input type="password" class="inp" id="u-pass" placeholder="請輸入密碼" autocomplete="current-password" style="padding-right:36px">
-            <button type="button" onclick="togglePwd()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:#9ca3af;padding:0;display:flex" title="顯示/隱藏密碼">
-              <svg id="pwd-eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            </button>
-          </div>
-        </div>
+        <div id="u-name" style="min-height:24px;margin:-6px 0 12px;font-size:16px;color:#1B3A6B;font-weight:600"></div>
         <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
         <button class="btn-login" id="login-btn" onclick="login()" style="background:#1B3A6B">登入</button>
-        <p style="text-align:center;font-size:14px;color:#9ca3af;margin-top:18px;">密碼預設為員編，如需重設請聯絡管理員</p>
       </div>
     </div>
   </div>
@@ -295,7 +291,6 @@ input[type=number]{-moz-appearance:textfield}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:14px;color:rgba(255,255,255,0.8)" id="topbar-name"></span>
-      <button class="btn btn-sm" onclick="openMyPwModal()" style="background:rgba(255,255,255,0.9)">🔑 修改密碼</button>
       <button class="btn-out" onclick="logout()">登出</button>
     </div>
   </div>
@@ -380,6 +375,7 @@ input[type=number]{-moz-appearance:textfield}
               <option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option>
             </select>
             <input type="month" id="td-month" class="inp" style="width:160px" onchange="renderTallyDaily()">
+            <label style="display:flex;align-items:center;gap:4px;font-size:14px;color:#555;cursor:pointer"><input type="checkbox" id="td-bylot" onchange="renderTallyDaily()"> 依批號分欄</label>
             <button class="btn btn-sm" onclick="exportTallyDaily()">📥 匯出 Excel</button>
             <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合；虛線底＝多個批號。游標移上去看明細</span>
           </div>
@@ -1718,9 +1714,25 @@ function togglePwd(){
 }
 
 /* ══════════════ 登入 ══════════════ */
+let loginLookupTimer = null;
+function loginLookupName(){
+  clearTimeout(loginLookupTimer);
+  const box = document.getElementById('u-name');
+  const eid = document.getElementById('u-user').value.trim();
+  document.getElementById('u-err').style.display = 'none';
+  if(eid.length < 3){ box.textContent = ''; return; }
+  loginLookupTimer = setTimeout(async ()=>{
+    const { data } = await sb.from('users').select('emp_id,name,is_active').ilike('emp_id', eid);
+    if(document.getElementById('u-user').value.trim() !== eid) return;
+    const u = data && data[0];
+    if(!u){ box.style.color = '#bbb'; box.textContent = '查無此員編'; return; }
+    if(u.is_active === false){ box.style.color = '#A32D2D'; box.textContent = `${u.name}（帳號已停用）`; return; }
+    box.style.color = '#1B3A6B'; box.textContent = `${u.name} ✓`;
+  }, 250);
+}
+
 async function login(){
   const eid = document.getElementById('u-user').value.trim();
-  const pw = document.getElementById('u-pass').value || eid;
   const err = document.getElementById('u-err');
   const btn = document.getElementById('login-btn');
   err.style.display = 'none';
@@ -1735,9 +1747,6 @@ async function login(){
 
   const user = data[0];
   if(user.is_active === false){ err.textContent = '帳號已停用'; err.style.display='block'; return; }
-  if(user.password.toLowerCase() !== pw.toLowerCase()){
-    err.textContent = '密碼錯誤'; err.style.display='block'; return;
-  }
 
   // 決定登入院區
   const loginCampus = (user.role === 'admin' || user.role === 'warehouse')
@@ -1752,7 +1761,7 @@ async function login(){
 function logout(){
   me = null;
   document.getElementById('u-user').value = '';
-  document.getElementById('u-pass').value = '';
+  document.getElementById('u-name').textContent = '';
   document.getElementById('u-err').style.display = 'none';
   document.getElementById('s-app').classList.remove('active');
   document.getElementById('s-login').classList.add('active');
@@ -1927,7 +1936,13 @@ async function renderTallyDaily(){
     fetchAllRows(()=>sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code', station).gte('upload_date', from).lte('upload_date', to).order('upload_date'))
   ]);
   const { data: tdLots } = await fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,tally_date,lot_no,qty').eq('campus', site).gte('tally_date', from).lte('tally_date', to).order('tally_date'));
-  const lq = {}; (tdLots||[]).forEach(l=>{ (lq[l.drug_code8+'|'+l.tally_date] = lq[l.drug_code8+'|'+l.tally_date] || []).push(`${l.lot_no}：${l.qty}`); });
+  const lq = {}, lv = {}, lotsOf = {};
+  (tdLots||[]).forEach(l=>{
+    (lq[l.drug_code8+'|'+l.tally_date] = lq[l.drug_code8+'|'+l.tally_date] || []).push(`${l.lot_no}：${l.qty}`);
+    lv[l.drug_code8+'|'+l.tally_date+'|'+l.lot_no] = Number(l.qty);
+    (lotsOf[l.drug_code8] = lotsOf[l.drug_code8] || new Set()).add(l.lot_no);
+  });
+  const byLot = document.getElementById('td-bylot').checked;
   if(error){ wrap.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
   const pOrder = {}; (pages||[]).forEach((p,i)=>pOrder[p.page_id]=i);
   const cols = (items||[]).filter(it=>it.page_id && pOrder[it.page_id]!==undefined && it.vaccine_master && it.vaccine_master.status==='active')
@@ -1940,11 +1955,21 @@ async function renderTallyDaily(){
   const days = []; for(let d=from; d<=to; d=shiftDate(d,1)) days.push(d);
   const wk = ['日','一','二','三','四','五','六'];
   const dow = d => new Date(d+'T00:00:00').getDay();
-  tdLast = { site, ym, cols, days, tq, sq, pages };
+  // 每一欄的定義：一般品項一欄；分欄時，當月出現兩個以上批號的品項拆成「各批號＋合計」
+  const defs = [];
+  cols.forEach(c=>{
+    const ls = byLot && lotsOf[c.code] && lotsOf[c.code].size>=2 ? [...lotsOf[c.code]].sort() : null;
+    if(ls){ ls.forEach(l=>defs.push({ c, lot:l })); defs.push({ c, lot:null, total:true, split:true }); }
+    else defs.push({ c, lot:null, total:true, split:false });
+  });
+  const anySplit = defs.some(d=>d.split);
+  tdLast = { site, ym, cols, days, tq, sq, pages, defs, lv, anySplit };
 
   // 分頁色帶
   const bands = ['#EAF0F8','#FDF1DE','#E6F4EE','#F1ECF8','#FBE9EE','#E8F4F6'];
-  const pageSpans = []; cols.forEach(c=>{ const last = pageSpans[pageSpans.length-1]; if(last && last.page===c.page) last.n++; else pageSpans.push({ page:c.page, n:1 }); });
+  const pageSpans = []; defs.forEach(d=>{ const last = pageSpans[pageSpans.length-1]; if(last && last.page===d.c.page) last.n++; else pageSpans.push({ page:d.c.page, n:1 }); });
+  const itemSpans = []; defs.forEach(d=>{ const last = itemSpans[itemSpans.length-1]; if(last && last.c===d.c) last.n++; else itemSpans.push({ c:d.c, n:1 }); });
+  const hr = anySplit ? 4 : 3;
   const pageName = id => ((pages||[]).find(p=>p.page_id===id)||{}).page_name || '';
   const colBg = c => bands[pOrder[c.page] % bands.length];
   const stL = 'position:sticky;left:0;z-index:2;background:#fff';
@@ -1953,10 +1978,11 @@ async function renderTallyDaily(){
   let html = `<div id="td-scroll" style="overflow:auto;max-height:70vh;border:1px solid #e8e8e8;border-radius:10px;background:#fff">
     <table data-nosort style="border-collapse:separate;border-spacing:0;font-size:14px;min-width:100%">
     <thead>
-      <tr class="td-h">${`<th rowspan="3" style="${th};left:0;z-index:5;background:#F5F7FA;width:96px;min-width:96px">日期</th><th rowspan="3" style="${th};left:96px;z-index:5;background:#F5F7FA;width:44px;min-width:44px">星期</th>`}
+      <tr class="td-h">${`<th rowspan="${hr}" style="${th};left:0;z-index:5;background:#F5F7FA;width:96px;min-width:96px">日期</th><th rowspan="${hr}" style="${th};left:96px;z-index:5;background:#F5F7FA;width:44px;min-width:44px">星期</th>`}
         ${pageSpans.map(p=>`<th colspan="${p.n}" style="${th};background:${bands[pOrder[p.page]%bands.length]};color:#1B3A6B;font-weight:600">${pageName(p.page)}</th>`).join('')}</tr>
-      <tr class="td-h">${cols.map(c=>`<th style="${th};background:${colBg(c)};color:#666;font-weight:400">${c.code4||'—'}</th>`).join('')}</tr>
-      <tr class="td-h">${cols.map(c=>`<th style="${th};background:${colBg(c)};min-width:64px;max-width:96px;white-space:normal;line-height:1.3">${c.name}</th>`).join('')}</tr>
+      <tr class="td-h">${itemSpans.map(x=>`<th colspan="${x.n}" style="${th};background:${colBg(x.c)};color:#666;font-weight:400">${x.c.code4||'—'}</th>`).join('')}</tr>
+      <tr class="td-h">${itemSpans.map(x=>`<th colspan="${x.n}" style="${th};background:${colBg(x.c)};min-width:64px;max-width:${x.n>1?999:96}px;white-space:normal;line-height:1.3">${x.c.name}</th>`).join('')}</tr>
+      ${anySplit ? `<tr class="td-h">${defs.map(d=>`<th style="${th};background:${colBg(d.c)};font-weight:${d.lot?400:600};font-size:11px;${d.lot?'font-family:monospace;color:#555':'color:#1B3A6B'}">${d.lot || (d.split?'合計':'')}</th>`).join('')}</tr>` : ''}
     </thead><tbody>`;
   const today = todayStr();
   days.forEach(d=>{
@@ -1966,12 +1992,14 @@ async function renderTallyDaily(){
     html += `<tr>
       <td style="${stL};background:${bg};border:1px solid #eee;padding:4px 8px;white-space:nowrap;${d===today?'font-weight:600;color:#1B3A6B':''}">${d}</td>
       <td style="${stL2};background:${bg};border:1px solid #eee;text-align:center;color:${weekend?'#aaa':'#555'}">${wk[w]}</td>
-      ${cols.map(c=>{
+      ${defs.map(df=>{
+        const c = df.c;
         const k = c.code+'|'+d, t = tq[k], st = sq[k];
+        if(df.lot){ const v = tdLast.lv[k+'|'+df.lot]; return `<td style="background:${bg};border:1px solid #eee;text-align:right;padding:4px 8px;color:#555">${v===undefined?'':v}</td>`; }
         if(t===undefined) return `<td style="background:${bg};border:1px solid #eee"></td>`;
         const bad = !c.skip && st!==undefined && st!==t;
         const tip = [ ...(lq[k]||[]), ...(bad?[`庫存報表 ${st}`]:[]) ].join('\n');
-        return `<td style="background:${bad?'#FBEAEA':bg};border:1px solid #eee;text-align:right;padding:4px 8px;${bad?'color:#A32D2D;font-weight:600':''}${(lq[k]||[]).length>1?';text-decoration:underline dotted #bbb':''}"${tip?` title="${tip.replace(/"/g,'&quot;')}"`:''}>${t}</td>`;
+        return `<td style="background:${bad?'#FBEAEA':bg};border:1px solid #eee;text-align:right;padding:4px 8px;${bad?'color:#A32D2D;font-weight:600':(df.split?'font-weight:600':'')}${(lq[k]||[]).length>1&&!df.split?';text-decoration:underline dotted #bbb':''}"${tip?` title="${tip.replace(/"/g,'&quot;')}"`:''}>${t}</td>`;
       }).join('')}
     </tr>`;
   });
@@ -1983,25 +2011,28 @@ async function renderTallyDaily(){
 }
 async function exportTallyDaily(){
   if(!tdLast){ alert('請先選擇院區和月份'); return; }
-  const { site, ym, cols, days, tq, pages } = tdLast;
+  const { site, ym, days, tq, pages, defs, lv, anySplit } = tdLast;
   const label = {dl:'斗六', hw:'虎尾', wh:'藥庫'}[site];
   const wk = ['日','一','二','三','四','五','六'];
   const pageName = id => ((pages||[]).find(p=>p.page_id===id)||{}).page_name || '';
-  const aoa = [
-    ['日期','星期', ...cols.map(c=>pageName(c.page))],
-    ['','', ...cols.map(c=>c.code4)],
-    ['','', ...cols.map(c=>c.name)],
-    ...days.map(d=>[d, wk[new Date(d+'T00:00:00').getDay()], ...cols.map(c=>{ const v = tq[c.code+'|'+d]; return v===undefined ? '' : v; })])
+  const head = [
+    ['日期','星期', ...defs.map(x=>pageName(x.c.page))],
+    ['','', ...defs.map(x=>x.c.code4)],
+    ['','', ...defs.map(x=>x.c.name)]
+  ];
+  if(anySplit) head.push(['','', ...defs.map(x=>x.lot || (x.split?'合計':''))]);
+  const aoa = [ ...head,
+    ...days.map(d=>[d, wk[new Date(d+'T00:00:00').getDay()], ...defs.map(x=>{ const k = x.c.code+'|'+d; const v = x.lot ? lv[k+'|'+x.lot] : tq[k]; return v===undefined ? '' : v; })])
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:12},{wch:5}, ...cols.map(()=>({wch:12}))];
+  ws['!cols'] = [{wch:12},{wch:5}, ...defs.map(()=>({wch:12}))];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, label+'每日盤點');
   let out = XLSX.write(wb, { bookType:'xlsx', type:'array' });
   try{
     if(window.JSZip){
       const zip = await JSZip.loadAsync(out); const path = 'xl/worksheets/sheet1.xml';
       let xml = await zip.file(path).async('string');
-      xml = xml.replace('<sheetView workbookViewId="0"/>', '<sheetView workbookViewId="0"><pane xSplit="2" ySplit="3" topLeftCell="C4" activePane="bottomRight" state="frozen"/></sheetView>');
+      xml = xml.replace('<sheetView workbookViewId="0"/>', `<sheetView workbookViewId="0"><pane xSplit="2" ySplit="${head.length}" topLeftCell="C${head.length+1}" activePane="bottomRight" state="frozen"/></sheetView>`);
       zip.file(path, xml); out = await zip.generateAsync({ type:'uint8array' });
     }
   }catch(e){}
@@ -2509,7 +2540,9 @@ async function renderRecords(){
   const { data: lrecs } = await lq;
   const lmap = {};
   (lrecs||[]).forEach(l=>{ (lmap[l.drug_code8+'|'+l.campus] = lmap[l.drug_code8+'|'+l.campus] || []).push({ lot:l.lot_no, qty:Number(l.qty) }); });
-  recRawRows = data.map(r => ({ ...r, name: nameMap[r.drug_code8] || r.drug_code8, lots: (lmap[r.drug_code8+'|'+r.campus]||[]).sort((a,b)=>a.lot.localeCompare(b.lot)) }));
+  const { data: ldx } = await sb.from('lot_details').select('drug_code8').eq('status','active').in('drug_code8', [...new Set(data.map(r=>r.drug_code8))]);
+  const hasLot = new Set((ldx||[]).map(x=>x.drug_code8));
+  recRawRows = data.map(r => ({ ...r, name: nameMap[r.drug_code8] || r.drug_code8, hasLot: hasLot.has(r.drug_code8), lots: (lmap[r.drug_code8+'|'+r.campus]||[]).sort((a,b)=>a.lot.localeCompare(b.lot)) }));
   applyRecFilterSort();
 }
 
@@ -2556,7 +2589,7 @@ function applyRecFilterSort(){
     const sitePill = r.campus==='dl' ? 'pill-dl' : r.campus==='hw' ? 'pill-hw' : 'pill-wh';
     return `<tr>
       ${recIsAdmin ? `<td style="white-space:nowrap"><span class="site-pill ${sitePill}" style="font-size:12px;white-space:nowrap">${siteLabel}</span></td>` : ''}
-      <td style="font-size:15px${r.lots.length>=2?';cursor:pointer':''}"${r.lots.length>=2?` onclick="recToggleLots('${r.record_id}')"`:''}>${r.lots.length>=2?`<span style="color:#999">${recLotOpen.has(String(r.record_id))?'▾':'▸'}</span> `:''}${r.name}${r.lots.length===1?`<div style="font-size:12px;color:#999;font-family:monospace">${r.lots[0].lot}</div>`:''}${r.lots.length>=2?`<span style="font-size:12px;color:#999;margin-left:4px">${r.lots.length} 個批號</span>`:''}</td>
+      <td style="font-size:15px">${r.name}${r.lots.length===1?`<div style="font-size:12px;color:#999;font-family:monospace">${r.lots[0].lot}</div>`:''}${!r.lots.length && r.hasLot?`<div style="font-size:12px;color:#C77700">沒有批號明細</div>`:''}</td>
       <td class="c"><strong>${r.tally_qty}</strong></td>
       <td style="font-size:13px;color:#888">${r.note||''}</td>
       <td style="white-space:nowrap">
@@ -2565,7 +2598,7 @@ function applyRecFilterSort(){
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0"
           onclick="openRecDelete('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">🗑️ 刪除</button>
       </td>
-    </tr>` + (r.lots.length>=2 && recLotOpen.has(String(r.record_id)) ? r.lots.map(l=>`<tr style="background:#fafaf8">
+    </tr>` + (r.lots.length>=2 ? r.lots.map(l=>`<tr style="background:#fafaf8">
       ${recIsAdmin ? '<td></td>' : ''}<td style="padding-left:28px;font-size:13px;color:#555;font-family:monospace">↳ ${l.lot}</td><td class="c" style="font-size:14px">${l.qty}</td><td></td><td></td></tr>`).join('') : '');
   }).join('');
 }
@@ -2574,25 +2607,58 @@ const recLotOpen = new Set();
 function recToggleLots(id){ id = String(id); recLotOpen.has(id) ? recLotOpen.delete(id) : recLotOpen.add(id); applyRecFilterSort(); }
 let recEditPending = null;
 function recEditSum(){
-  let sum = 0; document.querySelectorAll('#redit-lots input').forEach(e=>{ sum += parseInt(e.value)||0; });
+  let sum = 0; document.querySelectorAll('#redit-lots input[data-lot]').forEach(e=>{ sum += parseInt(e.value)||0; });
   document.getElementById('redit-new-inp').value = sum;
 }
-function openRecEdit(recordId, vname, date, curQty){
+async function openRecEdit(recordId, vname, date, curQty){
   recEditPending = { recordId };
   const r = recRawRows.find(x=>String(x.record_id)===String(recordId));
-  const lots = r ? r.lots : [];
-  const box = document.getElementById('redit-lots');
-  box.innerHTML = lots.map(l=>`<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="flex:1;font-size:13px;font-family:monospace;color:#555">${l.lot}</span><input type="number" min="0" data-lot="${l.lot.replace(/"/g,'&quot;')}" value="${l.qty}" oninput="recEditSum()" style="width:80px;padding:4px 8px;font-size:16px;border-radius:8px;border:1px solid #1B3A6B;text-align:center"></div>`).join('');
-  box.style.display = lots.length ? '' : 'none';
-  const inp = document.getElementById('redit-new-inp');
-  inp.readOnly = lots.length>0;
-  inp.style.background = lots.length ? '#f3f4f6' : '';
+  const recLots = r ? r.lots : [];
+  let lots = recLots.map(l=>({ lot:l.lot, qty:l.qty, exp:'' })), others = [];
+  if(r){
+    const { data: ld } = await sb.from('lot_details').select('lot_no,campus,status,expiry_date,used_dl,used_hw,used_wh').eq('drug_code8', r.drug_code8);
+    const by = {}; (ld||[]).forEach(x=>{ (by[x.lot_no] = by[x.lot_no] || []).push(x); });
+    const flag = 'used_'+r.campus;
+    Object.keys(by).forEach(lot=>{
+      const g = by[lot], p = g.find(x=>x.campus==='wh') || g.find(x=>x.campus==='dl') || g[0];
+      const exp = (g.find(x=>x.expiry_date)||{}).expiry_date || '';
+      const have = lots.find(x=>x.lot===lot);
+      if(have){ have.exp = exp; return; }
+      if(p.status!=='active') return;
+      if(p[flag]) lots.push({ lot, qty:'', exp }); else others.push({ lot, exp });
+    });
+    if(!recLots.length && lots.length===1) lots[0].qty = curQty;
+  }
+  recEditLotState = { lots, others };
+  recEditRenderLots();
   document.getElementById('redit-name').textContent = vname;
   document.getElementById('redit-date').textContent = date;
   document.getElementById('redit-old').textContent = curQty;
   document.getElementById('redit-new-inp').value = curQty;
+  if(lots.length) recEditSum();
   document.getElementById('redit-reason').value = '';
   document.getElementById('modal-rec-edit').classList.add('open');
+}
+let recEditLotState = { lots:[], others:[] };
+function recEditRenderLots(){
+  const { lots, others } = recEditLotState;
+  const box = document.getElementById('redit-lots');
+  const q = v => String(v).replace(/"/g,'&quot;');
+  box.innerHTML = lots.map(l=>`<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="flex:1;min-width:0;font-size:13px;font-family:monospace;color:#555;overflow:hidden;text-overflow:ellipsis">${l.lot}${l.exp?`<span style="font-family:inherit;color:#aaa;margin-left:6px">效期 ${l.exp}</span>`:''}</span><input type="number" min="0" data-lot="${q(l.lot)}" value="${l.qty}" placeholder="0" oninput="recEditSum()" style="width:80px;padding:4px 8px;font-size:16px;border-radius:8px;border:1px solid #1B3A6B;text-align:center"></div>`).join('')
+    + (others.length ? `<select style="margin-top:8px;font-size:13px;padding:3px 6px;border-radius:6px;border:1px solid #d5d5d5;color:#666" onchange="recEditAddLot(this.value)"><option value="">＋ 其他批號</option>${others.map(o=>`<option value="${q(o.lot)}">${o.lot}${o.exp?`（效期 ${o.exp}）`:''}</option>`).join('')}</select>` : '');
+  box.style.display = (lots.length || others.length) ? '' : 'none';
+  const inp = document.getElementById('redit-new-inp');
+  inp.readOnly = lots.length>0;
+  inp.style.background = lots.length ? '#f3f4f6' : '';
+}
+function recEditAddLot(lot){
+  if(!lot) return;
+  document.querySelectorAll('#redit-lots input[data-lot]').forEach(e=>{ const l = recEditLotState.lots.find(x=>x.lot===e.dataset.lot); if(l) l.qty = e.value; });
+  const i = recEditLotState.others.findIndex(o=>o.lot===lot);
+  if(i<0) return;
+  const o = recEditLotState.others.splice(i,1)[0];
+  recEditLotState.lots.push({ lot:o.lot, qty:'', exp:o.exp });
+  recEditRenderLots(); recEditSum();
 }
 
 async function confirmRecEdit(){
@@ -2610,7 +2676,7 @@ async function confirmRecEdit(){
   if(!rec) return;
 
   await sb.from('tally_records').update({ tally_qty: newVal }).eq('record_id', rec.record_id);
-  const lotIns = [...document.querySelectorAll('#redit-lots input')];
+  const lotIns = [...document.querySelectorAll('#redit-lots input[data-lot]')];
   if(lotIns.length){
     const { error: le } = await sb.from('tally_lot_records').upsert(lotIns.map(e=>({ campus:rec.campus, tally_date:rec.tally_date, drug_code8:rec.drug_code8, lot_no:e.dataset.lot, qty:parseInt(e.value)||0, saved_by:me.emp_id })), { onConflict:'campus,tally_date,drug_code8,lot_no' });
     if(le) alert('⚠️ 總數已更新，但批號明細更新失敗：'+le.message);
@@ -5105,7 +5171,6 @@ async function renderAccounts(){
         </select>
       </td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm" style="font-size:13px" onclick="openResetPw('${u.emp_id}','${u.name}')">🔑 重設</button>
         ${u.emp_id===me.emp_id ? '' : `<button class="btn btn-sm" style="font-size:13px;${off?'':'color:#A32D2D;border-color:#f0c0c0'}" onclick="setAccActive('${u.emp_id}', ${off})">${off?'恢復':'停用'}</button>`}
       </td>
     </tr>`;
@@ -9746,8 +9811,7 @@ async function exportMonthlyReportExcel(){
 }
 
 document.querySelectorAll('.modal-bg').forEach(el => el.addEventListener('click', function(e){ if(e.target===this) closeModal(this.id); }));
-document.getElementById('u-pass').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
-document.getElementById('u-user').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('u-pass').focus(); });
+document.getElementById('u-user').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
 </script>
 <script>
 /* ===== 全系統表格：點欄位標題排序（跟主檔維護同一套操作：點一次升冪▲、再點一次降冪▼） =====
