@@ -381,7 +381,7 @@ input[type=number]{-moz-appearance:textfield}
             </select>
             <input type="month" id="td-month" class="inp" style="width:160px" onchange="renderTallyDaily()">
             <button class="btn btn-sm" onclick="exportTallyDaily()">📥 匯出 Excel</button>
-            <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合（游標移上去看報表數字）</span>
+            <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合；虛線底＝多個批號。游標移上去看明細</span>
           </div>
           <div id="td-wrap"></div>
         </div>
@@ -1231,13 +1231,14 @@ input[type=number]{-moz-appearance:textfield}
       <div id="vacc-lots-content" style="display:none">
 
         <div class="tbl-wrap" style="margin-bottom:12px;max-height:280px;overflow-y:auto;overflow-x:auto">
-          <table style="min-width:880px">
+          <table style="min-width:1030px">
             <thead><tr>
               <th style="width:110px">批號</th>
               <th style="width:150px">有效日期</th>
               <th style="width:80px">使用狀態</th>
               <th style="width:90px">院內系統</th>
               <th style="width:170px">院區</th>
+              <th style="width:150px">最近盤點</th>
               <th style="width:170px">備註</th>
               <th style="width:90px">最後修改</th>
               <th style="width:55px">刪除</th>
@@ -1421,6 +1422,7 @@ input[type=number]{-moz-appearance:textfield}
           <th style="width:80px">使用狀態</th>
           <th style="width:90px">院內系統</th>
           <th style="width:170px">院區</th>
+          <th style="width:150px">最近盤點</th>
           <th style="width:150px">備註</th>
           <th style="width:90px">最後修改</th>
           <th style="width:55px">刪除</th>
@@ -1559,6 +1561,7 @@ input[type=number]{-moz-appearance:textfield}
       <div>盤點日期：<span id="redit-date"></span></div>
       <div>原盤點量：<strong id="redit-old" style="color:#1B3A6B"></strong> 劑</div>
       <div>修改為：<input type="number" id="redit-new-inp" min="0" style="width:80px;padding:5px 8px;font-size:18px;font-weight:600;border-radius:8px;border:1px solid #1B3A6B;text-align:center"></div>
+      <div id="redit-lots" style="display:none;line-height:1.4;border-top:1px dashed #ddd;margin-top:6px;padding-top:4px"></div>
     </div>
     <div class="fg">
       <label>修改原因（必填）</label>
@@ -1923,6 +1926,8 @@ async function renderTallyDaily(){
     fetchAllRows(()=>sb.from('tally_records').select('drug_code8,tally_date,tally_qty').eq('campus', site).gte('tally_date', from).lte('tally_date', to).order('tally_date')),
     fetchAllRows(()=>sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code', station).gte('upload_date', from).lte('upload_date', to).order('upload_date'))
   ]);
+  const { data: tdLots } = await fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,tally_date,lot_no,qty').eq('campus', site).gte('tally_date', from).lte('tally_date', to).order('tally_date'));
+  const lq = {}; (tdLots||[]).forEach(l=>{ (lq[l.drug_code8+'|'+l.tally_date] = lq[l.drug_code8+'|'+l.tally_date] || []).push(`${l.lot_no}：${l.qty}`); });
   if(error){ wrap.innerHTML = `<div style="color:#A32D2D;padding:12px">查詢失敗：${error.message}</div>`; return; }
   const pOrder = {}; (pages||[]).forEach((p,i)=>pOrder[p.page_id]=i);
   const cols = (items||[]).filter(it=>it.page_id && pOrder[it.page_id]!==undefined && it.vaccine_master && it.vaccine_master.status==='active')
@@ -1965,7 +1970,8 @@ async function renderTallyDaily(){
         const k = c.code+'|'+d, t = tq[k], st = sq[k];
         if(t===undefined) return `<td style="background:${bg};border:1px solid #eee"></td>`;
         const bad = !c.skip && st!==undefined && st!==t;
-        return `<td style="background:${bad?'#FBEAEA':bg};border:1px solid #eee;text-align:right;padding:4px 8px;${bad?'color:#A32D2D;font-weight:600':''}"${bad?` title="庫存報表 ${st}"`:''}>${t}</td>`;
+        const tip = [ ...(lq[k]||[]), ...(bad?[`庫存報表 ${st}`]:[]) ].join('\n');
+        return `<td style="background:${bad?'#FBEAEA':bg};border:1px solid #eee;text-align:right;padding:4px 8px;${bad?'color:#A32D2D;font-weight:600':''}${(lq[k]||[]).length>1?';text-decoration:underline dotted #bbb':''}"${tip?` title="${tip.replace(/"/g,'&quot;')}"`:''}>${t}</td>`;
       }).join('')}
     </tr>`;
   });
@@ -2158,14 +2164,19 @@ async function renderInvList(){
 
   const codes = items.map(it => it.drug_code8);
   const prevDate = shiftDate(selDate, -1);
-  const [{data: existing}, {data: prevRecords}] = await Promise.all([
+  const keep = invCaptureValues();
+  const [{data: existing}, {data: prevRecords}, {data: lotRows}, lotRecRes] = await Promise.all([
     sb.from('tally_records').select('*').eq('campus', site).eq('tally_date', selDate).in('drug_code8', codes),
-    sb.from('tally_records').select('drug_code8,tally_qty').eq('campus', site).eq('tally_date', prevDate).in('drug_code8', codes)
+    sb.from('tally_records').select('drug_code8,tally_qty').eq('campus', site).eq('tally_date', prevDate).in('drug_code8', codes),
+    sb.from('lot_details').select('drug_code8,lot_no,campus,status,expiry_date').in('drug_code8', codes),
+    fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,lot_no,tally_date,qty').eq('campus', site).gte('tally_date', shiftDate(selDate,-60)).lte('tally_date', selDate).in('drug_code8', codes).order('tally_date'))
   ]);
+  invBuildLotCtx(site, selDate, prevDate, codes, lotRows||[], (lotRecRes&&lotRecRes.data)||[]);
   const existMap = {};
   (existing||[]).forEach(r => existMap[r.drug_code8] = r);
   const prevMap = {};
   (prevRecords||[]).forEach(r => prevMap[r.drug_code8] = r.tally_qty);
+  invPrevTotal = prevMap;
 
   const locked = false; // 不再整頁鎖定，改逐品項判斷（見下方 rowLocked）
   const anyLocked = existing && existing.length > 0;
@@ -2187,6 +2198,7 @@ async function renderInvList(){
 
   wrap.innerHTML = items.map(it => {
     const name = it.vaccine_master ? it.vaccine_master.tally_name : it.drug_code8;
+    const ctx = invLotCtx[it.drug_code8];
     const val = existMap[it.drug_code8] ? existMap[it.drug_code8].tally_qty : '';
     const noteVal = existMap[it.drug_code8] ? (existMap[it.drug_code8].note || '') : '';
     const prevVal = prevMap[it.drug_code8];
@@ -2194,7 +2206,7 @@ async function renderInvList(){
     const rowLocked = !!existMap[it.drug_code8];
     return `<div class="inv-row" style="flex-direction:column;align-items:stretch;gap:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span class="inv-name">${name}${!rowLocked && anyLocked ? ' <span style="font-size:11px;color:#c17a1a">（待補登）</span>' : ''}</span>
+        <span class="inv-name">${name}${!rowLocked && anyLocked ? ' <span style="font-size:11px;color:#c17a1a">（待補登）</span>' : ''}${invLotSubtitle(ctx, rowLocked)}</span>
         <span style="font-size:12px;color:#999;white-space:nowrap;margin-left:8px">
           前一日：${prevText}
           ${!rowLocked && prevVal!==undefined ? ` <button type="button" class="btn btn-sm" style="padding:2px 8px;font-size:11px;margin-left:4px" onclick="fillPrevDay('${it.drug_code8}')">⬅ 帶入</button>` : ''}
@@ -2205,28 +2217,126 @@ async function renderInvList(){
           ? `<span style="font-size:18px;font-weight:600;color:#888;width:80px;text-align:center">${val}</span>
              <span style="font-size:13px;color:#888;flex:1">${noteVal ? '📝 '+noteVal : ''}</span>`
 
-          : `<input type="number" class="inv-input" id="inv-${it.drug_code8}" value="${val}" min="0" placeholder="請輸入" onchange="markChanged(this)">
+          : ctx.shown.length >= 2
+          ? `<input type="number" class="inv-input" id="inv-${it.drug_code8}" value="" readonly tabindex="-1" title="各批號合計" style="background:#f3f4f6;color:#1B3A6B;font-weight:600">
+             <input type="text" class="inv-note" id="inv-note-${it.drug_code8}" value="${noteVal.replace(/"/g,'&quot;')}" placeholder="備註（選填）" style="flex:1;min-width:0;padding:7px 10px;font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:8px;border:1px solid #d5d5d5;box-sizing:border-box">`
+          : `<input type="number" class="inv-input" id="inv-${it.drug_code8}" data-code="${it.drug_code8}" data-lot="${ctx.shown[0] ? ctx.shown[0].lot : ''}" value="${val}" min="0" placeholder="請輸入" onchange="markChanged(this)">
              <input type="text" class="inv-note" id="inv-note-${it.drug_code8}" value="${noteVal.replace(/"/g,'&quot;')}" placeholder="備註（選填）" style="flex:1;min-width:0;padding:7px 10px;font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:8px;border:1px solid #d5d5d5;box-sizing:border-box">`
         }
       </div>
+      ${rowLocked ? '' : invLotInputs(it.drug_code8, ctx)}
     </div>`;
   }).join('');
+  invRestoreValues(keep);
 }
 
+/* ── 批號盤點：每個品項顯示這個院區目前可能有的批號 ──
+   顯示規則：品項的使用中批號；這個院區最近一次盤到 0 的批號隱藏；用「＋ 其他批號」可以加回來。 */
+let invLotCtx = {};
+let invExtraLots = {};   // `${site}|${date}|${code}` → [lot]
+function invBuildLotCtx(site, selDate, prevDate, codes, lotRows, lotRecs){
+  invLotCtx = {};
+  codes.forEach(code=>{
+    const rows = lotRows.filter(l=>l.drug_code8===code);
+    const byLot = {};
+    rows.forEach(l=>{ (byLot[l.lot_no] = byLot[l.lot_no] || []).push(l); });
+    const active = Object.keys(byLot).filter(lot=>{ const g = byLot[lot]; const p = g.find(r=>r.campus==='wh') || g.find(r=>r.campus==='dl') || g[0]; return p.status==='active'; })
+      .map(lot=>({ lot, exp: (byLot[lot].find(r=>r.expiry_date)||{}).expiry_date || '' }))
+      .sort((a,b)=> (a.exp||'9999').localeCompare(b.exp||'9999') || a.lot.localeCompare(b.lot));
+    const recs = lotRecs.filter(r=>r.drug_code8===code);
+    const latest = {}, today = {}, prev = {};
+    recs.forEach(r=>{ if(r.tally_date < selDate) latest[r.lot_no] = Number(r.qty); if(r.tally_date===selDate) today[r.lot_no] = Number(r.qty); if(r.tally_date===prevDate) prev[r.lot_no] = Number(r.qty); });
+    const extra = invExtraLots[`${site}|${selDate}|${code}`] || [];
+    let shown = active.filter(a => today[a.lot]!==undefined || extra.includes(a.lot) || !(latest[a.lot]===0));
+    if(!shown.length && active.length) shown = active.slice();
+    const others = active.filter(a=>!shown.some(x=>x.lot===a.lot));
+    invLotCtx[code] = { shown, others, today, prev };
+  });
+}
+function invLotSubtitle(ctx, locked){
+  if(!ctx) return '';
+  const st = 'display:block;font-size:12px;color:#999;font-weight:400;margin-top:2px';
+  if(locked){
+    const ks = Object.keys(ctx.today);
+    if(!ks.length) return '';
+    return `<span style="${st}">${ks.map(l=>`${l}：${ctx.today[l]}`).join('・')}</span>`;
+  }
+  if(ctx.shown.length===1) return `<span style="${st};font-family:monospace">${ctx.shown[0].lot}${ctx.shown[0].exp?`（效期 ${ctx.shown[0].exp}）`:''}</span>`;
+  if(!ctx.shown.length) return `<span style="${st}">未設定批號</span>`;
+  return '';
+}
+function invLotInputs(code, ctx){
+  if(!ctx) return '';
+  let h = '';
+  if(ctx.shown.length >= 2){
+    h += `<div style="display:flex;flex-direction:column;gap:6px;padding:6px 0 2px 10px;border-left:3px solid #E3E7EF">` + ctx.shown.map(a=>`
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="flex:1;min-width:0;font-size:13px;font-family:monospace;color:#555;overflow:hidden;text-overflow:ellipsis">${a.lot}${a.exp?`<span style="font-family:inherit;color:#aaa;margin-left:6px">效期 ${a.exp}</span>`:''}</span>
+        <input type="number" class="inv-input inv-lot" data-code="${code}" data-lot="${a.lot.replace(/"/g,'&quot;')}" min="0" placeholder="0" oninput="invSumLots('${code}')" onchange="markChanged(this)">
+      </div>`).join('') + `</div>`;
+  }
+  if(ctx.others.length){
+    h += `<div style="padding-left:10px"><select class="inp" style="font-size:13px;padding:3px 6px;width:auto;max-width:100%;color:#666" onchange="invAddLot('${code}', this.value)">
+      <option value="">＋ 其他批號</option>${ctx.others.map(a=>`<option value="${a.lot.replace(/"/g,'&quot;')}">${a.lot}${a.exp?`（效期 ${a.exp}）`:''}</option>`).join('')}</select></div>`;
+  }
+  return h;
+}
+function invSumLots(code){
+  const els = document.querySelectorAll(`#inv-wrap .inv-lot[data-code="${code}"]`);
+  if(!els.length) return;
+  let sum = 0, any = false;
+  els.forEach(e=>{ if(e.value!==''){ any = true; sum += parseInt(e.value)||0; } });
+  const t = document.getElementById('inv-'+code);
+  if(t) t.value = any ? sum : '';
+}
+function invCaptureValues(){
+  const m = { lots:{}, ids:{} };
+  document.querySelectorAll('#inv-wrap input').forEach(e=>{
+    if(e.dataset.lot!==undefined && e.dataset.code && e.value!=='') m.lots[e.dataset.code+'|'+e.dataset.lot] = { v:e.value, c:[...e.classList] };
+    else if(e.id && e.value!=='' && !e.readOnly) m.ids[e.id] = { v:e.value, c:[...e.classList] };
+  });
+  return m;
+}
+function invRestoreValues(m){
+  if(!m) return;
+  const apply = (e, x)=>{ e.value = x.v; x.c.forEach(c=>e.classList.add(c)); };
+  Object.keys(m.ids).forEach(id=>{ const e = document.getElementById(id); if(e && !e.readOnly) apply(e, m.ids[id]); });
+  Object.keys(m.lots).forEach(k=>{
+    const i = k.indexOf('|'), code = k.slice(0,i), lot = k.slice(i+1);
+    const e = [...document.querySelectorAll(`#inv-wrap input[data-code="${code}"]`)].find(x=>x.dataset.lot===lot);
+    if(e) apply(e, m.lots[k]);
+  });
+  Object.keys(invLotCtx).forEach(invSumLots);
+}
+async function invAddLot(code, lot){
+  if(!lot) return;
+  const site = mySite(), selDate = document.getElementById('inv-date').value || todayStr();
+  const k = `${site}|${selDate}|${code}`;
+  (invExtraLots[k] = invExtraLots[k] || []).push(lot);
+  await renderInvList();
+}
+function invApplyPrev(code){
+  const ctx = invLotCtx[code];
+  const lotEls = document.querySelectorAll(`#inv-wrap .inv-lot[data-code="${code}"]`);
+  if(lotEls.length){
+    let n = 0;
+    lotEls.forEach(e=>{ const v = ctx && ctx.prev[e.dataset.lot]; if(v!==undefined){ e.value = v; e.classList.add('changed','carried'); n++; } });
+    invSumLots(code);
+    return n>0;
+  }
+  const el = document.getElementById('inv-'+code);
+  if(!el) return false;
+  const lot = el.dataset.lot;
+  let v = lot && ctx && ctx.prev[lot]!==undefined ? ctx.prev[lot] : invPrevTotal[code];
+  if(v===undefined) return false;
+  el.value = v; el.classList.add('changed','carried');
+  return true;
+}
+let invPrevTotal = {};
+
 function fillPrevDay(code8){
-  const el = document.getElementById('inv-'+code8);
-  if(!el) return;
-  const site = mySite();
-  const selDate = document.getElementById('inv-date').value || todayStr();
-  const prevDate = shiftDate(selDate, -1);
-  // 直接用畫面上已顯示的「前一日」數字（renderInvList 已查詢過），這裡重新查一次該筆確保準確
-  sb.from('tally_records').select('tally_qty').eq('campus', site).eq('tally_date', prevDate).eq('drug_code8', code8).maybeSingle()
-    .then(({data})=>{
-      if(!data){ alert('前一日查無盤點紀錄，無法帶入'); return; }
-      el.value = data.tally_qty;
-      el.classList.add('changed','carried');
-      document.getElementById('inv-status').textContent = '有未儲存的變更（含帶入資料，請確認後儲存）';
-    });
+  if(!invApplyPrev(code8)){ alert('前一日查無盤點紀錄，無法帶入'); return; }
+  document.getElementById('inv-status').textContent = '有未儲存的變更（含帶入資料，請確認後儲存）';
 }
 
 async function fillAllPrevDay(){
@@ -2249,11 +2359,7 @@ async function fillAllPrevDay(){
   let filled = 0;
   pendingCodes.forEach(code8=>{
     if(prevMap[code8]===undefined) return;
-    const el = document.getElementById('inv-'+code8);
-    if(!el) return;
-    el.value = prevMap[code8];
-    el.classList.add('changed','carried');
-    filled++;
+    if(invApplyPrev(code8)) filled++;
   });
 
   if(!filled){ alert('查無可帶入的前一日資料（前一日也都還沒盤點）'); return; }
@@ -2288,6 +2394,14 @@ async function saveInv(){
     return;
   }
 
+  pendingItems.forEach(it=>invSumLots(it.drug_code8));
+  const lotRowsToSave = [];
+  pendingItems.forEach(it=>{
+    document.querySelectorAll(`#inv-wrap input[data-code="${it.drug_code8}"]`).forEach(e=>{
+      if(!e.dataset.lot) return;
+      lotRowsToSave.push({ campus:site, tally_date:selDate, drug_code8:it.drug_code8, lot_no:e.dataset.lot, qty: parseInt(e.value)||0, saved_by: me.emp_id });
+    });
+  });
   const rows = pendingItems.map(it => {
     const el = document.getElementById('inv-'+it.drug_code8);
     const noteEl = document.getElementById('inv-note-'+it.drug_code8);
@@ -2309,6 +2423,10 @@ async function saveInv(){
     alert('儲存失敗：' + error.message);
     saveBtn.disabled = false; saveBtn.textContent = '💾 儲存盤點';
     return;
+  }
+  if(lotRowsToSave.length){
+    const { error: lotErr } = await sb.from('tally_lot_records').upsert(lotRowsToSave, { onConflict:'campus,tally_date,drug_code8,lot_no' });
+    if(lotErr) alert('⚠️ 盤點總數已儲存，但批號明細儲存失敗：' + lotErr.message);
   }
 
   const logs = inserted.map(r => ({
@@ -2369,7 +2487,12 @@ async function renderRecords(){
   const nameMap = {};
   (vlist||[]).forEach(v => nameMap[v.drug_code8] = v.tally_name);
 
-  recRawRows = data.map(r => ({ ...r, name: nameMap[r.drug_code8] || r.drug_code8 }));
+  let lq = sb.from('tally_lot_records').select('campus,drug_code8,lot_no,qty').eq('tally_date', selDate);
+  if(filterSite) lq = lq.eq('campus', filterSite);
+  const { data: lrecs } = await lq;
+  const lmap = {};
+  (lrecs||[]).forEach(l=>{ (lmap[l.drug_code8+'|'+l.campus] = lmap[l.drug_code8+'|'+l.campus] || []).push({ lot:l.lot_no, qty:Number(l.qty) }); });
+  recRawRows = data.map(r => ({ ...r, name: nameMap[r.drug_code8] || r.drug_code8, lots: (lmap[r.drug_code8+'|'+r.campus]||[]).sort((a,b)=>a.lot.localeCompare(b.lot)) }));
   applyRecFilterSort();
 }
 
@@ -2416,7 +2539,7 @@ function applyRecFilterSort(){
     const sitePill = r.campus==='dl' ? 'pill-dl' : r.campus==='hw' ? 'pill-hw' : 'pill-wh';
     return `<tr>
       ${recIsAdmin ? `<td style="white-space:nowrap"><span class="site-pill ${sitePill}" style="font-size:12px;white-space:nowrap">${siteLabel}</span></td>` : ''}
-      <td style="font-size:15px">${r.name}</td>
+      <td style="font-size:15px${r.lots.length>=2?';cursor:pointer':''}"${r.lots.length>=2?` onclick="recToggleLots('${r.record_id}')"`:''}>${r.lots.length>=2?`<span style="color:#999">${recLotOpen.has(String(r.record_id))?'▾':'▸'}</span> `:''}${r.name}${r.lots.length===1?`<div style="font-size:12px;color:#999;font-family:monospace">${r.lots[0].lot}</div>`:''}${r.lots.length>=2?`<span style="font-size:12px;color:#999;margin-left:4px">${r.lots.length} 個批號</span>`:''}</td>
       <td class="c"><strong>${r.tally_qty}</strong></td>
       <td style="font-size:13px;color:#888">${r.note||''}</td>
       <td style="white-space:nowrap">
@@ -2425,13 +2548,28 @@ function applyRecFilterSort(){
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0"
           onclick="openRecDelete('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">🗑️ 刪除</button>
       </td>
-    </tr>`;
+    </tr>` + (r.lots.length>=2 && recLotOpen.has(String(r.record_id)) ? r.lots.map(l=>`<tr style="background:#fafaf8">
+      ${recIsAdmin ? '<td></td>' : ''}<td style="padding-left:28px;font-size:13px;color:#555;font-family:monospace">↳ ${l.lot}</td><td class="c" style="font-size:14px">${l.qty}</td><td></td><td></td></tr>`).join('') : '');
   }).join('');
 }
 
+const recLotOpen = new Set();
+function recToggleLots(id){ id = String(id); recLotOpen.has(id) ? recLotOpen.delete(id) : recLotOpen.add(id); applyRecFilterSort(); }
 let recEditPending = null;
+function recEditSum(){
+  let sum = 0; document.querySelectorAll('#redit-lots input').forEach(e=>{ sum += parseInt(e.value)||0; });
+  document.getElementById('redit-new-inp').value = sum;
+}
 function openRecEdit(recordId, vname, date, curQty){
   recEditPending = { recordId };
+  const r = recRawRows.find(x=>String(x.record_id)===String(recordId));
+  const lots = r ? r.lots : [];
+  const box = document.getElementById('redit-lots');
+  box.innerHTML = lots.map(l=>`<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="flex:1;font-size:13px;font-family:monospace;color:#555">${l.lot}</span><input type="number" min="0" data-lot="${l.lot.replace(/"/g,'&quot;')}" value="${l.qty}" oninput="recEditSum()" style="width:80px;padding:4px 8px;font-size:16px;border-radius:8px;border:1px solid #1B3A6B;text-align:center"></div>`).join('');
+  box.style.display = lots.length ? '' : 'none';
+  const inp = document.getElementById('redit-new-inp');
+  inp.readOnly = lots.length>0;
+  inp.style.background = lots.length ? '#f3f4f6' : '';
   document.getElementById('redit-name').textContent = vname;
   document.getElementById('redit-date').textContent = date;
   document.getElementById('redit-old').textContent = curQty;
@@ -2455,6 +2593,11 @@ async function confirmRecEdit(){
   if(!rec) return;
 
   await sb.from('tally_records').update({ tally_qty: newVal }).eq('record_id', rec.record_id);
+  const lotIns = [...document.querySelectorAll('#redit-lots input')];
+  if(lotIns.length){
+    const { error: le } = await sb.from('tally_lot_records').upsert(lotIns.map(e=>({ campus:rec.campus, tally_date:rec.tally_date, drug_code8:rec.drug_code8, lot_no:e.dataset.lot, qty:parseInt(e.value)||0, saved_by:me.emp_id })), { onConflict:'campus,tally_date,drug_code8,lot_no' });
+    if(le) alert('⚠️ 總數已更新，但批號明細更新失敗：'+le.message);
+  }
   await insertChangeLogs({
     record_id: rec.record_id,
     action_type: 'edit',
@@ -2495,6 +2638,7 @@ async function confirmRecDelete(){
 
   // 先刪盤點紀錄，成功後才寫「刪除」歷程（避免刪除失敗卻留下刪除紀錄）
   const { error } = await sb.from('tally_records').delete().eq('record_id', rec.record_id);
+  if(!error) await sb.from('tally_lot_records').delete().eq('campus', rec.campus).eq('tally_date', rec.tally_date).eq('drug_code8', rec.drug_code8);
   if(error){
     if(/foreign key/i.test(error.message||'')) alert('⚠️ 刪除失敗：資料庫還沒更新操作歷程的設定\n請先到 Supabase 執行「盤點紀錄刪除修正」的 SQL。');
     else alert('刪除失敗：'+error.message);
@@ -2567,6 +2711,8 @@ async function confirmRecDateFix(){
   const moveIds = moveRows.map(r=>r.record_id);
   const { error } = await sb.from('tally_records').update({ tally_date: correctDate }).in('record_id', moveIds);
   if(error){ showMsg('搬移失敗：'+error.message); return; }
+  const moveCodes = [...new Set(moveRows.map(r=>r.drug_code8))];
+  if(moveCodes.length) await sb.from('tally_lot_records').update({ tally_date: correctDate }).eq('campus', site).eq('tally_date', wrongDate).in('drug_code8', moveCodes);
 
   alert(`✓ 已搬移 ${moveRows.length} 筆盤點紀錄到 ${correctDate}${conflictRows.length ? `（另有 ${conflictRows.length} 筆因為品項衝突，留在 ${wrongDate} 沒有搬）` : ''}`);
   closeModal('modal-rec-date-fix');
@@ -4441,9 +4587,19 @@ async function doVaccBatch(){
    跨院區查詢並依批號分組顯示，避免匯入時建在dl/hw的批號在這裡看不到；
    每個批號挑一筆「代表列」(優先wh，其次dl，再來hw)存放狀態/備註/斗六虎尾亮燈，其餘同批號的列僅供顯示效期備援。 ── */
 let lotGroupsCache = { code8: null, order: [], groups: {} };
+let lotTallyLatest = {};
+function lotTallyText(lotNo){
+  const m = lotTallyLatest[lotNo]; if(!m) return '<span style="color:#ccc">—</span>';
+  return ['dl','hw','wh'].filter(c=>m[c]).map(c=>`${{dl:'斗六',hw:'虎尾',wh:'藥庫'}[c]} <strong>${m[c].q}</strong><span style="color:#aaa">（${+m[c].d.slice(5,7)}/${+m[c].d.slice(8,10)}）</span>`).join('<br>');
+}
 
 async function refreshLots(code8){
   const { data } = await sb.from('lot_details').select('*').eq('drug_code8', code8).order('expiry_date', {ascending:true, nullsFirst:false});
+  lotTallyLatest = {};
+  try{
+    const { data: lt } = await sb.from('tally_lot_records').select('campus,lot_no,tally_date,qty').eq('drug_code8', code8).gte('tally_date', shiftDate(todayStr(),-60)).order('tally_date');
+    (lt||[]).forEach(r=>{ (lotTallyLatest[r.lot_no] = lotTallyLatest[r.lot_no] || {})[r.campus] = { d:r.tally_date, q:Number(r.qty) }; });
+  }catch(e){}
   const groups = {};
   const order = [];
   (data||[]).forEach(l=>{
@@ -4460,7 +4616,7 @@ async function refreshLots(code8){
   const inactiveOrder = order.filter(lotNo => !activeOrder.includes(lotNo));
 
   document.getElementById('lot-tbody').innerHTML = activeOrder.map(lotNo => buildLotRow(lotNo, groups[lotNo], code8)).join('')
-    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">尚無使用中的批號，請按下方「新增批號」</td></tr>';
+    || '<tr><td colspan="9" style="text-align:center;padding:16px;color:#bbb">尚無使用中的批號，請按下方「新增批號」</td></tr>';
 
   const link = document.getElementById('lot-inactive-link');
   if(inactiveOrder.length){
@@ -4483,7 +4639,7 @@ function openInactiveLotsModal(code8){
     return primary.status !== 'active';
   });
   document.getElementById('lot-inactive-tbody').innerHTML = inactiveOrder.map(lotNo => buildLotRow(lotNo, lotGroupsCache.groups[lotNo], code8)).join('')
-    || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#bbb">目前沒有已停用的批號</td></tr>';
+    || '<tr><td colspan="9" style="text-align:center;padding:16px;color:#bbb">目前沒有已停用的批號</td></tr>';
   document.getElementById('modal-inactive-lots').classList.add('open');
 }
 
@@ -4513,6 +4669,7 @@ function buildLotRow(lotNo, rows, code8){
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${hwLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_hw',${hwLit},'${code8}')">虎尾</button>
       <button class="btn btn-sm" style="font-size:12px;margin-left:4px;${whLit?'background:#1B3A6B;color:#fff;border-color:#1B3A6B':''}" onclick="toggleLotCampusFlag('${primary.lot_id}','used_wh',${whLit},'${code8}')">藥庫</button>
     </td>
+    <td style="font-size:12px;line-height:1.5;color:#555">${lotTallyText(lotNo)}</td>
     <td><input type="text" value="${noteEsc}" class="inp" style="font-size:13px;padding:4px 8px" placeholder="備註（選填）" onblur="saveLotNote('${primary.lot_id}','${code8}', this.value)"></td>
     <td style="font-size:12px;color:#999">${lastModifiedText}</td>
     <td><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteLotGroup('${lotNoEsc}','${code8}')">刪除</button></td>
