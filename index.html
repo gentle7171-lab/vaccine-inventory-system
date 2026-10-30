@@ -1060,6 +1060,12 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
+        <div id="lotempty-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B">📦 批號已用完待停用 <span id="lotempty-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
+          <div style="font-size:12px;color:#999;margin-top:4px">使用中，但斗六、虎尾、藥庫三個院區燈號都關掉的批號。確認全院已用完就按「停用」；還有庫存的話，到批號管理把有放的院區燈號打開。</div>
+          <div id="lotempty-panel-body" style="margin-top:10px"></div>
+        </div>
+
         <div id="staffcampus-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B">🏥 員工院區待登記 <span id="staffcampus-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
           <div style="font-size:12px;color:#999;margin-top:4px">主檔勾「員工用」的品項，近60天有耗用、但斗六＋虎尾還沒登記（或跟耗用數量對不上）的日期。</div>
@@ -1791,7 +1797,7 @@ async function initApp(){
     ' <span class="site-pill pill-admin" style="font-size:12px">'+roleLabel+'</span>';
 
   const tabs = isManager
-    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'主檔維護'}]
+    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'管理中心'}]
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
@@ -2953,7 +2959,7 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0;
+let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0, masterBadgeLotEmpty = 0;
 async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
@@ -2970,6 +2976,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     try{ masterBadgeLab = (await fetchLabFormPending()).pending.length; }catch(e){ masterBadgeLab = 0; }
     try{ masterBadgeManual = (await fetchManualEditPending()).length; }catch(e){ masterBadgeManual = 0; }
     try{ masterBadgeStaff = (await fetchStaffCampusPending()).pending.length; }catch(e){ masterBadgeStaff = 0; }
+    try{ masterBadgeLotEmpty = (await fetchLotEmptyPending()).length; }catch(e){ masterBadgeLotEmpty = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -2985,11 +2992,12 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     count = Object.values(groups).filter(done=>!done).length;
   }
   masterBadgeHis = count;
-  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff;
+  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff + masterBadgeLotEmpty;
   const parts = [];
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
   if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
+  if(masterBadgeLotEmpty) parts.push(`📦 批號已用完待停用 <b>${masterBadgeLotEmpty}</b> 筆：三個院區燈號都關了，確認後停用`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
   const subBadge = document.getElementById('mst-sub-remind-badge');
   const banner = document.getElementById('master-remind-banner');
@@ -3032,6 +3040,56 @@ async function toggleLotHisSetup(lotId, current, code8){
   if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
   await refreshLots(code8);
   renderVaccines();
+}
+
+/* ══════════════ 批號已用完待停用：使用中、三個院區燈號都關 ══════════════ */
+async function fetchLotEmptyPending(){
+  const [{ data: lots }, { data: vm }] = await Promise.all([
+    sb.from('lot_details').select('lot_id,drug_code8,lot_no,campus,status,expiry_date,used_dl,used_hw,used_wh'),
+    sb.from('vaccine_master').select('drug_code8,tally_name').eq('status','active')
+  ]);
+  const names = {}; (vm||[]).forEach(v=>names[v.drug_code8]=v.tally_name);
+  const by = {};
+  (lots||[]).forEach(l=>{ if(!names[l.drug_code8]) return; (by[l.drug_code8+'|'+l.lot_no] = by[l.drug_code8+'|'+l.lot_no] || []).push(l); });
+  const out = [];
+  Object.values(by).forEach(g=>{
+    const p = g.find(r=>r.campus==='wh') || g.find(r=>r.campus==='dl') || g[0];
+    if(p.status!=='active' || p.used_dl || p.used_hw || p.used_wh) return;
+    out.push({ lotId:p.lot_id, code8:p.drug_code8, name:names[p.drug_code8], lot:p.lot_no, exp:(g.find(r=>r.expiry_date)||{}).expiry_date||'' });
+  });
+  return out.sort((a,b)=>String(a.name).localeCompare(String(b.name),'zh-Hant') || a.lot.localeCompare(b.lot));
+}
+async function renderLotEmptyPanel(){
+  const body = document.getElementById('lotempty-panel-body');
+  const badge = document.getElementById('lotempty-count-badge');
+  if(!body) return;
+  body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
+  let list;
+  try{ list = await fetchLotEmptyPending(); }catch(e){ body.innerHTML = `<div style="padding:16px;color:#A32D2D;font-size:13px">讀取失敗：${e.message}</div>`; return; }
+  badge.textContent = list.length ? `（${list.length}筆）` : '';
+  masterBadgeLotEmpty = list.length;
+  refreshMasterTabBadge(masterBadgeHis);
+  if(!list.length){ body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有待停用的批號</div>'; return; }
+  const last = {};
+  try{
+    const { data: lr } = await sb.from('tally_lot_records').select('drug_code8,lot_no,tally_date').in('lot_no', [...new Set(list.map(x=>x.lot))]).order('tally_date');
+    (lr||[]).forEach(r=>{ last[r.drug_code8+'|'+r.lot_no] = r.tally_date; });
+  }catch(e){}
+  const q = v => String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th style="font-size:14px">品項</th><th style="width:110px;font-size:14px">8碼</th><th style="width:170px;font-size:14px">批號</th><th style="width:110px;font-size:14px">效期</th><th style="width:110px;font-size:14px">最後盤點</th><th style="width:80px"></th></tr></thead>
+    <tbody>${list.map(x=>`<tr>
+      <td>${x.name}</td><td style="font-family:monospace;font-size:14px">${x.code8}</td><td style="font-family:monospace;font-size:14px">${x.lot}</td>
+      <td style="font-size:14px">${x.exp||'—'}</td><td style="font-size:14px;color:#666">${last[x.code8+'|'+x.lot]||'—'}</td>
+      <td><button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="lotEmptyDeactivate('${q(x.code8)}','${q(x.lot)}')">停用</button></td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+async function lotEmptyDeactivate(code8, lot){
+  if(!await appConfirm(`${lot}\n停用後不會再出現在盤點畫面，之後可以在批號管理恢復。`, {title:'停用批號？', kind:'danger', okText:'停用'})) return;
+  const { error } = await sb.from('lot_details').update({ status:'inactive' }).eq('drug_code8', code8).eq('lot_no', lot);
+  if(error){ alert('停用失敗：'+error.message); return; }
+  appToast('已停用批號');
+  renderLotEmptyPanel();
 }
 
 /* ══════════════ 員工院區待登記 ══════════════ */
@@ -5532,6 +5590,7 @@ function switchMasterSub(tab){
     renderLabFormPanel();
     renderManualEditPanel();
     renderStaffCampusPanel();
+    renderLotEmptyPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -6138,7 +6197,7 @@ async function loadLotFixCandidates(){
     const uniqLots = [...new Set((lots||[]).map(l=>l.lot_no))];
     correctSel.innerHTML = uniqLots.length
       ? '<option value="">請選擇</option>' + uniqLots.map(l=>`<option value="${l}">${l}</option>`).join('')
-      : '<option value="">這個品項目前查無任何批號，請先去主檔維護新增批號</option>';
+      : '<option value="">這個品項目前查無任何批號，請先去管理中心新增批號</option>';
   } else {
     correctSel.innerHTML = '<option value="">請先選藥品8碼</option>';
   }
@@ -6220,7 +6279,7 @@ async function loadWhLotFixCandidates(){
     const uniqLots = [...new Set((lots||[]).map(l=>l.lot_no))];
     correctSel.innerHTML = uniqLots.length
       ? '<option value="">請選擇</option>' + uniqLots.map(l=>`<option value="${l}">${l}</option>`).join('')
-      : '<option value="">藥庫目前查無這個品項的批號，請先去主檔維護新增批號</option>';
+      : '<option value="">藥庫目前查無這個品項的批號，請先去管理中心新增批號</option>';
   } else {
     correctSel.innerHTML = '<option value="">請先選藥品8碼</option>';
   }
@@ -9241,7 +9300,7 @@ function renderPcvReport(){
       <td class="c">${endValue}</td>
       <td style="font-size:13px">${r.note||''}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「肺炎鏈球菌疫苗報表」，請到主檔維護把對應品項的「特殊月報表分類」設為此類別</td></tr>`;
+  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「肺炎鏈球菌疫苗報表」，請到管理中心把對應品項的「特殊月報表分類」設為此類別</td></tr>`;
 }
 
 async function exportPcvReportExcel(){
@@ -9327,7 +9386,7 @@ function renderBcgReport(){
       <td class="c">${r.vaccinated}</td>
       <td style="font-size:13px;${returnNote?'color:#A32D2D':''}">${noteFull}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「卡介苗報表」，請到主檔維護把卡介苗的「特殊月報表分類」設為此類別</td></tr>`;
+  }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:#bbb">目前沒有品項被設定為「卡介苗報表」，請到管理中心把卡介苗的「特殊月報表分類」設為此類別</td></tr>`;
 }
 
 async function exportBcgReportExcel(){
@@ -9450,7 +9509,7 @@ async function renderHbigReport(){
             <tr><td>核銷及賠償(劑)</td><td class="c">${mfield('ig_writeoff','',80)}</td></tr>
             <tr><td>本月結存量(劑)</td><td class="c" style="font-weight:600">${igRows.reduce((a,r)=>a+endOf(r),0)}</td></tr>
           </tbody></table>
-        ` : `<div style="color:#bbb;font-size:13px">尚未在主檔維護把免疫球蛋白品項設定為「B肝報表－免疫球蛋白」分類</div>`}
+        ` : `<div style="color:#bbb;font-size:13px">尚未在管理中心把免疫球蛋白品項設定為「B肝報表－免疫球蛋白」分類</div>`}
       </div>
       <div style="flex:1;min-width:340px;border:1px solid #eee;border-radius:8px;padding:14px">
         <div style="font-weight:600;color:#1B3A6B;margin-bottom:8px">遺傳工程疫苗</div>
@@ -9467,7 +9526,7 @@ async function renderHbigReport(){
             <tr><td>本月結存量(劑)</td><td class="c" style="font-weight:600">${vacRows.reduce((a,r)=>a+endOf(r),0)}</td></tr>
           </tbody></table>
           <div id="hbig-dose-warning" style="margin-top:8px"></div>
-        ` : `<div style="color:#bbb;font-size:13px">尚未在主檔維護把遺傳工程B肝疫苗品項設定為「B肝報表－遺傳工程疫苗」分類</div>`}
+        ` : `<div style="color:#bbb;font-size:13px">尚未在管理中心把遺傳工程B肝疫苗品項設定為「B肝報表－遺傳工程疫苗」分類</div>`}
       </div>
     </div>
     ${(igRows.length>3 || vacRows.length>3) ? `<div style="color:#A32D2D;font-size:12px;margin-top:8px">⚠️ 匯出Excel的「結存情況」區塊最多只能列3個批號，目前${igRows.length>3?'免疫球蛋白':'遺傳工程疫苗'}超過3個批號，匯出時只會列出前3個，其餘請自行於Excel補上</div>` : ''}
