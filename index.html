@@ -217,6 +217,8 @@ tr:hover td{background:#fafaf8}
 .fg label{font-size:13px;color:#666}
 .fg input,.fg select{padding:7px 9px;font-size:15px;border-radius:8px;border:1px solid #d5d5d5;background:#fff;color:#1a1a1a}
 .mfooter{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.role-wh #mst-sub-pages,.role-wh #mst-sub-accounts,.role-wh button[onclick="openVaccineModal()"],.role-wh button[onclick="openVaccineBatch()"],.role-wh #btn-del-vacc,.role-wh #vacc-danger,.role-wh #vacc-save-btn{display:none !important}
+.role-wh #vacc-ro-note{display:block !important}
 .vsec{border:1px solid #e8ecf2;border-radius:10px;padding:10px 14px;margin-bottom:10px;background:#fcfcfb}
 .vsec-title{font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px}
 details.vsec>summary.vsec-title{cursor:pointer;margin-bottom:0;list-style-position:inside}
@@ -273,6 +275,10 @@ input[type=number]{-moz-appearance:textfield}
           <input class="inp" type="text" id="u-user" placeholder="請輸入員編" autocomplete="off" oninput="loginLookupName()">
         </div>
         <div id="u-name" style="min-height:24px;margin:-6px 0 12px;font-size:16px;color:#1B3A6B;font-weight:600"></div>
+        <div class="field" id="u-pass-wrap" style="display:none">
+          <label class="lbl">密碼（管理者）</label>
+          <input class="inp" type="password" id="u-pass" placeholder="請輸入密碼；第一次登入可留空" autocomplete="current-password">
+        </div>
         <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
         <button class="btn-login" id="login-btn" onclick="login()" style="background:#1B3A6B">登入</button>
       </div>
@@ -291,6 +297,7 @@ input[type=number]{-moz-appearance:textfield}
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:14px;color:rgba(255,255,255,0.8)" id="topbar-name"></span>
+      <button class="btn btn-sm" id="btn-my-pw" onclick="openMyPwModal()" style="background:rgba(255,255,255,0.9);display:none">🔑 修改密碼</button>
       <button class="btn-out" onclick="logout()">登出</button>
     </div>
   </div>
@@ -1118,6 +1125,7 @@ input[type=number]{-moz-appearance:textfield}
 <div class="modal-bg" id="modal-vaccine">
   <div class="modal" style="width:960px;max-width:96vw;max-height:90vh;overflow-y:auto">
     <h3 id="vacc-modal-title">新增疫苗</h3>
+    <div id="vacc-ro-note" style="display:none;font-size:13px;color:#C77700;background:#FFF8EC;border-radius:6px;padding:6px 10px;margin-bottom:10px">藥庫權限：品項設定只能檢視，批號管理可以操作。</div>
     <input type="hidden" id="vacc-edit-code">
 
     <!-- ① 基本資料 -->
@@ -1261,7 +1269,7 @@ input[type=number]{-moz-appearance:textfield}
         <button class="btn btn-sm" id="vacc-danger-delete" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0">🗑 永久刪除</button>
       </div>
       <button class="btn" onclick="closeModal('modal-vaccine')">關閉</button>
-      <button class="btn btn-primary" onclick="saveVaccine()">儲存</button>
+      <button class="btn btn-primary" id="vacc-save-btn" onclick="saveVaccine()">儲存</button>
     </div>
   </div>
 </div>
@@ -1486,7 +1494,7 @@ input[type=number]{-moz-appearance:textfield}
 <div class="modal-bg" id="modal-reset-pw">
   <div class="modal">
     <h3>重設密碼</h3>
-    <div style="font-size:15px;margin-bottom:14px">確定將 <strong id="reset-pw-name"></strong> 的密碼重設為員編？</div>
+    <div style="font-size:15px;margin-bottom:14px">確定重設 <strong id="reset-pw-name"></strong> 的密碼？重設後，他下次登入時要重新設定密碼。</div>
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-reset-pw')">取消</button>
       <button class="btn btn-primary" onclick="confirmResetPw()">確定重設</button>
@@ -1524,6 +1532,21 @@ input[type=number]{-moz-appearance:textfield}
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-roster'); rosterDiff=null;">取消</button>
       <button class="btn btn-primary" id="roster-apply-btn" onclick="rosterApply()">確認套用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 管理者第一次登入設定密碼 -->
+<div class="modal-bg" id="modal-set-pw">
+  <div class="modal">
+    <h3>設定管理者密碼</h3>
+    <div style="font-size:14px;color:#666;margin-bottom:12px">管理者帳號登入需要密碼。這是第一次登入，請設定密碼（至少 6 個字元），之後登入都要輸入。</div>
+    <div class="fg"><label>新密碼</label><input type="password" id="setpw-new" class="inp" autocomplete="new-password"></div>
+    <div class="fg"><label>再輸入一次</label><input type="password" id="setpw-confirm" class="inp" autocomplete="new-password"></div>
+    <div id="setpw-msg" style="display:none" class="notice n-warn"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-set-pw'); setPwUser=null;">取消</button>
+      <button class="btn btn-primary" onclick="submitSetPw()">設定並登入</button>
     </div>
   </div>
 </div>
@@ -1728,17 +1751,41 @@ function loginLookupName(){
   const box = document.getElementById('u-name');
   const eid = document.getElementById('u-user').value.trim();
   document.getElementById('u-err').style.display = 'none';
-  if(eid.length < 3){ box.textContent = ''; return; }
+  if(eid.length < 3){ box.textContent = ''; document.getElementById('u-pass-wrap').style.display = 'none'; return; }
   loginLookupTimer = setTimeout(async ()=>{
-    const { data } = await sb.from('users').select('emp_id,name,campus,is_active').ilike('emp_id', eid);
+    const { data } = await sb.from('users').select('emp_id,name,campus,role,is_active').ilike('emp_id', eid);
     if(document.getElementById('u-user').value.trim() !== eid) return;
     const u = data && data[0];
+    document.getElementById('u-pass-wrap').style.display = (u && u.role==='admin' && u.is_active!==false) ? '' : 'none';
     if(!u){ box.style.color = '#bbb'; box.textContent = '查無此員編'; return; }
     if(u.is_active === false){ box.style.color = '#A32D2D'; box.textContent = `${u.name}（帳號已停用）`; return; }
     const camp = {dl:'斗六院區', hw:'虎尾院區'}[u.campus] || '兩院區';
     box.style.color = '#1B3A6B';
     box.innerHTML = `👤 ${String(u.name||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}<span style="font-size:13px;font-weight:400;color:#555;margin-left:8px;padding:2px 8px;border:1px solid #d5d5d5;border-radius:8px;vertical-align:middle">${camp}</span>`;
   }, 250);
+}
+
+// 管理者密碼：存 SHA-256 雜湊（員編＋密碼），資料庫看不到原本的密碼
+async function pwHash(eid, pw){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(eid).trim().toUpperCase()+'|'+pw));
+  return 'sha256:' + [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function pwIsSet(v){ return typeof v === 'string' && v.startsWith('sha256:'); }
+let setPwUser = null;
+async function submitSetPw(){
+  const a = document.getElementById('setpw-new').value, b = document.getElementById('setpw-confirm').value;
+  const msg = t => { const m = document.getElementById('setpw-msg'); m.style.display=''; m.textContent = t; };
+  if(!setPwUser) return;
+  if(a.length < 6){ msg('密碼至少需要 6 個字元'); return; }
+  if(a !== b){ msg('兩次輸入的密碼不一致'); return; }
+  const h = await pwHash(setPwUser.emp_id, a);
+  const { error } = await sb.from('users').update({ password: h }).eq('emp_id', setPwUser.emp_id);
+  if(error){ msg('設定失敗：'+error.message); return; }
+  const u = { ...setPwUser, password: h };
+  setPwUser = null;
+  closeModal('modal-set-pw');
+  appToast('已設定密碼');
+  finishLogin(u);
 }
 
 async function login(){
@@ -1758,6 +1805,25 @@ async function login(){
   const user = data[0];
   if(user.is_active === false){ err.textContent = '帳號已停用'; err.style.display='block'; return; }
 
+  // 管理者需要密碼；還沒設定過（不是雜湊值）就先設定
+  if(user.role === 'admin'){
+    if(pwIsSet(user.password)){
+      const pw = document.getElementById('u-pass').value;
+      document.getElementById('u-pass-wrap').style.display = '';
+      if(!pw){ err.textContent = '管理者請輸入密碼'; err.style.display='block'; document.getElementById('u-pass').focus(); return; }
+      if(await pwHash(user.emp_id, pw) !== user.password){ err.textContent = '密碼錯誤'; err.style.display='block'; return; }
+    } else {
+      setPwUser = user;
+      ['setpw-new','setpw-confirm'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('setpw-msg').style.display = 'none';
+      document.getElementById('modal-set-pw').classList.add('open');
+      return;
+    }
+  }
+  finishLogin(user);
+}
+
+function finishLogin(user){
   // 決定登入院區
   const loginCampus = (user.role === 'admin' || user.role === 'warehouse')
     ? 'dl'  // 管理者/藥庫藥師預設斗六，系統內可切換
@@ -1772,6 +1838,8 @@ function logout(){
   me = null;
   document.getElementById('u-user').value = '';
   document.getElementById('u-name').textContent = '';
+  document.getElementById('u-pass').value = '';
+  document.getElementById('u-pass-wrap').style.display = 'none';
   document.getElementById('u-err').style.display = 'none';
   document.getElementById('s-app').classList.remove('active');
   document.getElementById('s-login').classList.add('active');
@@ -1789,6 +1857,8 @@ async function initApp(){
   const campusLabel = me._loginCampus === 'hw' ? '虎尾院區' : '斗六院區';
   const campusPill = me._loginCampus === 'hw' ? 'pill-hw' : 'pill-dl';
   const isManager = me.role === 'admin' || me.role === 'warehouse';
+  document.body.classList.toggle('role-wh', me.role==='warehouse');
+  document.getElementById('btn-my-pw').style.display = me.role==='admin' ? '' : 'none';
   if(isManager){ pill.textContent = me.role==='admin'?'管理者':'藥庫'; pill.className='site-pill pill-admin'; }
   else{ pill.textContent=campusLabel; pill.className='site-pill '+campusPill; }
 
@@ -4506,6 +4576,13 @@ async function openVaccineModal(code8){
   } else {
     danger.style.display = 'none';
   }
+  // 藥庫：品項設定唯讀，只有批號管理區可以操作
+  const lockVacc = me && me.role === 'warehouse';
+  document.querySelectorAll('#modal-vaccine input, #modal-vaccine select, #modal-vaccine textarea').forEach(e=>{
+    if(e.type==='hidden' || e.closest('#vacc-lots-section')) return;
+    if(lockVacc){ if(!e.disabled) e.dataset.roLocked = '1'; e.disabled = true; }
+    else if(e.dataset.roLocked){ e.disabled = false; delete e.dataset.roLocked; }
+  });
   document.getElementById('modal-vaccine').classList.add('open');
 }
 
@@ -5275,6 +5352,7 @@ async function renderAccounts(){
         </select>
       </td>
       <td style="white-space:nowrap">
+        ${u.role==='admin' && me.role==='admin' && u.emp_id!==me.emp_id ? `<button class="btn btn-sm" style="font-size:13px" onclick="openResetPw('${u.emp_id}','${u.name}')">🔑 重設密碼</button>` : ''}
         ${u.emp_id===me.emp_id ? '' : `<button class="btn btn-sm" style="font-size:13px;${off?'':'color:#A32D2D;border-color:#f0c0c0'}" onclick="setAccActive('${u.emp_id}', ${off})">${off?'恢復':'停用'}</button>`}
       </td>
     </tr>`;
@@ -5559,10 +5637,11 @@ function openResetPw(empId, name){
 }
 async function confirmResetPw(){
   if(!resetPwTarget) return;
-  await sb.from('users').update({password:resetPwTarget}).eq('emp_id', resetPwTarget);
+  const { error } = await sb.from('users').update({password:resetPwTarget}).eq('emp_id', resetPwTarget);
   closeModal('modal-reset-pw');
   resetPwTarget = null;
-  alert('✓ 密碼已重設為員編');
+  if(error){ alert('重設失敗：'+error.message); return; }
+  appToast('已重設密碼，下次登入會重新設定');
 }
 
 /* ── 使用者自行修改密碼（不需要管理員操作） ── */
@@ -5582,17 +5661,18 @@ async function submitMyPwChange(){
   const showMsg = t => { msgBox.style.display=''; msgBox.textContent = t; };
 
   if(!cur || !nw || !confirmPw){ showMsg('請完整填寫三個欄位'); return; }
-  if(cur.toLowerCase() !== String(me.password).toLowerCase()){ showMsg('目前密碼不正確'); return; }
-  if(nw.length < 4){ showMsg('新密碼至少需要4個字元'); return; }
+  if(await pwHash(me.emp_id, cur) !== me.password){ showMsg('目前密碼不正確'); return; }
+  if(nw.length < 6){ showMsg('新密碼至少需要 6 個字元'); return; }
   if(nw !== confirmPw){ showMsg('兩次輸入的新密碼不一致'); return; }
-  if(nw.toLowerCase() === cur.toLowerCase()){ showMsg('新密碼不能跟目前密碼一樣'); return; }
+  if(nw === cur){ showMsg('新密碼不能跟目前密碼一樣'); return; }
 
-  const { error } = await sb.from('users').update({password:nw}).eq('emp_id', me.emp_id);
+  const h = await pwHash(me.emp_id, nw);
+  const { error } = await sb.from('users').update({password:h}).eq('emp_id', me.emp_id);
   if(error){ showMsg('修改失敗：'+error.message); return; }
 
-  me.password = nw;
+  me.password = h;
   closeModal('modal-my-pw');
-  alert('✓ 密碼已修改完成，下次登入請用新密碼');
+  appToast('密碼已修改，下次登入請用新密碼');
 }
 
 
@@ -5622,6 +5702,7 @@ function findColIdx(header, keywords){
    主檔維護（疫苗主檔／分頁設定／帳號管理）
 ══════════════════════════════════════════ */
 function switchMasterSub(tab){
+  if(me && me.role==='warehouse' && (tab==='pages' || tab==='accounts' || tab==='init-stock')) tab = 'vaccines';
   ['vaccines','pages','accounts','init-stock','usage','flu','reminders'].forEach(t=>{
     document.getElementById('mst-sub-'+t).classList.toggle('active', t===tab);
     document.getElementById('master-panel-'+t).style.display = t===tab?'':'none';
@@ -9971,7 +10052,8 @@ async function exportMonthlyReportExcel(){
 }
 
 document.querySelectorAll('.modal-bg').forEach(el => el.addEventListener('click', function(e){ if(e.target===this) closeModal(this.id); }));
-document.getElementById('u-user').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
+document.getElementById('u-user').addEventListener('keydown', e => { if(e.key==='Enter'){ if(document.getElementById('u-pass-wrap').style.display==='none') login(); else document.getElementById('u-pass').focus(); } });
+document.getElementById('u-pass').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
 </script>
 <script>
 /* ===== 全系統表格：點欄位標題排序（跟主檔維護同一套操作：點一次升冪▲、再點一次降冪▼） =====
