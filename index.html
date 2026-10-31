@@ -1600,11 +1600,13 @@ input[type=number]{-moz-appearance:textfield}
 <div class="modal-bg" id="modal-rec-date-fix">
   <div class="modal">
     <h3>整天日期更正</h3>
-    <div style="font-size:13px;color:#888;margin-bottom:14px">把「錯的日期」那一整天的盤點紀錄，搬到「對的日期」，不用一筆一筆重新輸入。只有「同一個品項在兩天都有盤點紀錄」才算衝突，這幾筆不會搬、會留在原本的日期請自行處理；其他不衝突的品項會正常搬過去，不會因為對的日期已經有別的品項紀錄就整批擋下來。</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px">把「錯的日期」的盤點紀錄搬到「對的日期」。可以只搬某個分頁，或取消勾選不搬的品項。對的日期已經有同一品項的紀錄時，那一項不會搬。</div>
     <div class="fg"><label>站點</label>
-      <select id="recfix-site" class="inp"><option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option></select>
+      <select id="recfix-site" class="inp" onchange="recFixLoadPages()"><option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option></select>
     </div>
-    <div class="fg"><label>錯的日期</label><input type="date" id="recfix-wrong-date" class="inp"></div>
+    <div class="fg"><label>錯的日期</label><input type="date" id="recfix-wrong-date" class="inp" onchange="recFixPreview()"></div>
+    <div class="fg"><label>分頁</label><select id="recfix-page" class="inp" onchange="recFixPreview()"><option value="">全部分頁</option></select></div>
+    <div class="fg"><label>要搬的品項</label><div id="recfix-list" style="max-height:220px;overflow-y:auto;border:1px solid #e8e8e8;border-radius:8px;padding:6px 10px;font-size:14px;color:#999">先選錯的日期</div></div>
     <div class="fg"><label>對的日期</label><input type="date" id="recfix-correct-date" class="inp"></div>
     <div id="recfix-msg" style="display:none" class="notice n-warn"></div>
     <div class="mfooter">
@@ -2138,10 +2140,13 @@ async function loadMyItems(){
   return (data || []).filter(it => it.vaccine_master && it.vaccine_master.status === 'active');
 }
 
+function fmtDateDow(d){ return `${+d.slice(5,7)}/${+d.slice(8,10)}（週${'日一二三四五六'[new Date(d+'T00:00:00').getDay()]}）`; }
 async function renderInv(){
   const site = mySite();
   const label = site==='dl' ? '斗六院區' : site==='hw' ? '虎尾院區' : '藥庫';
-  const selDate = document.getElementById('inv-date').value || todayStr();
+  let selDate = document.getElementById('inv-date').value || todayStr();
+  document.getElementById('inv-date').max = todayStr();
+  if(selDate > todayStr()){ appToast('不能選未來的日期，已改回今天'); selDate = todayStr(); }
   document.getElementById('inv-date').value = selDate;
 
   document.getElementById('inv-admin-switcher').style.display = (me.role==='admin'||me.role==='warehouse') ? '' : 'none';
@@ -2440,6 +2445,9 @@ async function saveInv(){
     return;
   }
 
+  const resetBtn = () => { saveBtn.disabled = false; saveBtn.textContent = '💾 儲存盤點'; };
+  if(selDate > todayStr()){ alert('不能儲存未來日期的盤點'); resetBtn(); return; }
+  if(selDate < shiftDate(todayStr(), -1) && !await appConfirm(`你正在補登 ${fmtDateDow(selDate)} 的盤點，確定日期正確嗎？`, {title:'確認盤點日期', okText:'確定儲存'})){ resetBtn(); return; }
   pendingItems.forEach(it=>invSumLots(it.drug_code8));
   const lotRowsToSave = [];
   pendingItems.forEach(it=>{
@@ -2751,10 +2759,44 @@ async function confirmRecDelete(){
 }
 
 /* ── 整天盤點日期更正：把某天某站點整批盤點紀錄搬到正確日期 ── */
+async function recFixLoadPages(){
+  const site = document.getElementById('recfix-site').value;
+  const { data } = await sb.from('tally_pages').select('page_id,page_name,sort_order').eq('campus', site).order('sort_order');
+  document.getElementById('recfix-page').innerHTML = '<option value="">全部分頁</option>' + (data||[]).map(p=>`<option value="${p.page_id}">${p.page_name}</option>`).join('');
+  recFixPreview();
+}
+let recFixRows = [];
+async function recFixPreview(){
+  const site = document.getElementById('recfix-site').value;
+  const wrongDate = document.getElementById('recfix-wrong-date').value;
+  const pageId = document.getElementById('recfix-page').value;
+  const box = document.getElementById('recfix-list');
+  recFixRows = [];
+  if(!wrongDate){ box.innerHTML = '先選錯的日期'; return; }
+  box.innerHTML = '載入中...';
+  const { data: rows } = await sb.from('tally_records').select('record_id,drug_code8,tally_qty').eq('campus', site).eq('tally_date', wrongDate);
+  let list = rows || [];
+  if(pageId){
+    const { data: ci } = await sb.from('vaccine_campus_items').select('drug_code8').eq('campus', site).eq('page_id', pageId);
+    const onPage = new Set((ci||[]).map(x=>x.drug_code8));
+    list = list.filter(r=>onPage.has(r.drug_code8));
+  }
+  if(!list.length){ box.innerHTML = '這天沒有可以搬的盤點紀錄'; return; }
+  const { data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name').in('drug_code8', list.map(r=>r.drug_code8));
+  const nm = {}; (vrows||[]).forEach(v=>nm[v.drug_code8]=v.tally_name);
+  recFixRows = list.map(r=>({ ...r, name: nm[r.drug_code8] || r.drug_code8 })).sort((a,b)=>String(a.name).localeCompare(String(b.name),'zh-Hant'));
+  box.innerHTML = `<label style="display:flex;gap:6px;align-items:center;color:#555;padding:3px 0;border-bottom:1px solid #eee;margin-bottom:4px"><input type="checkbox" checked onchange="document.querySelectorAll('.recfix-chk').forEach(c=>c.checked=this.checked)">全選（${recFixRows.length} 項）</label>`
+    + recFixRows.map((r,i)=>`<label style="display:flex;gap:6px;align-items:center;color:#333;padding:3px 0"><input type="checkbox" class="recfix-chk" data-i="${i}" checked><span style="flex:1">${r.name}</span><span style="color:#888">${r.tally_qty}</span></label>`).join('');
+}
 function openRecDateFixModal(){
-  document.getElementById('recfix-site').value = recIsAdmin ? 'dl' : mySite();
+  const siteSel = document.getElementById('recfix-site');
+  siteSel.value = recIsAdmin ? (document.getElementById('rec-site').value || 'dl') : mySite();
+  siteSel.disabled = !recIsAdmin;
   document.getElementById('recfix-wrong-date').value = recSelDate || todayStr();
+  document.getElementById('recfix-wrong-date').max = todayStr();
+  document.getElementById('recfix-correct-date').max = todayStr();
   document.getElementById('recfix-correct-date').value = '';
+  recFixLoadPages();
   document.getElementById('recfix-msg').style.display = 'none';
   document.getElementById('modal-rec-date-fix').classList.add('open');
 }
@@ -2768,10 +2810,12 @@ async function confirmRecDateFix(){
 
   if(!site || !wrongDate || !correctDate){ showMsg('請完整選擇站點、錯的日期、對的日期'); return; }
   if(wrongDate === correctDate){ showMsg('錯的日期跟對的日期不能一樣'); return; }
-
-  const { data: wrongRows, error: wrongErr } = await sb.from('tally_records').select('record_id,drug_code8').eq('campus', site).eq('tally_date', wrongDate);
-  if(wrongErr){ showMsg('查詢失敗：'+wrongErr.message); return; }
-  if(!wrongRows || !wrongRows.length){ showMsg(`${wrongDate} 這天這個站點查無任何盤點紀錄`); return; }
+  if(correctDate > todayStr()){ showMsg('對的日期不能是未來的日期'); return; }
+  if(!recIsAdmin && site !== mySite()){ showMsg('只能更正自己院區的盤點'); return; }
+  const picked = new Set([...document.querySelectorAll('.recfix-chk')].filter(c=>c.checked).map(c=>recFixRows[+c.dataset.i].record_id));
+  const wrongRows = recFixRows.filter(r=>picked.has(r.record_id));
+  if(!wrongRows.length){ showMsg('請至少勾選一個要搬的品項'); return; }
+  if(correctDate < shiftDate(todayStr(), -1) && !await appConfirm(`要搬到 ${fmtDateDow(correctDate)}，確定日期正確嗎？`, {title:'確認日期', okText:'確定'})) return;
 
   const { data: correctRows, error: correctErr } = await sb.from('tally_records').select('record_id,drug_code8').eq('campus', site).eq('tally_date', correctDate);
   if(correctErr){ showMsg('查詢失敗：'+correctErr.message); return; }
@@ -2783,7 +2827,7 @@ async function confirmRecDateFix(){
   const moveRows = wrongRows.filter(r => !correctCodeSet.has(r.drug_code8));
 
   if(!moveRows.length){
-    showMsg(`${wrongDate} 這天所有品項在 ${correctDate} 都已經有盤點紀錄了，沒有可以搬的，請先手動處理那天的資料`);
+    showMsg(`勾選的品項在 ${correctDate} 都已經有盤點紀錄了，沒有可以搬的，請先手動處理那天的資料`);
     return;
   }
 
