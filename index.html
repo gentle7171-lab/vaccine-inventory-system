@@ -843,6 +843,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')" style="display:none">🎯 起始庫存匯入</div>
         <div class="subtab" id="mst-sub-usage" onclick="switchMasterSub('usage')">📈 品項耗用查詢</div>
         <div class="subtab" id="mst-sub-flu" onclick="switchMasterSub('flu')">🍂 流感季</div>
+        <div class="subtab" id="mst-sub-fridge" onclick="switchMasterSub('fridge')">🧊 冰箱配置</div>
         <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
       </div>
 
@@ -1056,6 +1057,17 @@ input[type=number]{-moz-appearance:textfield}
           <div id="flu-current" style="margin-bottom:20px"></div>
           <div id="flu-history"></div>
         </div>
+      </div>
+      <div id="master-panel-fridge" style="display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+          <input type="month" id="fr-month" class="inp" style="width:160px" onchange="frLoadMonth()">
+          <input type="text" id="fr-hosp" class="inp" style="width:160px" placeholder="院所名稱" onchange="frSaveHosp(this.value)" title="月報表上的院所名稱">
+          <button class="btn btn-sm" onclick="frAllColor('A-')" title="還沒填的變色情況都填 A-">變色空白的都填 A-</button>
+          <button class="btn btn-sm" onclick="frExportMonth()">📥 匯出月報表</button>
+          <button class="btn btn-sm btn-primary" onclick="frEditFridge(null)" style="margin-left:auto">＋ 新增冰箱</button>
+        </div>
+        <datalist id="fr-color-list"><option value="A-"><option value="A 1/5"><option value="A 2/5"><option value="A 3/5"><option value="A 4/5"><option value="A"><option value="B"><option value="C"><option value="D"></datalist>
+        <div id="fr-body"></div>
       </div>
       <div id="master-panel-reminders" style="display:none">
         <div id="hissetup-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
@@ -1566,6 +1578,61 @@ input[type=number]{-moz-appearance:textfield}
     <div class="mfooter">
       <button class="btn" onclick="closeModal('modal-dose-edit')">取消</button>
       <button class="btn btn-primary" onclick="saveDoseEdit()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 冰箱設定 -->
+<div class="modal-bg" id="modal-fr-fridge">
+  <div class="modal">
+    <h3>冰箱設定</h3>
+    <div class="fg"><label>冰箱名稱</label><input id="frf-name" class="inp" placeholder="例：藥冰箱7"></div>
+    <div class="fg"><label>月報表標示（直排在左側）</label><input id="frf-label" class="inp" placeholder="例：藥冰箱7；留空用冰箱名稱"></div>
+    <div class="fg"><label>溫流表抬頭位置</label><input id="frf-place" class="inp" placeholder="例：藥庫 7"></div>
+    <div class="fg"><label>溫流表冰箱編號</label><input id="frf-mapno" class="inp" placeholder="例：A"></div>
+    <div class="fg"><label>層數</label><input id="frf-layers" type="number" min="1" max="12" class="inp" style="width:90px"></div>
+    <div class="mfooter">
+      <button class="btn" id="frf-del" style="color:#A32D2D;border-color:#f0c0c0;margin-right:auto" onclick="frDeleteFridge()">刪除冰箱</button>
+      <button class="btn" onclick="closeModal('modal-fr-fridge')">取消</button>
+      <button class="btn btn-primary" onclick="frSaveFridge()">儲存</button>
+    </div>
+  </div>
+</div>
+<!-- 冰箱裡的疫苗 -->
+<div class="modal-bg" id="modal-fr-item">
+  <div class="modal">
+    <h3>疫苗位置</h3>
+    <div class="fg"><label>品項</label><select id="fri-code" class="inp" onchange="frItemPicked()"></select></div>
+    <div class="fg"><label>報表顯示名稱</label><input id="fri-label" class="inp" placeholder="例：HAB(幼兒)、PCV20(成人)"></div>
+    <div style="display:flex;gap:10px">
+      <div class="fg" style="flex:1"><label>溫度監視卡效期</label><input id="fri-exp" class="inp" placeholder="例：116.9.9"></div>
+      <div class="fg" style="flex:1"><label>監視卡號碼</label><input id="fri-no" class="inp" placeholder="例：5252"></div>
+    </div>
+    <div class="fg"><label>放在</label><select id="fri-layer" class="inp" style="width:120px"></select></div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:14px;margin-bottom:6px"><input type="checkbox" id="fri-live"> 活性減毒疫苗（例：MMR、VAR、BCG、活性 JE），建議放最低溫層</label>
+    <div class="mfooter">
+      <button class="btn" id="fri-del" style="color:#A32D2D;border-color:#f0c0c0;margin-right:auto" onclick="frDeleteItem()">移除</button>
+      <button class="btn" onclick="closeModal('modal-fr-item')">取消</button>
+      <button class="btn btn-primary" onclick="frSaveItem()">儲存</button>
+    </div>
+  </div>
+</div>
+<!-- 溫流圖 -->
+<div class="modal-bg" id="modal-fr-map">
+  <div class="modal" style="max-width:640px;width:96%;max-height:90vh;overflow-y:auto">
+    <h3 id="frm-title">溫流圖</h3>
+    <div class="fg"><label>量測紀錄</label><select id="frm-hist" class="inp" onchange="frOpenMap(frMapCtx.fid, this.value||null)"></select></div>
+    <div style="display:flex;gap:10px">
+      <div class="fg" style="flex:1"><label>監測開始</label><input id="frm-start" class="inp" placeholder="115.09.24 17:00"></div>
+      <div class="fg" style="flex:1"><label>監測結束</label><input id="frm-end" class="inp" placeholder="115.09.29 08:00"></div>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:6px">面對冰箱正面，由上到下為第 1、2⋯層。超出 2～8℃ 的數字會變紅。</div>
+    <div id="frm-grid" style="overflow-x:auto"></div>
+    <div class="mfooter">
+      <button class="btn" id="frm-del" style="color:#A32D2D;border-color:#f0c0c0;margin-right:auto" onclick="frDeleteMap()">刪除</button>
+      <button class="btn" onclick="frExportMap()">📥 匯出溫流表</button>
+      <button class="btn" onclick="closeModal('modal-fr-map')">取消</button>
+      <button class="btn btn-primary" onclick="frSaveMap()">儲存</button>
     </div>
   </div>
 </div>
@@ -3224,6 +3291,327 @@ async function lotEmptyDeactivate(code8, lot){
   appToast('已停用批號');
   renderLotEmptyPanel();
 }
+
+/* ══════════════ 冰箱配置圖・溫度監視卡月報表・溫流圖 ══════════════
+   資料存在 app_settings：
+   fridge_config        ：{ hospital, fridges:[{id,name,reportLabel,place,mapNo,layers,items:[{id,code8,label,layer,cardExp,cardNo}]}], live:{code8:true} }
+   fridge_month_YYYY-MM ：{ color:{itemId:'A-'}, packs:[{exp,broken}×9], breakTime, breakReason }
+   fridge_map_<id>      ：[{ id, start, end, layers:[{bLmin,bLmax,bRmin,bRmax,fLmin,fLmax,fRmin,fRmax}] }]（新到舊） */
+let frCfg = null, frMonth = null, frMaps = {}, frItems = [], frDrag = null, frMonthTimer = null;
+const FR_KEYS = ['bLmin','bLmax','bRmin','bRmax','fLmin','fLmax','fRmin','fRmax'];
+async function frGet(key, def){ const { data } = await sb.from('app_settings').select('value').eq('key', key).maybeSingle(); try{ return data && data.value ? JSON.parse(data.value) : def; }catch(e){ return def; } }
+async function frSet(key, val){ const { error } = await sb.from('app_settings').upsert({ key, value: JSON.stringify(val), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' }); if(error) alert('儲存失敗：'+error.message); return !error; }
+const frSaveCfg = () => frSet('fridge_config', frCfg);
+const frEsc = t => String(t==null?'':t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const frId = () => 'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+async function initFridgeTab(){
+  const m = document.getElementById('fr-month');
+  if(!m.value) m.value = todayStr().slice(0,7);
+  frCfg = await frGet('fridge_config', null) || { hospital:'台大雲林', fridges:[], live:{} };
+  frCfg.live = frCfg.live || {};
+  document.getElementById('fr-hosp').value = frCfg.hospital || '';
+  const { data } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of').eq('status','active').order('tally_name');
+  frItems = data || [];
+  frMaps = {};
+  for(const f of frCfg.fridges) frMaps[f.id] = await frGet('fridge_map_'+f.id, []);
+  await frLoadMonth();
+}
+async function frLoadMonth(){
+  const ym = document.getElementById('fr-month').value;
+  frMonth = await frGet('fridge_month_'+ym, null);
+  if(!frMonth){
+    // 新的月份：冷凍片沿用上個月，變色情況留空（顯示上月數值當參考）
+    const prev = await frGet('fridge_month_'+shiftYm(ym,-1), null);
+    frMonth = { color:{}, packs: prev ? JSON.parse(JSON.stringify(prev.packs||[])) : [], breakTime:'', breakReason:'', _prevColor: prev ? prev.color||{} : {} };
+  } else frMonth._prevColor = (await frGet('fridge_month_'+shiftYm(ym,-1), {})).color || {};
+  while(frMonth.packs.length < 9) frMonth.packs.push({ exp:'', broken:'否' });
+  renderFridge();
+}
+function frSaveMonthSoon(){ clearTimeout(frMonthTimer); frMonthTimer = setTimeout(()=>{ const ym = document.getElementById('fr-month').value; const { _prevColor, ...d } = frMonth; frSet('fridge_month_'+ym, d); }, 600); }
+async function frSaveHosp(v){ frCfg.hospital = v.trim(); await frSaveCfg(); }
+
+// 依溫流圖判斷各層：最高溫＝最高溫讀值最高的層；最低溫＝最低溫讀值最低的層；次低溫＝最低溫第二低；其他＝次高溫
+function frRank(layers){
+  const st = layers.map((l,i)=>{ const v = k=>l&&l[k]!==''&&l[k]!=null&&!isNaN(l[k]) ? Number(l[k]) : null;
+    const mins = ['bLmin','bRmin','fLmin','fRmin'].map(v).filter(x=>x!==null), maxs = ['bLmax','bRmax','fLmax','fRmax'].map(v).filter(x=>x!==null);
+    const all = FR_KEYS.map(v).filter(x=>x!==null);
+    return { i, lo: mins.length?Math.min(...mins):null, hi: maxs.length?Math.max(...maxs):null, out: all.some(x=>x<2||x>8) }; });
+  const ok = st.filter(s=>s.lo!==null && s.hi!==null);
+  const label = st.map(()=>'');
+  if(ok.length < 2) return { st, label };
+  const hiL = ok.reduce((a,b)=>b.hi>a.hi?b:a).i;
+  const loL = ok.reduce((a,b)=>b.lo<a.lo?b:a).i;
+  const rest = ok.filter(s=>s.i!==loL && s.i!==hiL);
+  const lo2 = rest.length ? rest.reduce((a,b)=>b.lo<a.lo?b:a).i : null;
+  st.forEach(s=>{ if(s.lo===null||s.hi===null) return; label[s.i] = s.i===hiL?'最高溫':s.i===loL?'最低溫':s.i===lo2?'次低溫':'次高溫'; });
+  return { st, label };
+}
+const FR_TAG = { '最高溫':'#A32D2D', '次高溫':'#C77700', '次低溫':'#0E7C86', '最低溫':'#1B3A6B' };
+
+function frWarnings(f){
+  const maps = frMaps[f.id] || [], w = [];
+  if(!maps.length){ w.push({ lv:'info', t:'還沒有溫流資料，按「🌡 溫流圖」輸入量測結果，系統才能判斷各層溫度。' }); return { w, rank:null, map:null }; }
+  const map = maps[0], rank = frRank(map.layers);
+  rank.st.forEach(s=>{ if(s.out) w.push({ lv:'bad', t:`第${s.i+1}層有量測點超出 2～8℃（最低 ${s.lo}℃、最高 ${s.hi}℃）` }); });
+  const loL = rank.label.indexOf('最低溫'), hiL = rank.label.indexOf('最高溫'), lo2 = rank.label.indexOf('次低溫');
+  f.items.forEach(it=>{
+    const live = !!frCfg.live[it.code8], li = it.layer-1;
+    if(live && loL>=0 && li!==loL) w.push({ lv:'warn', t:`活性減毒「${it.label}」在第${it.layer}層（${rank.label[li]||'未量測'}），建議放最低溫層（第${loL+1}層）` });
+    if(!live && li===loL) w.push({ lv:'warn', t:`不活化「${it.label}」在最低溫層（第${it.layer}層），建議移到其他層` });
+    if(!live && rank.st[li] && rank.st[li].lo!==null && rank.st[li].lo<3) w.push({ lv:'warn', t:`第${it.layer}層最低 ${rank.st[li].lo}℃，低溫常在 2～3℃ 的層不建議放不活化疫苗（「${it.label}」）` });
+  });
+  if(hiL>=0 && lo2>=0) w.push({ lv:'info', t:`高低溫度計放第${hiL+1}層（最高溫）和第${lo2+1}層（次低溫）；凍片 2 片、data logger 跟次低溫層的溫度計放同一點，避開層架前端和出風口。` });
+  return { w, rank, map };
+}
+
+function renderFridge(){
+  const box = document.getElementById('fr-body');
+  if(!frCfg) return;
+  const ym = document.getElementById('fr-month').value;
+  const pk = frMonth.packs;
+  const packHtml = `<div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:8px">❄️ ${ym.replace('-','/')} 冷凍片</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">${pk.map((p,i)=>`<div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:12px;color:#999;width:16px">${i+1}</span>
+      <input class="inp" style="width:110px;font-size:14px" placeholder="效期 2027.07" value="${frEsc(p.exp)}" onchange="frMonth.packs[${i}].exp=this.value.trim();frSaveMonthSoon()">
+      <select class="inp" style="width:80px;font-size:14px" onchange="frMonth.packs[${i}].broken=this.value;frSaveMonthSoon()"><option${p.broken!=='是'?' selected':''}>否</option><option${p.broken==='是'?' selected':''}>是</option></select></div>`).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <input class="inp" style="flex:1;min-width:180px;font-size:14px" placeholder="破裂時間" value="${frEsc(frMonth.breakTime)}" onchange="frMonth.breakTime=this.value;frSaveMonthSoon()">
+      <input class="inp" style="flex:2;min-width:240px;font-size:14px" placeholder="破裂原因：哪種疫苗、凍片破裂、破裂幾片" value="${frEsc(frMonth.breakReason)}" onchange="frMonth.breakReason=this.value;frSaveMonthSoon()">
+    </div></div>`;
+  const cards = frCfg.fridges.map(f=>{
+    const { w, rank, map } = frWarnings(f);
+    const layerRows = Array.from({length:f.layers}, (_,i)=>{
+      const n = i+1, tag = rank ? rank.label[i] : '', st = rank ? rank.st[i] : null;
+      const its = f.items.filter(it=>it.layer===n);
+      return `<div class="fr-layer" data-fid="${f.id}" data-layer="${n}" ondragover="event.preventDefault();this.style.background='#EEF3FA'" ondragleave="this.style.background=''" ondrop="frDrop(event,this)" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-top:1px solid #eee;min-height:52px">
+        <div style="width:92px;flex-shrink:0"><div style="font-weight:600;color:#1B3A6B">第${n}層</div>
+          ${tag?`<span style="display:inline-block;margin-top:3px;font-size:12px;color:#fff;background:${FR_TAG[tag]};border-radius:8px;padding:1px 7px">${tag}</span>`:''}
+          ${st&&st.lo!==null?`<div style="font-size:11px;color:#999;margin-top:2px">${st.lo}～${st.hi}℃</div>`:''}</div>
+        <div style="flex:1;display:flex;flex-wrap:wrap;gap:6px">${its.map(it=>{
+          const live = !!frCfg.live[it.code8], col = frMonth.color[it.id]||'', prev = frMonth._prevColor[it.id]||'';
+          return `<div draggable="true" ondragstart="frDrag={fid:'${f.id}',id:'${it.id}'}" style="border:1px solid ${live?'#0E7C86':'#d5d9e2'};border-radius:8px;padding:6px 8px;background:#fff;min-width:150px;cursor:grab">
+            <div style="display:flex;justify-content:space-between;gap:6px"><span style="font-weight:600;cursor:pointer" onclick="frEditItem('${f.id}','${it.id}')">${frEsc(it.label)}</span>${live?'<span style="font-size:11px;color:#0E7C86">活性減毒</span>':''}</div>
+            <div style="font-size:12px;color:#666">監視卡 ${frEsc(it.cardExp)||'—'}${it.cardNo?`（${frEsc(it.cardNo)}）`:''}</div>
+            <input list="fr-color-list" class="inp" style="margin-top:4px;width:100%;box-sizing:border-box;font-size:13px;padding:3px 6px" placeholder="變色${prev?'（上月 '+frEsc(prev)+'）':''}" value="${frEsc(col)}" onchange="frMonth.color['${it.id}']=this.value.trim();frSaveMonthSoon()">
+          </div>`; }).join('')}
+          <button class="btn btn-sm" style="font-size:12px;align-self:center" onclick="frEditItem('${f.id}',null,${n})">＋</button></div>
+      </div>`;
+    }).join('');
+    return `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:12px;margin-bottom:14px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:#F5F7FA">
+        <span style="font-size:16px;font-weight:600;color:#1B3A6B;flex:1">🧊 ${frEsc(f.name)} <span style="font-size:12px;font-weight:400;color:#888">報表標示：${frEsc(f.reportLabel||f.name)}・${f.layers} 層${map?`・溫流 ${frEsc(map.start)}～${frEsc(map.end)}`:''}</span></span>
+        <button class="btn btn-sm" onclick="frOpenMap('${f.id}')">🌡 溫流圖</button>
+        <button class="btn btn-sm" onclick="frEditFridge('${f.id}')">✏️ 設定</button>
+      </div>
+      ${w.length?`<div style="padding:8px 14px;border-bottom:1px solid #eee">${w.map(x=>`<div style="font-size:13px;margin:2px 0;color:${x.lv==='bad'?'#A32D2D':x.lv==='warn'?'#C77700':'#666'}">${x.lv==='info'?'ⓘ':'⚠'} ${frEsc(x.t)}</div>`).join('')}</div>`:''}
+      ${layerRows}
+    </div>`;
+  }).join('');
+  box.innerHTML = packHtml + (cards || '<div style="padding:24px;text-align:center;color:#bbb;background:#fff;border:1px solid #e8e8e8;border-radius:12px">還沒有冰箱，按右上「＋ 新增冰箱」</div>');
+}
+async function frDrop(e, el){
+  e.preventDefault(); el.style.background='';
+  if(!frDrag) return;
+  const src = frCfg.fridges.find(f=>f.id===frDrag.fid), dst = frCfg.fridges.find(f=>f.id===el.dataset.fid);
+  const it = src && src.items.find(x=>x.id===frDrag.id); frDrag = null;
+  if(!it || !dst) return;
+  src.items = src.items.filter(x=>x!==it); it.layer = +el.dataset.layer; dst.items.push(it);
+  renderFridge(); await frSaveCfg();
+}
+
+// 冰箱設定
+async function frEditFridge(fid){
+  const f = fid ? frCfg.fridges.find(x=>x.id===fid) : null;
+  const d = document.getElementById('modal-fr-fridge');
+  d.dataset.fid = fid || '';
+  document.getElementById('frf-name').value = f ? f.name : '';
+  document.getElementById('frf-label').value = f ? (f.reportLabel||'') : '';
+  document.getElementById('frf-place').value = f ? (f.place||'') : '';
+  document.getElementById('frf-mapno').value = f ? (f.mapNo||'') : '';
+  document.getElementById('frf-layers').value = f ? f.layers : 5;
+  document.getElementById('frf-del').style.display = f ? '' : 'none';
+  d.classList.add('open');
+}
+async function frSaveFridge(){
+  const d = document.getElementById('modal-fr-fridge'), fid = d.dataset.fid;
+  const name = document.getElementById('frf-name').value.trim(); if(!name){ alert('請輸入冰箱名稱'); return; }
+  const layers = Math.max(1, Math.min(12, parseInt(document.getElementById('frf-layers').value)||5));
+  const v = { name, reportLabel: document.getElementById('frf-label').value.trim(), place: document.getElementById('frf-place').value.trim(), mapNo: document.getElementById('frf-mapno').value.trim(), layers };
+  if(fid){ const f = frCfg.fridges.find(x=>x.id===fid); Object.assign(f, v); f.items.forEach(it=>{ if(it.layer>layers) it.layer = layers; }); }
+  else { const f = { id: frId(), items: [], ...v }; frCfg.fridges.push(f); frMaps[f.id] = []; }
+  closeModal('modal-fr-fridge'); renderFridge(); await frSaveCfg();
+}
+async function frDeleteFridge(){
+  const fid = document.getElementById('modal-fr-fridge').dataset.fid, f = frCfg.fridges.find(x=>x.id===fid);
+  if(!f || !await appConfirm(`裡面的 ${f.items.length} 個疫苗設定會一起刪除，溫流紀錄保留。`, {title:`刪除「${f.name}」？`, kind:'danger', okText:'刪除'})) return;
+  frCfg.fridges = frCfg.fridges.filter(x=>x!==f); closeModal('modal-fr-fridge'); renderFridge(); await frSaveCfg();
+}
+
+// 疫苗卡片
+function frEditItem(fid, id, layer){
+  const f = frCfg.fridges.find(x=>x.id===fid), it = id ? f.items.find(x=>x.id===id) : null;
+  const d = document.getElementById('modal-fr-item'); d.dataset.fid = fid; d.dataset.id = id || '';
+  document.getElementById('fri-code').innerHTML = '<option value="">選擇品項...</option>' + frItems.map(v=>`<option value="${v.drug_code8}"${it&&it.code8===v.drug_code8?' selected':''}>${frEsc(v.tally_name)}（${v.drug_code8}）</option>`).join('');
+  document.getElementById('fri-label').value = it ? it.label : '';
+  document.getElementById('fri-exp').value = it ? (it.cardExp||'') : '';
+  document.getElementById('fri-no').value = it ? (it.cardNo||'') : '';
+  document.getElementById('fri-layer').innerHTML = Array.from({length:f.layers},(_,i)=>`<option value="${i+1}"${(it?it.layer:layer)===i+1?' selected':''}>第${i+1}層</option>`).join('');
+  document.getElementById('fri-live').checked = it ? !!frCfg.live[it.code8] : false;
+  document.getElementById('fri-del').style.display = it ? '' : 'none';
+  d.classList.add('open');
+}
+function frItemPicked(){
+  const c = document.getElementById('fri-code').value, v = frItems.find(x=>x.drug_code8===c);
+  if(v && !document.getElementById('fri-label').value) document.getElementById('fri-label').value = v.tally_name;
+  document.getElementById('fri-live').checked = !!frCfg.live[c];
+}
+async function frSaveItem(){
+  const d = document.getElementById('modal-fr-item'), f = frCfg.fridges.find(x=>x.id===d.dataset.fid);
+  const code8 = document.getElementById('fri-code').value; if(!code8){ alert('請選擇品項'); return; }
+  const v = { code8, label: document.getElementById('fri-label').value.trim() || code8, cardExp: document.getElementById('fri-exp').value.trim(), cardNo: document.getElementById('fri-no').value.trim(), layer: +document.getElementById('fri-layer').value };
+  if(document.getElementById('fri-live').checked) frCfg.live[code8] = true; else delete frCfg.live[code8];
+  if(d.dataset.id) Object.assign(f.items.find(x=>x.id===d.dataset.id), v); else f.items.push({ id: frId(), ...v });
+  closeModal('modal-fr-item'); renderFridge(); await frSaveCfg();
+}
+async function frDeleteItem(){
+  const d = document.getElementById('modal-fr-item'), f = frCfg.fridges.find(x=>x.id===d.dataset.fid);
+  f.items = f.items.filter(x=>x.id!==d.dataset.id); closeModal('modal-fr-item'); renderFridge(); await frSaveCfg();
+}
+async function frAllColor(v){
+  frCfg.fridges.forEach(f=>f.items.forEach(it=>{ if(!frMonth.color[it.id]) frMonth.color[it.id] = v; }));
+  renderFridge(); frSaveMonthSoon();
+}
+
+// 溫流圖
+let frMapCtx = null;
+function frOpenMap(fid, mapId){
+  const f = frCfg.fridges.find(x=>x.id===fid), maps = frMaps[fid] || [];
+  const m = mapId ? maps.find(x=>x.id===mapId) : (mapId===null ? null : maps[0]);
+  frMapCtx = { fid, id: m ? m.id : null };
+  document.getElementById('frm-title').textContent = `${f.name}　溫流圖`;
+  document.getElementById('frm-hist').innerHTML = `<option value="">＋ 新的量測</option>` + maps.map(x=>`<option value="${x.id}"${m&&m.id===x.id?' selected':''}>${frEsc(x.start)} ～ ${frEsc(x.end)}</option>`).join('');
+  document.getElementById('frm-start').value = m ? m.start : '';
+  document.getElementById('frm-end').value = m ? m.end : '';
+  const L = Array.from({length:f.layers},(_,i)=> (m && m.layers[i]) || {});
+  const inp = (i,k)=>`<input type="number" step="0.1" class="inp frm-v" data-i="${i}" data-k="${k}" value="${L[i][k]??''}" oninput="frMapPreview()" style="width:62px;padding:4px;font-size:14px;text-align:center">`;
+  document.getElementById('frm-grid').innerHTML = `<table data-nosort style="font-size:13px;border-collapse:collapse">
+    <thead><tr><th rowspan="2">層</th><th rowspan="2"></th><th colspan="2" class="c">左</th><th colspan="2" class="c">右</th><th rowspan="2" class="c">結果</th></tr><tr><th class="c">最低溫</th><th class="c">最高溫</th><th class="c">最低溫</th><th class="c">最高溫</th></tr></thead>
+    <tbody>${L.map((_,i)=>`<tr><td rowspan="2" style="font-weight:600">第${i+1}層</td><td>後</td><td>${inp(i,'bLmin')}</td><td>${inp(i,'bLmax')}</td><td>${inp(i,'bRmin')}</td><td>${inp(i,'bRmax')}</td><td rowspan="2" class="c" id="frm-res-${i}"></td></tr>
+      <tr><td>前</td><td>${inp(i,'fLmin')}</td><td>${inp(i,'fLmax')}</td><td>${inp(i,'fRmin')}</td><td>${inp(i,'fRmax')}</td></tr>`).join('')}</tbody></table>`;
+  document.getElementById('frm-del').style.display = m ? '' : 'none';
+  frMapPreview();
+  document.getElementById('modal-fr-map').classList.add('open');
+}
+function frMapRead(){
+  const f = frCfg.fridges.find(x=>x.id===frMapCtx.fid);
+  const layers = Array.from({length:f.layers},()=>({}));
+  document.querySelectorAll('#frm-grid .frm-v').forEach(e=>{ layers[+e.dataset.i][e.dataset.k] = e.value===''?'':Number(e.value); });
+  return layers;
+}
+function frMapPreview(){
+  const layers = frMapRead(), r = frRank(layers);
+  document.querySelectorAll('#frm-grid .frm-v').forEach(e=>{ const v = e.value===''?null:Number(e.value); e.style.color = v!==null&&(v<2||v>8) ? '#A32D2D' : ''; e.style.fontWeight = v!==null&&(v<2||v>8) ? '700' : ''; });
+  layers.forEach((_,i)=>{ const t = r.label[i], el = document.getElementById('frm-res-'+i); if(el) el.innerHTML = t ? `<span style="color:#fff;background:${FR_TAG[t]};border-radius:8px;padding:2px 8px;font-size:12px">${t}</span>` : '<span style="color:#ccc">—</span>'; });
+}
+async function frSaveMap(){
+  const start = document.getElementById('frm-start').value.trim(), end = document.getElementById('frm-end').value.trim();
+  if(!start){ alert('請填監測開始時間'); return; }
+  const maps = frMaps[frMapCtx.fid] = frMaps[frMapCtx.fid] || [];
+  const rec = { id: frMapCtx.id || frId(), start, end, layers: frMapRead() };
+  const i = maps.findIndex(x=>x.id===rec.id);
+  if(i>=0) maps[i] = rec; else maps.unshift(rec);
+  maps.sort((a,b)=>String(b.start).localeCompare(String(a.start)));
+  frMapCtx.id = rec.id;
+  if(await frSet('fridge_map_'+frMapCtx.fid, maps)){ appToast('已儲存溫流圖'); closeModal('modal-fr-map'); renderFridge(); }
+}
+async function frDeleteMap(){
+  if(!frMapCtx.id || !await appConfirm('刪除這次溫流量測紀錄？', {title:'刪除溫流紀錄', kind:'danger', okText:'刪除'})) return;
+  frMaps[frMapCtx.fid] = (frMaps[frMapCtx.fid]||[]).filter(x=>x.id!==frMapCtx.id);
+  await frSet('fridge_map_'+frMapCtx.fid, frMaps[frMapCtx.fid]); closeModal('modal-fr-map'); renderFridge();
+}
+
+// 匯出：讀範本 sheet1.xml 的開頭/結尾，重組資料列與合併儲存格，樣式沿用院方原檔
+async function frBuildXlsx(b64, build, filename){
+  const bin = atob(b64), bytes = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  const zip = await JSZip.loadAsync(bytes);
+  const xml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  const head = xml.slice(0, xml.indexOf('<sheetData'));
+  let tail = xml.slice(xml.indexOf('</sheetData>') + '</sheetData>'.length).replace(/<mergeCells[\s\S]*?<\/mergeCells>/,'').replace(/<conditionalFormatting[\s\S]*<\/conditionalFormatting>/,'');
+  const { rows, merges, lastRow, extra } = build();
+  const out = head.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:L${lastRow}"/>`) + `<sheetData>${rows}</sheetData>` + `<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join('')}</mergeCells>` + (extra||'') + tail;
+  zip.file('xl/worksheets/sheet1.xml', out);
+  const blob = await zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+}
+const frRow = (r, cells, attrs) => `<row r="${r}"${attrs||''}>${cells.join('')}</row>`;
+async function frExportMonth(){
+  const ym = document.getElementById('fr-month').value, roc = +ym.slice(0,4)-1911, mm = +ym.slice(5,7);
+  const fridges = frCfg.fridges.filter(f=>f.items.length);
+  if(!fridges.length){ alert('還沒有設定冰箱裡的疫苗'); return; }
+  await frBuildXlsx(FR_MONTH_TPL, ()=>{
+    const R = [], M = ['C1:K1','C3:E3','E5:G5','H5:I5','E6:G6','H6:I6','E7:G7','H7:I7','E8:G8','H8:I8','C9:D9','E10:I10','J10:K10'];
+    R.push(frRow(1, ['C','D','E','F','G','H','I','J','K'].map((c,i)=> i===0 ? xStr('C1',48,'斗六市衛生所預防注射合約醫院') : xEmpty(c+'1',48)), ' ht="29.25" customHeight="1"'));
+    R.push(frRow(2, ['C','D','E','F','G','H','I','J','K'].map(c=>xEmpty(c+'2',40)), ' ht="5.25" customHeight="1"'));
+    R.push(frRow(3, [xStr('C3',60,`${frCfg.hospital||''} 醫院、診所 `), xEmpty('D3',60), xEmpty('E3',60), xNum('F3',19,roc), xStr('G3',1,'年'), xNum('H3',19,mm), xStr('I3',5,'月冷凍片、溫度監視卡月報表'), xEmpty('J3',3), xEmpty('K3',3)], ' ht="30" customHeight="1"'));
+    R.push(`<row r="4" ht="8.25" customHeight="1" thickBot="1"/>`);
+    R.push(frRow(5, [xEmpty('B5',21), xStr('C5',9,'冷凍片有效期限'), xStr('D5',42,'是否破裂'), xStr('E5',51,'冷凍片有效期限'), xEmpty('F5',51), xEmpty('G5',51), xStr('H5',51,'是否破裂'), xEmpty('I5',51), xStr('J5',42,'冷凍片有效期限'), xStr('K5',10,'是否破裂')], ' ht="27" customHeight="1"'));
+    const P = frMonth.packs, ps = (ref,s,v)=> v ? xStr(ref,s,v) : xEmpty(ref,s);
+    for(let k=0;k<3;k++){
+      const r = 6+k, a = P[k]||{}, b = P[3+k]||{}, c = P[6+k]||{};
+      R.push(frRow(r, [ps('C'+r, k===0?14:37, a.exp), ps('D'+r,38, a.exp?a.broken:''), ps('E'+r,53,b.exp), xEmpty('F'+r,54), xEmpty('G'+r,55), ps('H'+r,56, b.exp?b.broken:''), xEmpty('I'+r,57), ps('J'+r,39,c.exp), ps('K'+r,16, c.exp?c.broken:'')], ' ht="27" customHeight="1"'));
+    }
+    R.push(frRow(9, [xStr('C9',58,'破裂時間:'+(frMonth.breakTime||'')), xEmpty('D9',59), xStr('E9',43,'破裂原因:'+(frMonth.breakReason||'請詳細敘述何種疫苗，冷凍片破裂，破裂幾片。')), ...['F','G','H','I','J'].map(c=>xEmpty(c+'9',3)), xEmpty('K9',44)], ' ht="22.5" customHeight="1" thickBot="1"'));
+    R.push(frRow(10, [xStr('C10',11,'冰箱/冷凍櫃溫度 監視卡'), xStr('D10',4,'疫苗名稱'), xStr('E10',51,'有效期限'), ...['F','G','H','I'].map(c=>xEmpty(c+'10',51)), xStr('J10',51,'變色情況'), xEmpty('K10',52)], ' ht="42.75" customHeight="1" thickBot="1"'));
+    let r = 11;
+    fridges.forEach((f,fi)=>{
+      const its = f.items.slice().sort((a,b)=>a.layer-b.layer);
+      const full = f.reportLabel||f.name, lab = [...full].length <= its.length ? [...full] : [full], lastF = fi===fridges.length-1; // 列數夠就一格一字直排，不夠就整串放第一格
+      its.forEach((it,k)=>{
+        const first = k===0, last = k===its.length-1;
+        const bS = first ? (fi===0?31:25) : last ? (lastF?45:27) : 26;
+        const bCell = lab[k] ? xStr('B'+r,bS,lab[k]) : xEmpty('B'+r,bS);
+        const card = it.cardExp ? `${it.cardExp}${it.cardNo?` (${it.cardNo})`:''}` : '';
+        R.push(frRow(r, [bCell, xStr('C'+r, last&&!lastF?30:29, `冷藏第 ${it.layer} 層`), xStr('D'+r, last?23:41, it.label), card?xStr('E'+r,46,card):xEmpty('E'+r,46), ...['F','G','H','I'].map(c=>xEmpty(c+r,46)), (frMonth.color[it.id]?xStr('J'+r,46,frMonth.color[it.id]):xEmpty('J'+r,46)), xEmpty('K'+r,47)], ` ht="27.95" customHeight="1"${last?' thickBot="1"':''}`));
+        M.push(`E${r}:I${r}`, `J${r}:K${r}`);
+        r++;
+      });
+    });
+    R.push(frRow(r, [xEmpty('B'+r,22), xStr('C'+r,50,'備註→下列任何一項發生請立即通知斗六市衛生所，並將疫苗送回:'), ...['D','E','F','G','H','I','J','K'].map(c=>xEmpty(c+r,50))])); M.push(`C${r}:K${r}`); r++;
+    R.push(frRow(r, [xStr('C'+r,49,'  1.冰箱發生溫度異常等任何情形。   2.發現冷凍片列。   3.休診超2天以上時(包括2天。       \n  4.颱風來時停止上班上課。   5.電力公司宣布停電超過4小時。'), ...['D','E','F','G','H','I','J','K'].map(c=>xEmpty(c+r,49))], ' ht="33" customHeight="1"')); M.push(`C${r}:K${r}`); r++;
+    R.push(frRow(r, [xStr('C'+r,1,'診所、醫院負責人簽章：'), xStr('G'+r,48,'疫苗負責人簽章：'), xEmpty('H'+r,48), xEmpty('I'+r,48)])); M.push(`G${r}:I${r}`);
+    return { rows: R.join(''), merges: M, lastRow: r };
+  }, `${roc}${String(mm).padStart(2,'0')}_冷凍片_溫度監視卡月報表.xlsx`);
+}
+async function frExportMap(){
+  const f = frCfg.fridges.find(x=>x.id===frMapCtx.fid), layers = frMapRead(), rank = frRank(layers);
+  const start = document.getElementById('frm-start').value.trim(), end = document.getElementById('frm-end').value.trim();
+  await frBuildXlsx(FR_MAP_TPL, ()=>{
+    const R = [], M = ['A1:G1','A2:G2','B3:F3']; let cf = '';
+    R.push(frRow(1, [xStr('A1',4,`     ${frCfg.hospital||''} ${f.place||''}          衛生所/醫院/診所冰箱溫流表`), ...['B','C','D','E','F','G'].map(c=>xEmpty(c+'1',4))], ' ht="40.9" customHeight="1"'));
+    R.push(frRow(2, [xStr('A2',5,`冰箱編號：${f.mapNo||''} 各層溫度(最高溫、次高溫、次高溫、最低溫)`), ...['B','C','D','E','F','G'].map(c=>xEmpty(c+'2',5))], ' ht="43.15" customHeight="1"'));
+    R.push(frRow(3, [xEmpty('A3',6), xStr('B3',7,`監測日期：${start} ~${end}`), ...['C','D','E','F'].map(c=>xEmpty(c+'3',7)), xStr('G3',8,'監測後結果'), xEmpty('K3',9), xEmpty('L3',9)], ' ht="34.15" customHeight="1"'));
+    const num = (ref,s,v)=> v===''||v==null||isNaN(v) ? xEmpty(ref,s) : xNum(ref,s,v);
+    layers.forEach((L,i)=>{
+      const r = 4+i*4;
+      R.push(frRow(r, [xStr('A'+r,10,`第${i+1}層`), xStr('B'+r,11,'監測位置'), xStr('C'+r,11,'左'), xEmpty('D'+r,11), xStr('E'+r,11,'右'), xEmpty('F'+r,11), rank.label[i]?xStr('G'+r,12,rank.label[i]):xEmpty('G'+r,12)], ' ht="22.15" customHeight="1"'));
+      R.push(frRow(r+1, [xEmpty('A'+(r+1),10), xEmpty('B'+(r+1),11), xStr('C'+(r+1),13,'最低溫'), xStr('D'+(r+1),14,'最高溫'), xStr('E'+(r+1),15,'最低溫'), xStr('F'+(r+1),14,'最高溫'), xEmpty('G'+(r+1),12), xEmpty('K'+(r+1),9), xEmpty('L'+(r+1),9)], ' ht="22.15" customHeight="1"'));
+      R.push(frRow(r+2, [xEmpty('A'+(r+2),10), xStr('B'+(r+2),16,'後'), num('C'+(r+2),17,L.bLmin), num('D'+(r+2),18,L.bLmax), num('E'+(r+2),19,L.bRmin), num('F'+(r+2),18,L.bRmax), xEmpty('G'+(r+2),12)], ' ht="37.9" customHeight="1"'));
+      R.push(frRow(r+3, [xEmpty('A'+(r+3),10), xStr('B'+(r+3),20,'前'), num('C'+(r+3),21,L.fLmin), num('D'+(r+3),22,L.fLmax), num('E'+(r+3),23,L.fRmin), num('F'+(r+3),22,L.fRmax), xEmpty('G'+(r+3),12)], ' ht="37.9" customHeight="1"'));
+      M.push(`A${r}:A${r+3}`, `B${r}:B${r+1}`, `C${r}:D${r}`, `E${r}:F${r}`, `G${r}:G${r+3}`);
+      const rg = `$C$${r+2}:$F$${r+3}`;
+      cf += `<conditionalFormatting sqref="C${r+2}:F${r+3}"><cfRule type="expression" priority="${i*2+1}" dxfId="0"><formula>SMALL((${rg}),MIN(1,COUNT(${rg})))&gt;=C${r+2}</formula></cfRule><cfRule type="expression" priority="${i*2+2}" dxfId="1"><formula>LARGE((${rg}),MIN(1,COUNT(${rg})))&lt;=C${r+2}</formula></cfRule></conditionalFormatting>`;
+    });
+    const r = 4+layers.length*4;
+    R.push(frRow(r, [xEmpty('A'+r,24), xEmpty('B'+r,24), xEmpty('C'+r,24), xStr('D'+r,25,'位置區分：以面對冰箱正面目視，由上到下為第1、2…..層，前、後'), xEmpty('E'+r,24), xEmpty('F'+r,24), xEmpty('G'+r,24)]));
+    return { rows: R.join(''), merges: M, lastRow: r, extra: cf };
+  }, `溫流圖紀錄表_${f.name}_${(start||'').replace(/[\/: ]/g,'')}.xlsx`);
+}
+
+const FR_MONTH_TPL = 'UEsDBBQAAAAIAHsOYl2zuEJfVgEAAIcEAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK1US27CMBDd9xSRt1Vi6KKqqiQs+lm2SNADmGRCLBzb8gwUbt9JUtpStUEINrESz7zP+MXpZNuYaAMBtbOZGCcjEYEtXKntMhNv8+f4TkRIypbKOAuZ2AGKSX6VznceMOJmi5moify9lFjU0ChMnAfLO5ULjSJ+DUvpVbFSS5A3o9GtLJwlsBRTiyHy9BEqtTYUPW35cy9koa2IHvq6lioTynujC0W8LTe2/EUSu6rSBZSuWDfckqAPoEqsAagxiQ+akcIMiNgXCpmnr+w56BKiqQr0ohpmkFsjiR1A/xwnDH+WiA7mukX5nxBpZwDPpjr024Pumf8YbwCDp/F9HmDCnV0N1toPMQwbGp7JuwurhXOrS0+lXZNGaXvkTFr+rhhlt5yfhEMhX/jHslGrAOWMQhvaiw/jB/aQDu6fBueR/9oAp4vY56btjj0DQSD9nU3Z3SP5B1BLAwQUAAAACAB7DmJdow5tNp0BAABbAwAAEQAAAGRvY1Byb3BzL2NvcmUueG1sfZPfa9swEIDfB/sfjN4dyQ5xh3Bc2EbZQwuFpmzry9Cka6rVloR0qev/fvLPJCzsTXf36fPdKSmv35s6eQMftDVbkq0YScBIq7TZb8nj7ib9RJKAwihRWwNb0kEg19XHD6V0XFoP99468KghJNFkApduS14QHac0yBdoRFhFwsTis/WNwBj6PXVCvoo90JyxgjaAQgkUtBembjGSSankonQHXw8CJSnU0IDBQLNVRo8sgm/CxQtD5YRsNHYOLqJzcaHfg17Atm1X7XpAY/8Z/XF3+zCMmmrT70oCqUolOWqsoSrp8RhP4fD7D0gc00sQz9KDQOurn7fffj0G8AMwJ/t1v0LXWq9CvHoWRUxBkF47jI84is8Ska5FwLv4qs8a1Ofu5Bv/1nrcw5sOo+wsmuh7rw2CqnKWF2nGUpbt2JpvCs6Kp0U5Q+X0JOMsoJK4Sj4ufq58X3/5urshvY+lWZ6u2Y4VPMv4ZvPUj3N2/yhspqb/b1w6vOL5VWzyxDgLhsFklO+t78aZj9HwQ4+TGHxAgYdp/RdTp3+H6i9QSwMEFAAAAAgAew5iXYy8xMnVAAAAuQEAAAsAAABfcmVscy8ucmVsc6WQz2rDMAyH73sKo3ujtIcxRp1exqC3MrIH0GwlMYktY7tb+/Yzg7EFehjsqD+/j0/aHy5+Ue+cspOgYdu0oDgYsS6MGl77580DqFwoWFoksIYrZzh0d/sXXqjUTJ5czKpCQtYwlRIfEbOZ2FNuJHKok0GSp1LLNGIkM9PIuGvbe0y/GdCtmOpoNaSj3YHqr5H/x0bPhSwVQiOJNzHVdCqunqJ6SiMXDVbMqbbz10ZTyYC3hbZ/F5JhcIafxJw9h3LLa73xY3NZ8EPS/CYyf7vg6uPdJ1BLAwQUAAAACAB7DmJdYfbXVCUFAACIIgAAFAAAAHhsL3NoYXJlZFN0cmluZ3MueG1s7VjdTxpZFH9v0v/hZp70oQMzgFqDNGpW2241ptuafTOzOFYSmGFnRrfuE2hRkCq0qyDiVvxcuqgFNCtVdP+XLXc+nvov7B3GpX6mxkuWkkiExHvPOfd83d+559gfvPS4wSgriC6eayMo0kwAlnPygy7uRRvx/FnXvRYCiBLDDTJunmPbiDFWJB447t6xi6IEEC8nthHDkuRtNZlE5zDrYUSS97Ic2hniBQ8joX+FFybRK7DMoDjMspLHbaLN5iaTh3FxBHDyI5zURlhaaAKMcK6fR9hOY6XZQjjsosthlxxyLA4D27Awrq4klbllOeTTUlFtIS/vpmH2FYwGlb1X2mRGS6zaTZLD7h1GikouZ58AhnhOejSIzCKANOZF2nN8J8+dWEuYHHaTfoL+FdBfH/r5CS2OoK/4Kxhl3IizSSdz8m5eABIyj9WFoRWhC4k2SORYVtnLyguzWmZO3xpiPC73mLFHl7mHGUFkT6gpS1li2VesseRxcbxQ1qasguSAkSxc/0NL5uV38bJJJuGLhhXN6P9fMz3graKXcaLDUERFVhhlCQcwnP/J51fTByg6oKLzjUKB7P+4d/NIonxZCsLJfTg1o4SmkFLyQQYebCrJNXUzBmdW9N1UTl1J4xxRkS8vheT5oLy0rCWiWDovfIDRTSW1p66NYykW3cRhp810C2mmjABelHqWspk0Wy9ZRgLoS6kp8/llw145Ma7FfmvF0dsQBGeXYTLVqmbC6vtdPfPnF9S/s6WjeSW9o8Qyajj+ufi6EjqDB62cMH88LucLnvsns8pOzmScIWcmjNwDleTDsrFsAYzOKOkc3vWoTsqqO9NqKC9PBORdP+ZdUuMRZWsLAEAB/QNz61hILjketnc04CDnlbBpuQo2K9j9sQgDbxtxIZCimsj75H3QYKNtdCOOe9vvYQU5voHD/rCjH5hJm8eNGc++zn7aXKOIysFo6eAA5+xnLg8rgl72F/CU9zDceQ2o06dhZw6CoGrdRrpKt9GG9YhJJ+SN/UsCZ/3qVYwGSwUfrj8RnuPdgEfd1YqHBT8ekqOjE0ufnp6nOOz97Vjsp71hrVJ2Wus5O/U6YSMRNtooq7nx/PtKh80Lj7mT0nIZR41rZ90h7ZdkNLIRPxlRxChLTZ8u9el+YMNHxsffVQua8LUpu6iT7x/o4QcHnvSRLSRVq6yI7dRPSown1PThP5NvS4UwDMZLh4eo+UMoq6UCSqKozC2j1lDJhOHMruZbVJY3Lk6WUDtYKmzC7JTRbWk+P0y+az0HoVeMQQBFGv2fcdbJ3GE+CwsFZTtkKIPaJXi0irpM/XlF6oSR40pHilQ2dixkqfhGTR+ofwVouP6+dLhRKkyjNrkBvg7I4S19zSDUP3fvIPQhtdWctpouHU8iMuhfkrdXEYsS2Ua/6p95g9pGaslDOJ2EgS0YKcCdNViYQLRoER2k+WetMBtB7Jg9sDEE+uTzG2MhNZ9S81sI15XskZJJfS4uXpgClF19Bd3NBxmVgUMVZiFVqxDVKBF9/XStSkSdVej/Xkfg1GPn5o7vevK8Vhi8FIaBUN24/XwprE4l7OVHmVHm5cDj3ttaeO1x4dfRl6KaSZqkrKChyWxtxhs1Acpkq6GAM4+mH7u6b7PkGghZjn4TbvC/FdevL9aN68+gJIXfvpyRR2OL06td9w/fYwHCGZUs1bXQWo26UruSLv+ek/fCdZKs34Sv4HQKFvfh9Jtbp13HaVpmQcl8qANfmURRcvwLUEsDBBQAAAAIAHsOYl0LjMBhxQQAACc4AAANAAAAeGwvc3R5bGVzLnhtbO1bW4vjNhR+L/Q/GL9nfEnsiYc4y2ZnDIXtUjop9FVx5EQgS8FWZpMthX3sU59KaX9AodA+7EOh/UFl2v6LypckzmSdOBfbMsxLrMvROZ+OpHOOFKn3YuFj6QEGIaLElrUrVZYgcekYkYktfzV0Wl1ZChkgY4Apgba8hKH8ov/pJ72QLTG8n0LIJM6ChLY8ZWx2oyihO4U+CK/oDBJe49HAB4xng4kSzgIIxmHUyMeKrqqm4gNE5H7Po4SFkkvnhHEU7bSk3wvfSQ8A8yJdVvo9l2IaSIzz50i0qIQAHyYUjz9++OePD48/ff/fbz9ENR7wEV4mdUnjKQhCjjbh1zajshhrysBHhAZRoZKI3gZgVSrtvO5qlwJQsbi9/f3158df/vyI9E6e9C1BI0Uk5ao1T+bzAFQy3kPkw1B6A99KX1IfkI9iOGOET2I/z4owhRhDgUYsV3r7wAqNPyFvgzBe+wBdTgr6vRlgDAbE4RkpTQ+XMy6fcIeUsInpDlBPArDUdCPTIP5wuSMajLkDXHsfQ16V9XsYeoy3CNBkGn0ZnSlRJWPU54kxAhNKAI54rlpkW0qxk7RlNo2dXKI9RMZwAce2bMamS4kIUwmF6GPKGEohck63QlyIPiEt3jcfjtHcL7F3BwSU3b+Sx65hvTsAV7j+lT47a117pY9eQyzL8ZZZOVUzZZp/pX7dK+JBaeLCPN7slGhYj5ipJeI+ZeFUAadgy30zIE3wUNKFGN9H/L72NvEk57nwJDL3HZ99xjmqshRFvKskD0LTZMImyfR7AKMJ8SFh0fEMQ24UOLs8C5MgfeHxn6y8RHpGsHmaZGnhHQEhj79+mL8EZjO8dOhKSWdIK9CbRNrLlYynIqc0QO84t4zQumFE0/uCINpPQQziqrN1f/RIC6mCOqfH9UVgXVhXXRFB6WIOYEdMWCVrS3obgNkQLtjqvGwfxnal/qCbI03T9hulGhVk5UA2qkTcDL2eitIsCrKcudcEFZWzHI0SQ4STVWBWqoKjpVWhgmjZimCVhTXK1yKOWh4obcff12lhclHuBOFCotwJ6epEmRcbCOVS8vaBYsUGuSgPLOlqUeZ5C7GWeC5KoZZ4mecT1cVfdZqZZoE6PkTpWCdsw97M/REMnPh220YXdU50Lde2ibQcG+HL8k5Udibd83b7+bS18aetudvA4lHwWfvCRpiEPJCFD5UOgGyqjTr6YPf8+VzuwfPz31NPYJ3+78blwi9L0PCrCPbdrWWTwO8YYUHAFwiTdiaNiCCbEcs9B01VHivE15T2YFLSmz6ZC0db143WpVJ0Pd+W//7r/b/f/Z4BNpojzBBJckr2IhHnOV5s7hDFtQyMMNyWwnmMoQfmmA3Xlba8SX8e36ay1lRfoAfKUqpN+nXUz+QlBffmr0MWf6V5gGz5m7vBtXV75+itrjrotjptaLQsY3DbMjqvBre3jqXq6qtv5eTx2c1C6+w8QPORG9CQeuzKpb5CPQ+5cPcJmqVYq0donMlNiDlVkHY2BX+/KbPlTCaBH+uPw85it3RTfWloastpq1qrY4Juq2u2jZZjaPqt2RncGY6RwW6chl1TFU3bgDduGPIhRgRuwx9mS5OnL3s6oaxGQtm88Ov/D1BLAwQUAAAACAB7DmJdAI1t6jQCAADHBAAADwAAAHhsL3dvcmtib29rLnhtbJ1STY+bMBC991cg3wkfgZBEIasQQF1pd1WladKeKhdMsAIY2U6TVbX3/oge2luv/VGt+jM6hrDNantAvWDP8OaN37yZXZ3KQvtIuKCs8pE1MJFGqoSltNr56M061sdIExJXKS5YRXx0TwS6mr+YHRnff2Bsr0F9JXyUS1lPDUMkOSmxGLCaVPAnY7zEEkK+M0TNCU5FTogsC8M2zZFRYlqhlmHK+3CwLKMJCVlyKEklWxJOCizh9SKntUDzWUYLsmkFabiu73AJzz4VSCuwkFFKJUl95EDIjuRJgh/q4EALFbimh4z5o8hXXEtJhg+FXMPTOnYYl+3Y9kghFWpDyVH8LVKhdtrSKmVHH01GMNn7LhqZEB2bYEtTmQOVNx66Xe4lobtcQtLyAAj0xgV/M8Hu1KpG3q8vn39+/fH723cwS6WvQYQFiqYULvw6tRqSrjLBRQKS1NEAbdezXYUgJ3kj5NmQk+U+s6SkCWeCZXKQsPLsxjNjLdOwrNbbhlI7cOqjT5ZjLjxz4uhmNHR1Zzyx9bEztPWlE9qR60VhFLgPUAF9pxeDT3LM5ZrjZA8ruSJZgAVR4pQgIL/sELjjwBwCrxNbse5YE1MPgpGju2E8dD0rXEZu/NDt20nJz/5T4dhoqgmWB07U0rVsU/WNz9nH5Bl2tupJg+kqVEJ6AF+D+oL0BMebnsDl3e36tif2Jlq/38Z9wYvbIFz0xy9Wq8W7dfS2a2H8c6Ct4Ua7pnDp1mT+B1BLAwQUAAAACAB7DmJdGelCDroJAAC6MgAAGAAAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbJ2bXXOjOBaG77dq/4PL92sjCRBQSaY2DjYfu1VT07O717RDElc7xovpzvT8+hEg86H3YLv7pjt5dY4OehBCL5C7X/5438++5eVpVxzu52xhzWf5YVs87w6v9/P//L7+hzefnars8Jzti0N+P/+en+a/PPz9b3cfRfnl9Jbn1Uz1cDjdz9+q6hgsl6ftW/6enRbFMT+olpeifM8q9Wv5ujwdyzx7bpLe90tuWe7yPdsd5m0PQXlLH8XLy26bPxXbr+/5oWo7KfN9VqnjP73tjqf5w93zTrXVA5qV+cv9/JEFqbDny4e7pvR/d/nHafDzrMo+f8r3+bbKnxWB+awqjv/KX6pVvt/fz/9pz2f1UD8XxZc6OlYxlqpxajLqGpn671veRodc5Z/+35RVPwex+l3VXXbFhj+fD2LdDO/Xcvacv2Rf99Wq2P9v91y93c/9+Vn7rfiI8t3rW6WO0F04dafbYn9q/p297w7Ngb9nfzT/f7TZfCGd+Wz79VQV77pDphPbFK5TuJFyqr7v1anm1sVsobNFl62OzOWXS9o6ye5LssWVHEfnOF2Od7WOq3PcLkcuLmdInSG7DHEx3tPx3qACu3JUvs7xuxx7Ia6cJGadT6zVg5ZXAbBuPvQTgrGJGbFs51IzG5+yKnu4K4uPWdlMptMxq69uHtQd1fOP+4MT1k1KdUls64xVnaLGpbAoub4avz1Yd8tvdREd8tSFLLUSgrIGZQNKBEoMSgJKOlSWapzdYDkxWOfiWHnbldV1/gRKCMoalA0oESgxKAko6VAZDU0QQxPW9MBE05FrDU4iM05iF9KNFJR1qzC/7YA54y42unlQhI8jolEH/rgxbhudQboYRyRthOgBDYQRH5vg45Gnfla97bZfHotKXzq6A8fooD0NOrtd4Jvs5gKSk+AfnSa1vWu0p6JV/MEobeNMtBE2H4QYpMM2xGHTvay7kG5WghIR3RiVYkhKiMMzaqdtCLPIfkcnyqUWpGmeK7ft2W5nl8XlwpIGvjZEDBcs18DXhjhiEGL0stYhdo9PK06PTyvuoBvPwKdDZI9PH57fT2I9JhdmsfxBOLLtWg6Ox7jGnuR1OBLhMGPFX0ugI4GOvE5HAh0JdOQUHe8H6XhIh5mLoHcdj3fG062KHsDwAIZ3htGt/x6M3YOxe1Nj96mx88W19e2Mwm9rD4fJjKX6Scf0RxO2ij2aGMYKvfaNFXpjCpEpxKaQmEKqC9uAoV5hgIM93CdfAdF00O6p+jGZ67EOsocx5oKsY0ZLKTOmzroP6jdBIEUoxSglZEFjEUvPQRzJkTtBufCnd0eP+j4oBjczLfHh7Yx5Jj99/xwdqm8C1EHD5YKby04f1AMEKUIpRimhCrqWCVAHSQRI7S6vAWz3c2J46+TGdbfSQVeQckTKhYmU34KUI1KQIpRilBKyIDOR8kmk1K72GlJxRtrPSXELQL0THS5m3DYBChyP45sABQIEKUIpRimhCiJAMQmQ2vZeA2i3tEYlHXNO2oiUuyZSm5iT0kRq3zInbUQKUoRSjFJCFgSk9iRS0wjcgtQhkHomUucWpA6BFFZO5xakDiIFKUIpRikhCwJSZxIpvee/jNQ9I+0vcxcBCngyoffWw02fYCZA9xaALgIEKUIpRikhCwJAdxIg7QsuA5QIUN4CUOIMFNwEKG8BKBEgSBFKMUoJVRDv3XISIG0dLgP0EKB3C0CPAAh3au8WgB4CBClCKUYpoQoiQG8SIOk/rgD0zwAJu706t45YwkbcJ1jCTtzHoQnYifvIEqQIpRilhCqILP0plpzyMFdYcgsm41m6CFAHjQGat+hz0EWAfVD/0BOkCKUYpYQqCMvhOYgA+BNWhjMESFgZBEhYGWHekPktVoajlUEpQilGKaEKugBw0srwn7AynCNAwrjY5nKog0b7btu8IfNbjAtH44JShFKMUkIWBICTxoX/hHHhAgESxsU2H8vooNEMtM37Cad8BABE44JShFKMUkIWBICTxoX/gHGhnuM8cm1Q5IBmK4nhQ2gbrmedN5yOrmkDOWEhXPPBF0fPglKEUoxSQhVEmpOehf+EZ+HajjjUa5sVJ8yK65gsCbPimHdnTngHZIlmBaUIpRilhCqILCfNCqfMiuALdgElehVOeBXXNHs66Ao/wjogP/QqKEUoxSglVEHkN+lVOOVVrvBDq8IJq+Kaj3Q4YVVc2NxQzgH4oVVBKUIpRimhCiK/SavCTatyah890i8iPeoNQMcVHQwnHIxrvjLihIORlsmVMhTAFR0MShFKMUoJVRC5TjoYbjqYS1yFRb5R6MD6CJawMwiWsDMS9kKUuwCwaGdQilCKUUqoggh20s4I0s6wiwAF2hlB2BnHXDEFYWek+XBCEO4CAAq0MyhFKMUoJVRBACgm7Ywg7czN7/Yehd7nOwOYhLVBmIzYCgFMymkATLQ2KEUoxSglVEGEOWlthGFtOkjaqwxeG2jJGe0XAVIXtOyQgLRGaYNShFKMUoJSOpLGw+2NiBgMdyX0znvkLMzvJvqgfmwgrVHaoBShFKOUoJSOpPHY7ImxtfvgkR8ytgYbHTP6iM02luOoD+qPeSi1R7McfFT3npevzYeip9m2+HqomlfqA7n9XHXlB0/NcAw9ZFZQv9nFlhULUkbpIggF1ZMTbBxCj5wgpvTQDTYuFe8GMaWHTAT16ypsSVRLSraEMthIqoYMYkoPvWDjUfFeEFN6ouilJL2QsaB+4Uvl1GCplpDxoH6jSeXwICVbQmYH9RsnKscOUrIlZOqUMOqcJKolJVtCpk4Lo85LolpSsiVkCjOjOCeqJSVbQqZQM5q1F6RkS8j8oH4mSuX4QUq2hFzNJk7OJtWSki3Kgwe1U6ZyFGuyJeTq+uLUDElUS0q2DL7xhhw1d8iWkKu5w8m5o1pSskWtSEEs6KNWM4STM0S1pGSL2uME9U6EyFEtKdmi7glBvdpSLeqoBTnjhaIjSDqi/iaf5qbmDifnDlfzmpPzWrWkZIvyb0HMydnL1Uzk5ExUOSmZo/a6QUrmKD8TxO1RL/tV/uHu+FYc8mq3/bWcvRSHKtZ/YPD9mN/PD8WqOOi/vKgTj9lr/u+sfN0dTrN9/qLuDtaCC5dzy5bcti3ftn2VXLa7ObKtKo51C3Ok7VmC2b5rudz31f3/c1GprWDT6LueYwlfSMuSnqw3w2959pyXTSPzGLP6ntUm8qUoqqlGfdSf8urrcXbMjnn5afdn3n5uts3qvyGonyEV5S4/VM1faNzPj0VZldmuUlWV/qeCku2fjrv6JZvaSSkcitZQKYOdglbGz+2H6t1fnTz8BVBLAwQUAAAACAB7DmJdO20yS7sAAABCAQAAIwAAAHhsL3dvcmtzaGVldHMvX3JlbHMvc2hlZXQxLnhtbC5yZWxzjc/BisIwEAbg+4LvEOZu0nqQZWnqRQSv6j5ATKdtsJ2EzCj69ua4yh48/vzMN/zN5j5P6oaZQyQLta5AIfnYBRos/J52y29QLI46N0VCCw9k2LSLr+aAk5NyxGNIrIpCbGEUST/GsB9xdqxjQipNH/PspMQ8mOT8xQ1oVlW1NvmvAe2LqfadhbzvalCnR8JP7Nj3weM2+uuMJP+8MCkHEsxHFCkDudAuDygWtH7v3nOtz4HAtI15Wd4+AVBLAwQUAAAACAB7DmJd3hCSYMIFAABaGwAAEwAAAHhsL3RoZW1lL3RoZW1lMS54bWztWU2P20QYviPxH0a+t46TOM2umq022YRCu+1qNy3qceJM7GnGHmtmstvcUHtBAiEhCoIDEpw4IGilVgKJ9tdsKSpF6l/g9UeS8Wa8zbaLALU5JJ7x835/+B3n/IVbIUP7REjKo5blnK1YiEQeH9LIb1nX+r0zTQtJhaMhZjwiLWtKpHVh4913zuN1FZCQIKCP5DpuWYFS8bptSw+2sTzLYxLBvREXIVawFL49FPgA+IbMrlYqDTvENLJQhENge3U0oh5BTx5//PSbe09+/e3Z959aGzMZXQZfkZLJhsfEnpcK1glT7HDsJD9yKjtMoH3MWhaIG/KDPrmlLMSwVHCjZVXSj2VvnLfnREyV0Gp0vfST0+UEw3E1pRP+YE7o9Opr57bm/KsZ/2Vct9vtdJ05vxSAPQ8sdZaw9V7Tac94aqDscpl3p+JW6kW8xr+2hF9rt9vuWgFfW+DrS/hmpVHfrBbw9QXeXda/vdnpNAp4d4FvLOF759Ya9SI+BQWMRuMldBLPeWTmkBFnF43wJsCbswRYoGwtuzL6SJXlWohvctEDQBpcrGiE1DQmI+wBroPDgaA4EYDXCdbuZFueXNpKZCHpCRqrlvVBjKEwFpAXj3568egBevHo/uHth4e3fzm8c+fw9j0D4UUc+Trh8x8+/+vbj9CfD757fvdLM17q+N9//uTJ4y/MQKUDn351/4+H959+/dmzH+8a4JsCD3R4n4ZEoivkAO3yEGwzCCADcTKKfoBpgQIHgDQAuyooAK9MMTPh2qTovOsCGoAJ+N7kZkHXvUBMFDUALwVhAbjNOWtzYTTnUiJLN2cS+WbhYqLjdjHeN8nuHAltdxJDJlMTy05ACmruMIg29klEFEru8TEhBrIblBb8uk09wSUfKXSDojamRpf06UCZiS7SEOIyNSkIoS74Zvs6anNmYr9F9otIKAjMTCwJK7jxPTxRODRqjEOmIy9jFZiU3JsKr+BwqSDSPmEcdYdEShPNVTEtqHsJQycyhn2bTcMiUig6NiEvY8515BYfdwIcxkadaRTo2PflGFIUox2ujErwYoUka4gDjkrDfZ0SdbKyvkb9wJwgyZ2JyLt2of+GNDquGTMK3fhtM57BN+HRZCqJoy24DPc/bLxbeBLtEMj1t333bd99E/tuWS2v2m0XDdbW5+KUX1g6JI8oY3tqyshlmbZmCUoPe7CZLlKi+UweB3CZiyvgfIHTayS4+pCqYC/AMYhxUgm+zFn7EsVcwknAKuWdHicpGJ/uubMzIKCx2ubDbLumnw3nbNKVL3VBtYTBqsJq515PmJMBV5TmuGZp7rHSbM2bUA0IJy8AnEY1Ew0ZgxkZJn7PGMzCcuohkgEekjxGjtEQp7ai25ov95omba32etJWCZIurl4izj2FKFWWomQvlyOLiit0AFq5VddCHo5b1ggmKbgMY+AnkwaEmR+1LE/lpry0mI8abE5Lp1JqcEFELKTawjLIqNJbs1cn0UL/qltP/HA6Bhi60Wpa1JrOv6iFfTS0ZDQinirZWSzze3yiiNgLhgdowCZiF4Pe9Sy7hlTCM6M6Wwio0HqeeMXKz6vg6CuavDowiwOc96SmFvsMnl7PdUhXmnp2ie6vaErtFE1x31xTksyFsbU2TA9UMAYIjJIcbVlcqIBDF4oD6vUEDA6pLNALQVkkKiGWvHdOdCX7i76V8cianB+oXeojQaHTqUAQsqNyO1/CzKnqz9cZo7zPzNWVcfY7IPuE9ZPqbST2WyiYdZPcESnuaNBsU3UN/N5/ePKpl0w+x48HC0H1k8wida3pa4+CtddT4YSP2qrZ4qq78qM2hsMHSr6gcVPhscV82+e7EH00nygRJOKZZl5+880B6NzUjEtY/bNj1CIEzZJ4n+bwqTm7VuLs48W9urNdg6/d411tL5eorR1k0tXSH098cBNkb8FBacKUzN4m3YKjZmf2lwHwsRekG38DUEsDBBQAAAAIAHsOYl1RIw4AxQEAABEVAAAnAAAAeGwvcHJpbnRlclNldHRpbmdzL3ByaW50ZXJTZXR0aW5nczEuYmlu7ZjLTsJAFIb/FhKqxsvCB2CpC40CamI0EQuKhEulRSVpNEZdkJBgvK18AlcujRtfwqfwGVz4Fm7U+rdQQSgRBZWE+SZnLuecGeaW6QkJaAgihX2c4ggnSDI/oyaNNccSRwQhzDGfYUuDSt8g5ikT2AIg+X3jj5gbH32GLGEAt0MR5RASAri3rcxl/DqSt1rGw4NbV1HGOddXdFb5fRLsV8KFsztFHHC/vsegh25HrkgjLZbTBwRgWXYpOXvgtuprm0bhn+bWzIqWTAX1uBFcz2/oRjRnJLOry7PDXkctEHSd+vsXz8T68vY1vpWdtgHfR02RW/ncQWlrdo1URhpRAp5vvPvGtWLN563/ql/7qFiEiW1sIIMYsqzpbOsoUAzGAmmEGQ3YGo3WLGMBk345+m/RmnO8dxgdRFiGKQn6rSJPnwX2i2KvalUZXaxjmq00xxD0GjHnHuSrMeEp6wWeU4Ln5+pMnuYxU4yR0BnFpL3sxEWl6rlX8p/HlmFMdnlVd/rT7tjN1NWS1uWBexB/k8ay3qxX68Vyo6ta+dc0/+rnmfRv/CsQCASCniTEVM8o5br2tYo6/y/ZEdDPuGTqhE77C8g7UEsDBBQAAAAIAHsOYl1+EOdc6QAAALkCAAAaAAAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHOtksFqwzAQRO/9CrH3WnahaSmRcymFXNP0A4S0tkxsSWi3Sfz3VVNIYgihB5/ErNg3o0HL1XHoxR4TdcErqIoSBHoTbOdbBV/bj8dXEMTaW90HjwpGJFjVD8sN9przDrkuksgQTwocc3yTkozDQVMRIvp804Q0aM4ytTJqs9MtyqeyXMh0zYB6whRrqyCt7QuI7RjxP+zQNJ3B92C+B/R8w0KS0wntJ6f8OspgnVpkBZNxkakgb4ep5gxzCGlHDpEvQc6j36j5qO6FWczaDI89Xldy0vfsn+e057yLF/eT/BueK5CTH1f/AFBLAQIUAxQAAAAIAHsOYl2zuEJfVgEAAIcEAAATAAAAAAAAAAAAAACAAQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQDFAAAAAgAew5iXaMObTadAQAAWwMAABEAAAAAAAAAAAAAAIABhwEAAGRvY1Byb3BzL2NvcmUueG1sUEsBAhQDFAAAAAgAew5iXYy8xMnVAAAAuQEAAAsAAAAAAAAAAAAAAIABUwMAAF9yZWxzLy5yZWxzUEsBAhQDFAAAAAgAew5iXWH211QlBQAAiCIAABQAAAAAAAAAAAAAAIABUQQAAHhsL3NoYXJlZFN0cmluZ3MueG1sUEsBAhQDFAAAAAgAew5iXQuMwGHFBAAAJzgAAA0AAAAAAAAAAAAAAIABqAkAAHhsL3N0eWxlcy54bWxQSwECFAMUAAAACAB7DmJdAI1t6jQCAADHBAAADwAAAAAAAAAAAAAAgAGYDgAAeGwvd29ya2Jvb2sueG1sUEsBAhQDFAAAAAgAew5iXRnpQg66CQAAujIAABgAAAAAAAAAAAAAAIAB+RAAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLAQIUAxQAAAAIAHsOYl07bTJLuwAAAEIBAAAjAAAAAAAAAAAAAACAAekaAAB4bC93b3Jrc2hlZXRzL19yZWxzL3NoZWV0MS54bWwucmVsc1BLAQIUAxQAAAAIAHsOYl3eEJJgwgUAAFobAAATAAAAAAAAAAAAAACAAeUbAAB4bC90aGVtZS90aGVtZTEueG1sUEsBAhQDFAAAAAgAew5iXVEjDgDFAQAAERUAACcAAAAAAAAAAAAAAIAB2CEAAHhsL3ByaW50ZXJTZXR0aW5ncy9wcmludGVyU2V0dGluZ3MxLmJpblBLAQIUAxQAAAAIAHsOYl1+EOdc6QAAALkCAAAaAAAAAAAAAAAAAACAAeIjAAB4bC9fcmVscy93b3JrYm9vay54bWwucmVsc1BLBQYAAAAACwALAOgCAAADJQAAAAA=';
+const FR_MAP_TPL = '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';
 
 /* ══════════════ 員工院區待登記 ══════════════ */
 async function fetchStaffCampusPending(){
@@ -5754,7 +6142,7 @@ function findColIdx(header, keywords){
 ══════════════════════════════════════════ */
 function switchMasterSub(tab){
   if(me && me.role==='warehouse' && (tab==='pages' || tab==='accounts' || tab==='init-stock')) tab = 'vaccines';
-  ['vaccines','pages','accounts','init-stock','usage','flu','reminders'].forEach(t=>{
+  ['vaccines','pages','accounts','init-stock','usage','flu','fridge','reminders'].forEach(t=>{
     document.getElementById('mst-sub-'+t).classList.toggle('active', t===tab);
     document.getElementById('master-panel-'+t).style.display = t===tab?'':'none';
   });
@@ -5762,6 +6150,7 @@ function switchMasterSub(tab){
   if(tab==='pages') renderPages();
   if(tab==='usage') initUsageQueryTab();
   if(tab==='flu') initFluTab();
+  if(tab==='fridge') initFridgeTab();
   if(tab==='accounts'){ renderAccounts(); checkRosterDiff(); }
   if(tab==='reminders'){
     renderHisSetupPanel();
@@ -8533,6 +8922,15 @@ function closeNiisOrderModal(){
    8 月起即可用公式正常運作）。
 ══════════════════════════════════════════ */
 let lastMonthlyReport = [];
+// 月報表①：還沒儲存的結存數量、備註先暫存，拖曳排序或切換頁面重新產生表格時才不會不見
+const mrDraft = {};
+document.addEventListener('input', e=>{
+  const t = e.target;
+  if(!t || !t.classList || !(t.classList.contains('mr-end-input') || t.classList.contains('mr-note-input'))) return;
+  const ym = monthlyReportYm; if(!ym) return;
+  const d = mrDraft[ym+'|'+t.dataset.key] = mrDraft[ym+'|'+t.dataset.key] || {};
+  if(t.classList.contains('mr-end-input')) d.end = t.value; else d.note = t.value;
+});
 let monthlyReportYm = null;
 
 function shiftYm(ym, delta){
@@ -8651,10 +9049,12 @@ async function renderMonthlyReport(){
     map[key] = (map[key]||0) + doses;
   });
   const usageByLot = {};
+  const personsByLot = {}; // 接種人數：耗用報表實際的劑數（別名整瓶扣帳換算成整瓶劑數只用在消耗瓶數，不能拿來算人數）
   const usageByLotByDate = {}; // key -> {date: doses}，整瓶扣帳品項要逐天各自算開了幾瓶再加總，不能整月人次加總後才算一次(每天各自開新瓶，不會跨天合併)
   (usage||[]).forEach(u=>{
     const { key, doses } = resolveAliasKey(u.drug_code8, u.lot_no, Number(u.usage_qty||0));
     usageByLot[key] = (usageByLot[key]||0) + doses;
+    personsByLot[key] = (personsByLot[key]||0) + Number(u.usage_qty||0);
     if(!usageByLotByDate[key]) usageByLotByDate[key] = {};
     usageByLotByDate[key][u.upload_date] = (usageByLotByDate[key][u.upload_date]||0) + doses;
   });
@@ -8742,7 +9142,7 @@ async function renderMonthlyReport(){
       hasBaseline,
       startVials,
       inVials, outVials, consumedVials,
-      vaccinated: usageDoses,
+      vaccinated: personsByLot[key] || 0,
       endVials,
       tallySuggested,
       suggestSource,
@@ -8777,7 +9177,8 @@ async function renderMonthlyReport(){
     const nameCell = isFirstOfName ? `<td rowspan="${rowspan}" style="font-size:15px;vertical-align:middle${groupBorderCss}"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${r.name}</td><td rowspan="${rowspan}" class="c" style="font-size:14px;vertical-align:middle${groupBorderCss}">${r.dosesPerVial}</td>` : '';
     const key = r.code8+'|'+r.lotNo;
     const startCell = r.hasBaseline ? r.startVials : '<span style="color:#C77700;font-size:12px">需盤點</span>';
-    const endValue = r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : '');
+    const dk = ym+'|'+key, dr = mrDraft[dk] || {};
+    const endValue = dr.end!==undefined ? dr.end : (r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : ''));
     const tallyHint = r.tallySuggested!=null ? `<div style="font-size:11px;color:#1B7A4C">已帶入${r.suggestSource}：${r.tallySuggested}瓶，請確認後儲存</div>` : '';
     const niisCompareNote = r.niisLatest
       ? (endValue!=='' && Number(endValue)!==r.niisLatest.vials
@@ -8798,7 +9199,7 @@ async function renderMonthlyReport(){
     <td class="c" style="${groupBorderCss}">${r.consumedVials}</td>
     <td class="c" style="${groupBorderCss}">${r.vaccinated}</td>
     <td class="c" style="${groupBorderCss}"><input type="number" class="inp mr-end-input" data-key="${key}" value="${endValue}" oninput="checkMrEndNegative(this)" style="width:70px;text-align:center;${(endValue!=='' && Number(endValue)<0) ? 'color:#A32D2D;font-weight:600;border-color:#A32D2D' : (r.tallySuggested!=null && r.endVials==null?'border-color:#1D9E75;background:#f0faf5':'')}">${(endValue!=='' && Number(endValue)<0) ? '<div style="font-size:11px;color:#A32D2D;margin-top:2px">⚠️ 負數，請檢查漏傳/批號</div>' : ''}${tallyHint}${niisCompareNote}</td>
-    <td style="${groupBorderCss}"><input type="text" class="inp mr-note-input" data-key="${key}" value="${(r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : '')).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
+    <td style="${groupBorderCss}"><input type="text" class="inp mr-note-input" data-key="${key}" value="${String(dr.note!==undefined ? dr.note : (r.note || (r.tallySuggested!=null ? `依${r.suggestSource}帶入` : ''))).replace(/"/g,'&quot;')}" placeholder="備註" style="width:110px"></td>
     <td style="${groupBorderCss}">${statusBadge}</td>
   </tr>`;
   }).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:#bbb">該月份查無任何批號結存或異動資料</td></tr>';
@@ -10093,6 +10494,7 @@ async function saveMonthlyClosing(){
     alert(`儲存失敗：${error.message}\n請確認 lot_monthly_closing 是否已建立 (drug_code8, lot_no, year_month) 的唯一鍵限制（unique constraint），例如：\nALTER TABLE lot_monthly_closing ADD CONSTRAINT lot_monthly_closing_uniq UNIQUE (drug_code8, lot_no, year_month);`);
     return;
   }
+  Object.keys(mrDraft).forEach(k=>{ if(k.startsWith(ym+'|')) delete mrDraft[k]; });
   alert('✓ 已儲存本月結存，下個月即可作為上月結存基準。');
   renderMonthlyReport();
 }
