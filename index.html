@@ -3669,6 +3669,21 @@ async function renderOverview(){
 
   const recMap = {};
   (recs||[]).forEach(r => { recMap[r.drug_code8+'|'+r.campus] = r.tally_qty; });
+  // 批號盤點明細（多批號展開用）
+  ovLotMap = {};
+  try{
+    const [{ data: lr }, { data: ld }] = await Promise.all([
+      sb.from('tally_lot_records').select('drug_code8,campus,lot_no,qty').eq('tally_date', selDate).in('drug_code8', codes),
+      sb.from('lot_details').select('drug_code8,lot_no,expiry_date').in('drug_code8', codes)
+    ]);
+    const exp = {}; (ld||[]).forEach(l=>{ if(l.expiry_date) exp[l.drug_code8+'|'+l.lot_no] = String(l.expiry_date).slice(0,10); });
+    (lr||[]).forEach(l=>{
+      const m = ovLotMap[l.drug_code8] = ovLotMap[l.drug_code8] || {};
+      const o = m[l.lot_no] = m[l.lot_no] || { lot:l.lot_no, exp: exp[l.drug_code8+'|'+l.lot_no] || '' };
+      o[l.campus] = (o[l.campus]||0) + Number(l.qty||0);
+    });
+    Object.keys(ovLotMap).forEach(c=>{ ovLotMap[c] = Object.values(ovLotMap[c]).sort((a,b)=>(a.exp||'9999').localeCompare(b.exp||'9999') || a.lot.localeCompare(b.lot)); });
+  }catch(e){}
   const stockMap = {};
   (stocks||[]).forEach(s => {
     const campus = s.station_code==='6101' ? 'dl' : s.station_code==='6201' ? 'hw' : s.station_code==='6000' ? 'wh' : null;
@@ -3738,6 +3753,16 @@ function ovMsg(html){
 
 /* ── 管理總覽分類：分類存在 app_settings（overview_groups），收合狀態存在這台電腦 ── */
 let ovGroups = [];
+let ovLotMap = {};
+const ovLotOpen = new Set();
+function ovToggleLots(code){ ovLotOpen.has(code) ? ovLotOpen.delete(code) : ovLotOpen.add(code); renderOverviewRows(); }
+function ovToggleGroupLots(gid){
+  const box = document.querySelector(`#ov-groups .ov-grp[data-gid="${gid}"]`); if(!box) return;
+  const codes = [...box.querySelectorAll('tr[data-code8]')].map(r=>r.dataset.code8).filter(c=>(ovLotMap[c]||[]).length>=2);
+  const allOpen = codes.length && codes.every(c=>ovLotOpen.has(c));
+  codes.forEach(c=> allOpen ? ovLotOpen.delete(c) : ovLotOpen.add(c));
+  renderOverviewRows();
+}
 let ovDrag = null; // {type:'item', code} 或 {type:'group', gid}
 async function ovLoadGroups(){
   const { data } = await sb.from('app_settings').select('value').eq('key','overview_groups').maybeSingle();
@@ -3801,14 +3826,20 @@ function renderOverviewRows(){
       <th class="c" style="width:85px">虎尾盤點</th><th class="c" style="width:85px">虎尾庫存報表</th><th class="c" style="width:80px">虎尾狀態</th>
       <th class="c" style="width:85px">藥庫盤點</th><th class="c" style="width:85px">藥庫庫存報表</th><th class="c" style="width:80px">藥庫狀態</th>
       <th style="width:160px">備註</th></tr></thead>`;
+  const fmtExp = e => e ? e.replace(/-/g,'/') : '';
   const rowHtml = r=>{ const { dl, hw, wh } = r;
+    const lots = ovLotMap[r.code8] || [], multi = lots.length>=2, open = multi && ovLotOpen.has(r.code8);
+    const lotCell = (l, c) => `<td class="c" style="font-size:14px;color:#555">${l[c]===undefined?'<span style="color:#ccc">—</span>':l[c]}</td><td></td><td></td>`;
+    const subRows = open ? lots.map(l=>`<tr style="background:#fafaf8">
+      <td style="padding-left:30px;font-size:13px;color:#555"><span style="font-family:monospace">↳ ${l.lot}</span>${l.exp?`<span style="color:#aaa;margin-left:6px">效期 ${fmtExp(l.exp)}</span>`:''}</td>
+      ${lotCell(l,'dl')}${lotCell(l,'hw')}${lotCell(l,'wh')}<td></td></tr>`).join('') : '';
     return `<tr draggable="false" data-code8="${r.code8}" ondragstart="ovItemDragStart(event)" ondragover="ovRowDragOver(event)" ondragleave="ovRowDragLeave(event)" ondrop="ovRowDrop(event)" ondragend="ovDragEnd()" style="border-top:2px solid transparent;border-bottom:2px solid transparent">
-      <td style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${r.name}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
+      <td style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${multi?`<span style="cursor:pointer;color:#1B3A6B;margin-right:4px" onclick="ovToggleLots('${r.code8}')" title="展開各批號">${open?'▾':'▸'}</span>`:''}<span${multi?` style="cursor:pointer" onclick="ovToggleLots('${r.code8}')"`:''}>${r.name}</span>${multi?`<span style="font-size:12px;color:#999;margin-left:4px">${lots.length} 個批號</span>`:''}${lots.length===1?`<div style="font-size:12px;color:#999;padding-left:18px;font-family:monospace">${lots[0].lot}</div>`:''}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
       <td class="c">${dl.tally===null?'—':dl.tally}</td><td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td><td class="c">${dl.badge}</td>
       <td class="c">${hw.tally===null?'—':hw.tally}</td><td class="c" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td><td class="c">${hw.badge}</td>
       <td class="c">${wh.tally===null?'—':wh.tally}</td><td class="c" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td><td class="c">${wh.badge}</td>
       <td><input type="text" class="ov-note-input" data-code="${r.code8}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
-    </tr>`; };
+    </tr>` + subRows; };
 
   let shownAny = false;
   const html = sections.map(sec=>{
@@ -3824,6 +3855,7 @@ function renderOverviewRows(){
         ${sec.custom?`<span style="color:#aaa;cursor:grab" title="拖曳調整分類順序" onmousedown="this.parentElement.setAttribute('draggable','true')">☰</span>`:''}
         <span style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer;flex:1" onclick="ovToggleGroup('${sec.id}')">${isCol?'▸':'▾'} ${sec.name}
           <span style="font-size:13px;font-weight:400;color:#888;margin-left:6px">${sec.rows.length} 項${mis?`・<span style="color:#A32D2D">不吻合 ${mis}</span>`:''}${filtering?`・符合 ${rows.length}`:''}</span></span>
+        ${!isCol && rows.some(r=>(ovLotMap[r.code8]||[]).length>=2) ? `<button class="btn btn-sm" style="font-size:12px" onclick="ovToggleGroupLots('${sec.id}')">${rows.filter(r=>(ovLotMap[r.code8]||[]).length>=2).every(r=>ovLotOpen.has(r.code8))?'全部收合':'全部展開'}批號</button>` : ''}
         ${sec.custom?`<button class="btn btn-sm" style="font-size:12px" onclick="ovRenameGroup('${sec.id}')">改名</button><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="ovDeleteGroup('${sec.id}')">刪除</button>`:''}
       </div>
       ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="11" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
