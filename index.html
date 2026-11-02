@@ -1551,6 +1551,25 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- 耗用明細：修改 B 肝劑別 -->
+<div class="modal-bg" id="modal-dose-edit">
+  <div class="modal">
+    <h3>修改劑別</h3>
+    <div id="dose-edit-info" style="font-size:15px;margin-bottom:12px"></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      <div class="fg" style="margin:0"><label>第一劑</label><input type="number" min="0" id="dose-edit-1" class="inp" oninput="doseEditSum()"></div>
+      <div class="fg" style="margin:0"><label>第二劑</label><input type="number" min="0" id="dose-edit-2" class="inp" oninput="doseEditSum()"></div>
+      <div class="fg" style="margin:0"><label>第三劑</label><input type="number" min="0" id="dose-edit-3" class="inp" oninput="doseEditSum()"></div>
+      <div class="fg" style="margin:0"><label>第四劑</label><input type="number" min="0" id="dose-edit-4" class="inp" oninput="doseEditSum()"></div>
+    </div>
+    <div id="dose-edit-sum" style="font-size:13px;margin-top:10px"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="closeModal('modal-dose-edit')">取消</button>
+      <button class="btn btn-primary" onclick="saveDoseEdit()">儲存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 使用者自行修改密碼 modal -->
 <div class="modal-bg" id="modal-my-pw">
   <div class="modal">
@@ -7295,6 +7314,13 @@ async function toggleUsageDetail(date, keepOpen){
       (cr||[]).forEach(c=>{ (campusReg[c.drug_code8] = campusReg[c.drug_code8]||{dl:0,hw:0})[c.campus] = Number(c.qty||0); });
     }
   }catch(e){}
+  // B肝遺傳工程疫苗（含別名）可以修改劑別
+  const hbSetD = new Set();
+  try{
+    const { data: hb } = await sb.from('vaccine_master').select('drug_code8,alias_of,special_report');
+    const off = new Set((hb||[]).filter(v=>v.special_report==='hbig_vaccine').map(v=>v.drug_code8));
+    (hb||[]).forEach(v=>{ if(off.has(v.drug_code8) || (v.alias_of && off.has(v.alias_of))) hbSetD.add(v.drug_code8); });
+  }catch(e){}
   const codeTotal = {}; data.forEach(r=>{ codeTotal[r.drug_code8] = (codeTotal[r.drug_code8]||0) + Number(r.usage_qty||0); });
   const firstRowOfCode = new Set(); const seenC = new Set();
   data.forEach((r,i)=>{ if(!seenC.has(r.drug_code8)){ seenC.add(r.drug_code8); firstRowOfCode.add(i); } });
@@ -7319,9 +7345,40 @@ async function toggleUsageDetail(date, keepOpen){
       <td style="font-family:monospace">${r.lot_no||'—'}</td>
       <td style="text-align:center">${r.usage_qty}${(manualMap[r.drug_code8+'|'+(r.lot_no||'')] && Number(manualMap[r.drug_code8+'|'+(r.lot_no||'')].manual_qty)===Number(r.usage_qty)) ? `<div style="font-size:11px;color:#C77700;white-space:nowrap">✏️ 手動改過（報表原 ${manualMap[r.drug_code8+'|'+(r.lot_no||'')].original_qty}）</div>` : ''}</td>
       <td style="text-align:center;color:#666">${userNameMap[r.uploaded_by] || r.uploaded_by || '—'}</td>
-      <td style="text-align:center;white-space:nowrap"><button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
+      <td style="text-align:center;white-space:nowrap">${hbSetD.has(r.drug_code8) ? `<button class="btn btn-sm" style="font-size:12px" onclick='openDoseEdit(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no||'', qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8}).replace(/'/g,'')})'>💉 劑別</button> ` : ''}<button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
+}
+
+/* ── 耗用明細：修改 B 肝劑別（第一～四劑） ── */
+let doseEditCtx = null;
+async function openDoseEdit(ctx){
+  doseEditCtx = ctx;
+  const { data } = await sb.from('usage_dose_breakdown').select('dose_no,qty').eq('upload_date', ctx.date).eq('drug_code8', ctx.drug_code8).eq('lot_no', ctx.lot_no);
+  const cur = {1:0,2:0,3:0,4:0}; let other = 0;
+  (data||[]).forEach(d=>{ const n = parseInt(String(d.dose_no).replace(/[^0-9]/g,'')); if(n>=1 && n<=4) cur[n] += Number(d.qty||0); else other += Number(d.qty||0); });
+  document.getElementById('dose-edit-info').innerHTML = `${ctx.name}<div style="font-size:12px;color:#888;margin-top:2px">${ctx.date}・批號 ${ctx.lot_no||'—'}・當天耗用 <b>${ctx.qty}</b> 劑${other?`・另有 ${other} 劑劑別不是 1～4，儲存後會清掉`:''}</div>`;
+  [1,2,3,4].forEach(n=>{ document.getElementById('dose-edit-'+n).value = cur[n]; });
+  doseEditSum();
+  document.getElementById('modal-dose-edit').classList.add('open');
+}
+function doseEditSum(){
+  if(!doseEditCtx) return;
+  const sum = [1,2,3,4].reduce((a,n)=>a+(parseInt(document.getElementById('dose-edit-'+n).value)||0),0);
+  const box = document.getElementById('dose-edit-sum');
+  box.innerHTML = sum===Number(doseEditCtx.qty) ? `<span style="color:#1D9E75">✓ 合計 ${sum}，跟耗用一致</span>` : `<span style="color:#A32D2D">合計 ${sum}，跟耗用 ${doseEditCtx.qty} 差 ${Math.abs(doseEditCtx.qty-sum)}</span>`;
+}
+async function saveDoseEdit(){
+  const c = doseEditCtx; if(!c) return;
+  const rows = [1,2,3,4].map(n=>({ upload_date:c.date, drug_code8:c.drug_code8, lot_no:c.lot_no, dose_no:String(n), qty: parseInt(document.getElementById('dose-edit-'+n).value)||0 })).filter(r=>r.qty>0);
+  const sum = rows.reduce((a,r)=>a+r.qty,0);
+  if(sum!==Number(c.qty) && !await appConfirm(`劑別合計 ${sum}，跟當天耗用 ${c.qty} 不一樣，確定要儲存嗎？`, {title:'合計不一致', okText:'仍要儲存'})) return;
+  const { error: de } = await sb.from('usage_dose_breakdown').delete().eq('upload_date', c.date).eq('drug_code8', c.drug_code8).eq('lot_no', c.lot_no);
+  if(de){ alert('儲存失敗：'+de.message); return; }
+  if(rows.length){ const { error: ie } = await sb.from('usage_dose_breakdown').insert(rows); if(ie){ alert('儲存失敗：'+ie.message); return; } }
+  closeModal('modal-dose-edit');
+  doseEditCtx = null;
+  appToast('已更新劑別');
 }
 
 // 依某一天資料庫裡現有的耗用，重新計算「藥庫領用即整瓶扣帳」品項的藥庫扣帳（先全部還原，再依剩下的耗用重扣）
@@ -8545,7 +8602,8 @@ async function renderMonthlyReport(){
     queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no').eq('campus','wh').in('reason',['receive_import','return_import','correction']).lt('tx_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     // NIIS結存輔助目前最新的結存數量，純粹當比對參考用，不影響任何計算
-    codes.length ? sb.from('niis_declare_log').select('drug_code8,lot_no,closing_stock,declare_date').in('drug_code8', codes).order('declare_date',{ascending:false}) : Promise.resolve({data:[]})
+    // 只取月底（含）以前最近一次的結存，避免拿下個月的結存來比
+    codes.length ? sb.from('niis_declare_log').select('drug_code8,lot_no,closing_stock,declare_date').in('drug_code8', codes).lte('declare_date', monthEnd).order('declare_date',{ascending:false}) : Promise.resolve({data:[]})
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
@@ -8954,7 +9012,7 @@ function renderFluSeason(){
   const noUse = Object.values(groups).filter(g=>g.total===0);
   const k = fluSort.key, dir = fluSort.dir;
   glist.sort((a,b)=> k==='name' ? dir*String(a.name).localeCompare(String(b.name),'zh-Hant') : dir*((a[k]||0)-(b[k]||0)));
-  const cols = [['name','品項'],['total','合計'],['pct','佔比'],['general','一般'],['sdl','斗六員工'],['shw','虎尾員工'],['dl','斗六'],['hw','虎尾'],['un','未分院區']];
+  const cols = [['name','品項'],['total','合計'],['pct','佔合計'],['general','一般'],['sdl','斗六員工'],['shw','虎尾員工'],['dl','斗六'],['hw','虎尾'],['un','未分院區']];
   glist.forEach(g=>g.pct = g.total/(st.total||1));
   const ico = key => fluSort.key===key ? (fluSort.dir>0?' ▲':' ▼') : '';
   const thead = `<tr>${cols.map(([key,l])=>`<th class="${key==='name'?'':'c'}" style="cursor:pointer;user-select:none;${key==='name'?'':'width:78px'}" onclick="fluSortBy('${key}')">${l}<span style="font-size:11px;color:#999">${ico(key)}</span></th>`).join('')}</tr>`;
@@ -8983,7 +9041,7 @@ function renderFluSeason(){
       ${card(cmpLabel, prevHas ? fmt(prev.total)+' 劑' : '—', cmpSub)}
     </div>
     ${glist.length ? `<div class="tbl-wrap"><table data-nosort style="font-size:14px"><thead>${thead}</thead><tbody>${body}${sumRow}</tbody></table></div>
-      <div style="font-size:12px;color:#999;margin-top:4px">同一支藥的員工 8 碼併在同一列，點品項展開看各 8 碼；佔比＝該品項耗用 ÷ 全部流感品項耗用。</div>` : ''}
+      <div style="font-size:12px;color:#999;margin-top:4px">同一支藥的員工 8 碼併在同一列，點品項展開看各 8 碼；佔合計＝該品項耗用 ÷ 全部流感品項耗用。</div>` : ''}
     ${noUse.length && glist.length ? `<div style="font-size:12px;color:#bbb;margin-top:2px">沒有耗用：${noUse.map(g=>g.name).join('、')}</div>` : ''}`;
 
   // ── 歷年比較 ──
@@ -9234,25 +9292,26 @@ async function runUsageQuery(){
   const fmt = n => Math.round(n).toLocaleString();
   const numCells = (p, bold) => `<td class="c"${bold?' style="font-weight:600"':''}>${fmt(p.total)}${p.wv&&p.vials?`<div style="font-size:11px;color:#888;font-weight:400">開 ${fmt(p.vials)} 瓶</div>`:''}</td>`;
   const campCells = p => `<td class="c">${fmt(p.dl)}</td><td class="c">${fmt(p.hw)}</td><td class="c" style="color:${p.un?'#C77700':'#bbb'}">${fmt(p.un)}</td>`;
+  const showPct = shown.length > 1; // 只有一個品項時佔比永遠 100%，不顯示
   document.getElementById('uq-summary').innerHTML = `
     <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">區間總量</div>
     <div class="tbl-wrap"><table data-nosort style="font-size:14px">
-      <thead><tr><th>品項</th><th class="c" style="width:90px">耗用（劑）</th><th class="c" style="width:70px">佔比</th><th class="c" style="width:70px">斗六</th><th class="c" style="width:70px">虎尾</th><th class="c" style="width:80px">未分院區</th></tr></thead>
+      <thead><tr><th>品項</th><th class="c" style="width:90px">耗用（劑）</th>${showPct?'<th class="c" style="width:80px" title="這個品項的耗用 ÷ 所有查詢品項的耗用合計">佔合計</th>':''}<th class="c" style="width:70px">斗六</th><th class="c" style="width:70px">虎尾</th><th class="c" style="width:80px">未分院區</th></tr></thead>
       <tbody>${shown.map((g,gi)=>{
         const sum = { total:g.total, dl:0, hw:0, un:0, vials:0, wv:g.wv };
         Object.values(g.perCode).forEach(p=>{ sum.dl+=p.dl; sum.hw+=p.hw; sum.un+=p.un; sum.vials+=p.vials; });
         const multi = g.members.length>1;
         const head = `<tr${multi?` style="cursor:pointer" onclick="uqToggleSub('uqs-${gi}')"`:''}>
           <td style="font-weight:600">${multi?`<span id="uqs-${gi}-ico" style="color:#999">▸</span> `:''}${g.name}</td>
-          ${numCells(sum,true)}<td class="c">${(g.total/grand*100).toFixed(1)}%</td>${campCells(sum)}</tr>`;
+          ${numCells(sum,true)}${showPct?`<td class="c">${(g.total/grand*100).toFixed(1)}%</td>`:''}${campCells(sum)}</tr>`;
         const subs = multi ? g.members.map(c=>{ const p = g.perCode[c];
-          return `<tr class="uqs-${gi}" style="display:none;background:#fafaf8"><td style="padding-left:28px;color:#555">↳ ${p.name}<span style="font-size:11px;color:#bbb;margin-left:4px">${c}${p.staff?'・員工':''}</span></td>${numCells(p,false)}<td></td>${campCells(p)}</tr>`; }).join('') : '';
+          return `<tr class="uqs-${gi}" style="display:none;background:#fafaf8"><td style="padding-left:28px;color:#555">↳ ${p.name}<span style="font-size:11px;color:#bbb;margin-left:4px">${c}${p.staff?'・員工':''}</span></td>${numCells(p,false)}${showPct?'<td></td>':''}${campCells(p)}</tr>`; }).join('') : '';
         return head + subs;
       }).join('')}
-      <tr style="border-top:2px solid #ddd"><td style="font-weight:600">合計</td><td class="c" style="font-weight:600">${fmt(groups.reduce((a,g)=>a+g.total,0))}</td><td class="c">100%</td><td colspan="3"></td></tr>
+      <tr style="border-top:2px solid #ddd"><td style="font-weight:600">合計</td><td class="c" style="font-weight:600">${fmt(groups.reduce((a,g)=>a+g.total,0))}</td>${showPct?'<td class="c">100%</td>':''}<td colspan="3"></td></tr>
       </tbody></table></div>
     ${hidden.length?`<div style="font-size:12px;color:#bbb;margin-top:4px">區間內沒有耗用（已隱藏）：${hidden.map(g=>g.name).join('、')}</div>`:''}
-    <div style="font-size:12px;color:#999;margin-top:4px">斗六／虎尾：一般民眾依當日施打清單的窗口（A／D），員工依手動登記；沒有資料的算「未分院區」。</div>`;
+    <div style="font-size:12px;color:#999;margin-top:4px">${showPct?'佔合計＝該品項耗用 ÷ 所有查詢品項的耗用合計。':''}斗六／虎尾：一般民眾依當日施打清單的窗口（A／D），員工依手動登記；沒有資料的算「未分院區」。</div>`;
 
   // 進貨與耗用對照（以正式品項為單位）：帳面＝各批號第一次 NIIS 結存（沒結存過、有進貨的新批號從 0 開始）＋進貨－退貨－耗用
   const stockGroups = [...shown, ...hidden];
@@ -9367,7 +9426,7 @@ async function exportUsageQueryExcel(){
 
   // 3. 區間總量
   const grand = R.groups.reduce((a,g)=>a+g.total,0) || 1;
-  const sum = [['品項','藥品8碼','類別','耗用（劑）','佔比','開瓶數（整瓶扣帳）','斗六','虎尾','未分院區']];
+  const sum = [['品項','藥品8碼','類別','耗用（劑）','佔合計','開瓶數（整瓶扣帳）','斗六','虎尾','未分院區']];
   R.groups.slice().sort((a,b)=>b.total-a.total).forEach(g=>{
     const t = { dl:0, hw:0, un:0, vials:0 };
     Object.values(g.perCode).forEach(p=>{ t.dl+=p.dl; t.hw+=p.hw; t.un+=p.un; t.vials+=p.vials; });
@@ -9698,7 +9757,10 @@ async function renderHbigReport(){
   const doseField = (key, autoValue) => {
     const hasOverride = manual[key]!==undefined && manual[key]!==null && manual[key]!=='';
     const val = hasOverride ? manual[key] : autoValue;
-    return `<input type="number" class="inp hbig-manual" data-key="${key}" value="${val}" style="width:70px;text-align:center">`;
+    const savedAuto = manual[key+'_auto'];
+    const changed = hasOverride && savedAuto!==undefined && savedAuto!==null && savedAuto!=='' && Number(savedAuto)!==Number(autoValue);
+    const mark = hasOverride ? `<div style="font-size:11px;color:${changed?'#C77700':'#888'};margin-top:2px;white-space:nowrap">✏️ 手動（系統 ${autoValue}）${changed?'・存檔後資料有變動，請確認':''} <a style="color:#1B3A6B;cursor:pointer;text-decoration:underline" onclick="hbigRestoreDose('${key}')">恢復自動</a></div>` : '';
+    return `<input type="number" class="inp hbig-manual" data-key="${key}" data-auto="${autoValue}" value="${val}" style="width:70px;text-align:center;${changed?'border-color:#C77700;background:#FFF8EC':''}">${mark}`;
   };
 
   const lotListHtml = rows => rows.length ? rows.map(r=>`<div>批號：${r.lotNo}　有效期限：${r.expiry||'—'}　本月結存：${endOf(r)}${r.wholeVial?'瓶':''}</div>`).join('') : '<div style="color:#bbb">（尚未設定批號）</div>';
@@ -9762,7 +9824,7 @@ function checkHbigDoseSum(){
   document.querySelectorAll('.hbig-manual[data-key^="dose"]').forEach(inp=>{ doseSum += Number(inp.value)||0; });
   if(doseSum !== hbigVacConsumed){
     const diff = Math.abs(hbigVacConsumed - doseSum);
-    box.innerHTML = `<div style="font-size:12px;color:#A32D2D;background:#FBEAEA;border-radius:6px;padding:6px 8px">⚠️ 耗用報表本月實際消耗共 ${hbigVacConsumed} 劑，但第一~四劑合計只有 ${doseSum} 劑，差 ${diff} 劑。可能是某幾筆耗用紀錄沒有「疫苗劑別代碼」或代碼不在1~4範圍，系統抓不到、被算成0，請人工核對耗用報表後直接修正上面的數字。</div>`;
+    box.innerHTML = `<div style="font-size:12px;color:#A32D2D;background:#FBEAEA;border-radius:6px;padding:6px 8px">⚠️ 耗用報表本月實際消耗共 ${hbigVacConsumed} 劑，但第一~四劑合計只有 ${doseSum} 劑，差 ${diff} 劑。可能是某幾筆耗用紀錄沒有「疫苗劑別代碼」或代碼不在1~4範圍，系統抓不到、被算成0，請到「上傳報表」的耗用上傳紀錄，按那幾天的「查看/刪除」，用「💉 劑別」補上。</div>`;
   } else {
     box.innerHTML = `<div style="font-size:12px;color:#1D9E75">✓ 第一~四劑合計（${doseSum}）與本月實際消耗（${hbigVacConsumed}）一致</div>`;
   }
@@ -9772,11 +9834,30 @@ async function saveHbigManual(){
   const ym = monthlyReportYm;
   const rows = [];
   document.querySelectorAll('.hbig-manual').forEach(inp=>{
-    rows.push({ year_month: ym, report_key: 'hbig', field_key: inp.dataset.key, value: inp.value, updated_by: me.emp_id });
+    const key = inp.dataset.key;
+    if(inp.dataset.auto !== undefined){
+      // 劑別欄：跟系統算的一樣就不存成手動數字，之後繼續自動更新
+      const same = inp.value==='' || Number(inp.value)===Number(inp.dataset.auto);
+      rows.push({ year_month: ym, report_key: 'hbig', field_key: key, value: same ? '' : inp.value, updated_by: me.emp_id });
+      rows.push({ year_month: ym, report_key: 'hbig', field_key: key+'_auto', value: same ? '' : inp.dataset.auto, updated_by: me.emp_id });
+      return;
+    }
+    rows.push({ year_month: ym, report_key: 'hbig', field_key: key, value: inp.value, updated_by: me.emp_id });
   });
   const { error } = await sb.from('monthly_report_manual').upsert(rows, { onConflict: 'year_month,report_key,field_key' });
   if(error){ alert('儲存失敗：'+error.message); return; }
-  alert('✓ 已儲存');
+  appToast('已儲存');
+  renderHbigReport();
+}
+async function hbigRestoreDose(key){
+  const ym = monthlyReportYm;
+  const { error } = await sb.from('monthly_report_manual').upsert([
+    { year_month: ym, report_key: 'hbig', field_key: key, value: '', updated_by: me.emp_id },
+    { year_month: ym, report_key: 'hbig', field_key: key+'_auto', value: '', updated_by: me.emp_id }
+  ], { onConflict: 'year_month,report_key,field_key' });
+  if(error){ alert('恢復失敗：'+error.message); return; }
+  appToast('已恢復自動計算');
+  renderHbigReport();
 }
 
 /* ── 報表①④共用：直接組出sheet1.xml字串塞回範本zip，保留原始框線/樣式，支援任意筆數的資料列 ── */
