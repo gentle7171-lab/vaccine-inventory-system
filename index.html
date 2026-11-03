@@ -220,6 +220,8 @@ tr:hover td{background:#fafaf8}
 .role-wh #mst-sub-pages,.role-wh #mst-sub-accounts,.role-wh button[onclick="openVaccineModal()"],.role-wh button[onclick="openVaccineBatch()"],.role-wh #btn-del-vacc,.role-wh #vacc-danger,.role-wh #vacc-save-btn{display:none !important}
 .role-wh #vacc-ro-note{display:block !important}
 body:not(.role-admin) .vimg-admin{display:none !important}
+#ov-groups .ovc-dl{background:#EEF4FB}#ov-groups .ovc-hw{background:#EEF7F1}#ov-groups .ovc-wh{background:#FBF4EA}
+#ov-groups th.ovc-dl{background:#DCE8F6;color:#1B3A6B}#ov-groups th.ovc-hw{background:#DCEFE3;color:#155F45}#ov-groups th.ovc-wh{background:#F5E6D0;color:#8A5A12}
 .vsec{border:1px solid #e8ecf2;border-radius:10px;padding:10px 14px;margin-bottom:10px;background:#fcfcfb}
 .vsec-title{font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px}
 details.vsec>summary.vsec-title{cursor:pointer;margin-bottom:0;list-style-position:inside}
@@ -1652,6 +1654,19 @@ input[type=number]{-moz-appearance:textfield}
       <button class="btn btn-sm" style="background:#fff" onclick="document.getElementById('vimg-viewer').style.display='none'">✕ 關閉</button>
     </div>
     <div id="vimg-viewer-body" style="display:flex;flex-direction:column;gap:12px"></div>
+  </div>
+</div>
+
+<!-- 每日 COVID 報表：新批號確認 8 碼 -->
+<div class="modal-bg" id="modal-lot-pick">
+  <div class="modal" style="max-width:560px;width:95%">
+    <h3>確認新批號的藥品 8 碼</h3>
+    <div style="font-size:13px;color:#666;margin-bottom:10px">這些批號是第一次使用，而且同一支藥有好幾個 8 碼。已預設選同一支藥最近實際用的 8 碼，請確認跟院內系統一致。</div>
+    <div id="lot-pick-body"></div>
+    <div class="mfooter">
+      <button class="btn" id="lot-pick-cancel">取消上傳</button>
+      <button class="btn btn-primary" id="lot-pick-ok">確認</button>
+    </div>
   </div>
 </div>
 
@@ -3703,6 +3718,22 @@ async function vimgShow(code, name){
   body.innerHTML = imgs.length ? imgs.map(src=>`<img src="${src}" style="width:100%;border-radius:10px;background:#fff">`).join('') : '<div style="color:#ccc;text-align:center;padding:40px">沒有照片</div>';
 }
 
+/* 每日 COVID 報表：新批號、有別名時，請使用者確認要記在哪個 8 碼 */
+function lotPickDialog(list, vmByCode){
+  return new Promise(resolve=>{
+    const m = document.getElementById('modal-lot-pick');
+    const nm = c => (vmByCode[c] && vmByCode[c].tally_name) || c;
+    document.getElementById('lot-pick-body').innerHTML = list.map((a,i)=>`<div style="background:#FFF8EC;border:1px solid #F0D9A8;border-radius:8px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-size:14px;margin-bottom:6px">批號 <b style="font-family:monospace">${a.lot}</b>（${a.niis}）<span style="color:#C77700;font-size:12px">新批號，請確認 8 碼</span></div>
+      <select class="inp lot-pick-sel" data-i="${i}" style="width:100%;font-size:14px">${a.fam.map(c=>`<option value="${c}"${c===a.def?' selected':''}>${c}　${nm(c)}${vmByCode[c]&&vmByCode[c].alias_of?'（別名）':''}</option>`).join('')}</select>
+    </div>`).join('');
+    const done = v => { m.classList.remove('open'); resolve(v); };
+    document.getElementById('lot-pick-ok').onclick = () => done([...document.querySelectorAll('.lot-pick-sel')].map(e=>e.value));
+    document.getElementById('lot-pick-cancel').onclick = () => done(null);
+    m.classList.add('open');
+  });
+}
+
 /* ══════════════ 員工院區待登記 ══════════════ */
 async function fetchStaffCampusPending(){
   const { data: st, error: stErr } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('staff_item', true).eq('status','active');
@@ -4319,32 +4350,30 @@ function renderOverviewRows(){
   const collapsed = ovCollapsed();
   const head = `<thead><tr>
       <th style="width:220px">疫苗名稱</th>
-      <th class="c" style="width:85px">斗六盤點</th><th class="c" style="width:85px">斗六庫存報表</th><th class="c" style="width:80px">斗六狀態</th>
-      <th class="c" style="width:85px">虎尾盤點</th><th class="c" style="width:85px">虎尾庫存報表</th><th class="c" style="width:80px">虎尾狀態</th>
-      <th class="c" style="width:85px">藥庫盤點</th><th class="c" style="width:85px">藥庫庫存報表</th><th class="c" style="width:80px">藥庫狀態</th>
-      <th class="c" style="width:85px;background:#EEF3FA">三站盤點合計</th><th class="c" style="width:90px;background:#EEF3FA">三站庫存報表合計</th>
+      <th class="c ovc-dl" style="width:85px">斗六盤點</th><th class="c ovc-dl" style="width:85px">斗六庫存報表</th><th class="c ovc-dl" style="width:80px">斗六狀態</th>
+      <th class="c ovc-hw" style="width:85px">虎尾盤點</th><th class="c ovc-hw" style="width:85px">虎尾庫存報表</th><th class="c ovc-hw" style="width:80px">虎尾狀態</th>
+      <th class="c ovc-wh" style="width:85px">藥庫盤點</th><th class="c ovc-wh" style="width:85px">藥庫庫存報表</th><th class="c ovc-wh" style="width:80px">藥庫狀態</th>
+      <th class="c" style="width:90px;background:#EEF3FA">三站庫存報表合計</th>
       <th style="width:160px">備註</th></tr></thead>`;
   const fmtExp = e => e ? e.replace(/-/g,'/') : '';
   // 三站合計：盤點、庫存報表各自加總；兩邊都有數字、不是「不比對庫存報表」的品項，對不上就紅字
+  // 三站庫存報表合計
   const sumCells = r => {
-    const t = [r.dl.tally, r.hw.tally, r.wh.tally].filter(v=>v!==null && v!==undefined);
     const k = [r.dl.stock, r.hw.stock, r.wh.stock].filter(v=>v!==null && v!==undefined);
-    const ts = t.length ? t.reduce((a,b)=>a+Number(b),0) : null, ks = k.length ? k.reduce((a,b)=>a+Number(b),0) : null;
-    const bad = !r.skip && ts!==null && ks!==null && ts!==ks;
-    const st = bad ? 'color:#A32D2D;font-weight:700;background:#FBEAEA' : 'font-weight:600;background:#F7F9FC';
-    return `<td class="c" style="${st}">${ts===null?'—':ts}</td><td class="c" style="${bad?st:'color:#666;background:#F7F9FC'}"${bad?` title="三站盤點 ${ts}，庫存報表 ${ks}，差 ${ts-ks}"`:''}>${ks===null?'—':ks}</td>`;
+    const ks = k.length ? k.reduce((a,b)=>a+Number(b),0) : null;
+    return `<td class="c" style="font-weight:600;background:#F7F9FC">${ks===null?'—':ks}</td>`;
   };
   const rowHtml = r=>{ const { dl, hw, wh } = r;
     const lots = ovLotMap[r.code8] || [], multi = lots.length>=2, open = multi && ovLotOpen.has(r.code8);
-    const lotCell = (l, c) => `<td class="c" style="font-size:14px;color:#555">${l[c]===undefined?'<span style="color:#ccc">—</span>':l[c]}</td><td></td><td></td>`;
+    const lotCell = (l, c) => `<td class="c ovc-${c}" style="font-size:14px;color:#555">${l[c]===undefined?'<span style="color:#ccc">—</span>':l[c]}</td><td class="ovc-${c}"></td><td class="ovc-${c}"></td>`;
     const subRows = open ? lots.map(l=>`<tr style="background:#fafaf8">
       <td style="padding-left:30px;font-size:13px;color:#555"><span style="font-family:monospace">↳ ${l.lot}</span>${l.exp?`<span style="color:#aaa;margin-left:6px">效期 ${fmtExp(l.exp)}</span>`:''}</td>
-      ${lotCell(l,'dl')}${lotCell(l,'hw')}${lotCell(l,'wh')}<td></td><td></td><td></td></tr>`).join('') : '';
+      ${lotCell(l,'dl')}${lotCell(l,'hw')}${lotCell(l,'wh')}<td></td><td></td></tr>`).join('') : '';
     return `<tr draggable="false" data-code8="${r.code8}" ondragstart="ovItemDragStart(event)" ondragover="ovRowDragOver(event)" ondragleave="ovRowDragLeave(event)" ondrop="ovRowDrop(event)" ondragend="ovDragEnd()" style="border-top:2px solid transparent;border-bottom:2px solid transparent">
       <td style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${multi?`<span style="cursor:pointer;color:#1B3A6B;margin-right:4px" onclick="ovToggleLots('${r.code8}')" title="展開各批號">${open?'▾':'▸'}</span>`:''}<span${multi?` style="cursor:pointer" onclick="ovToggleLots('${r.code8}')"`:''}>${r.name}</span>${multi?`<div style="font-size:12px;color:#999;padding-left:18px">${lots.length} 個批號</div>`:''}${lots.length===1?`<div style="font-size:12px;color:#999;padding-left:18px;font-family:monospace">${lots[0].lot}</div>`:''}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
-      <td class="c">${dl.tally===null?'—':dl.tally}</td><td class="c" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td><td class="c">${dl.badge}</td>
-      <td class="c">${hw.tally===null?'—':hw.tally}</td><td class="c" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td><td class="c">${hw.badge}</td>
-      <td class="c">${wh.tally===null?'—':wh.tally}</td><td class="c" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td><td class="c">${wh.badge}</td>
+      <td class="c ovc-dl">${dl.tally===null?'—':dl.tally}</td><td class="c ovc-dl" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td><td class="c ovc-dl">${dl.badge}</td>
+      <td class="c ovc-hw">${hw.tally===null?'—':hw.tally}</td><td class="c ovc-hw" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td><td class="c ovc-hw">${hw.badge}</td>
+      <td class="c ovc-wh">${wh.tally===null?'—':wh.tally}</td><td class="c ovc-wh" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td><td class="c ovc-wh">${wh.badge}</td>
       ${sumCells(r)}
       <td><input type="text" class="ov-note-input" data-code="${r.code8}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
     </tr>` + subRows; };
@@ -4366,7 +4395,7 @@ function renderOverviewRows(){
         ${!isCol && rows.some(r=>(ovLotMap[r.code8]||[]).length>=2) ? `<button class="btn btn-sm" style="font-size:12px" onclick="ovToggleGroupLots('${sec.id}')">${rows.filter(r=>(ovLotMap[r.code8]||[]).length>=2).every(r=>ovLotOpen.has(r.code8))?'全部收合':'全部展開'}批號</button>` : ''}
         ${sec.custom?`<button class="btn btn-sm" style="font-size:12px" onclick="ovRenameGroup('${sec.id}')">改名</button><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="ovDeleteGroup('${sec.id}')">刪除</button>`:''}
       </div>
-      ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="13" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
+      ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="12" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
     </div>`;
   }).join('');
   if(!shownAny){ ovMsg('沒有符合條件的品項'); return; }
@@ -6368,6 +6397,7 @@ async function handleUsageFile(input){
       if(n && l) pairs[n+'|'+l] = {niis:n, lot:l};
     });
     const lots = [...new Set(Object.values(pairs).map(x=>x.lot))];
+    const lotAsk = [];
     if(lots.length){
       const since = shiftDate(todayStr(), -90);
       const [{data:vmN}, {data:hist}, {data:lotRows}] = await Promise.all([
@@ -6388,9 +6418,29 @@ async function handleUsageFile(input){
         }
         if(!cands.length){ lotMapNotes.push(`⚠️ ${niis} 批號 ${lot}：找不到對應的藥品8碼（批號管理、近期耗用都沒有），這批不會寫入`); return; }
         lotCodeMap[niis+'|'+lot] = cands[0];
+        // 新批號（近期沒有耗用紀錄）而且這支藥有別名：先記下來，等一下請使用者確認要記在哪個 8 碼
+        if(src==='批號管理'){
+          const canon = (vmByCode[cands[0]] && vmByCode[cands[0]].alias_of) || cands[0];
+          const fam = (vmN||[]).filter(v=>(v.drug_code8===canon || v.alias_of===canon) && v.niis_code===niis).map(v=>v.drug_code8);
+          if(fam.length > 1) lotAsk.push({ niis, lot, fam, def: cands[0] });
+        }
         const nm = c => (vmByCode[c] && vmByCode[c].tally_name) || c;
+        if(lotAsk.some(a=>a.niis===niis && a.lot===lot)) return; // 等確認後再寫說明
         lotMapNotes.push(`批號 ${lot} → ${cands[0]} ${nm(cands[0])}（依${src}判斷）` + (cands.length>1 ? `　⚠️ 這個批號也曾記在：${cands.slice(1).map(c=>c+' '+nm(c)).join('、')}，這份清單分不出來，全部算到 ${cands[0]}` : ''));
       });
+      if(lotAsk.length){
+        // 預設：同一支藥近 90 天最近實際用的 8 碼
+        const famCodes = [...new Set(lotAsk.flatMap(a=>a.fam))];
+        const { data: recent } = await sb.from('usage_uploads').select('drug_code8,upload_date').in('drug_code8', famCodes).gte('upload_date', since).order('upload_date', { ascending:false });
+        lotAsk.forEach(a=>{ const r = (recent||[]).find(x=>a.fam.includes(x.drug_code8)); if(r) a.def = r.drug_code8; });
+        const picked = await lotPickDialog(lotAsk, vmByCode);
+        if(!picked) return;
+        lotAsk.forEach((a,i)=>{
+          lotCodeMap[a.niis+'|'+a.lot] = picked[i];
+          const v = vmByCode[picked[i]];
+          lotMapNotes.push(`批號 ${a.lot} → ${picked[i]} ${(v&&v.tally_name)||''}（新批號，已確認 8 碼）`);
+        });
+      }
     }
   }
   const getCode8 = r => niisListMode
@@ -6611,6 +6661,7 @@ function askUsageConflictMode(conflicts){
 }
 
 async function commitUsageUpload(){
+  await wvLoad(true);
   if(!usageGrouped.length){ alert('請先選擇並解析檔案'); return; }
   const validRows = usageGrouped.filter(r=>r.tally_name);
   if(!validRows.length){ alert('沒有可寫入的品項（皆未比對到主檔）'); return; }
@@ -6775,7 +6826,7 @@ async function commitUsageUpload(){
       const vm = vmasterMap[r.drug_code8];
       if(!vm || !vm.whole_vial_deduct) continue;
       const ownDosesPerVial = vm.doses_per_vial || 1;              // 用來算「這次用量相當於開了幾瓶」
-      const vials = Math.ceil(r.usage_qty / ownDosesPerVial);
+      const vials = wvVials(date, r.drug_code8, r.lot_no, r.usage_qty, ownDosesPerVial);
       const effCode = vm.alias_of || r.drug_code8;
       const costDosesPerVial = vm.alias_of ? ((vmasterMap[vm.alias_of] && vmasterMap[vm.alias_of].doses_per_vial) || ownDosesPerVial) : ownDosesPerVial; // 用來算「每瓶要扣共用批號多少庫存量」，用正式管理8碼的每瓶劑量為準
       const doseCost = vials * costDosesPerVial;
@@ -7807,9 +7858,12 @@ async function toggleUsageDetail(date, keepOpen){
   }catch(e){}
   // B肝遺傳工程疫苗（含別名）可以修改劑別
   const hbSetD = new Set();
+  const wvInfoD = {};
+  await wvLoad(true);
   try{
-    const { data: hb } = await sb.from('vaccine_master').select('drug_code8,alias_of,special_report');
+    const { data: hb } = await sb.from('vaccine_master').select('drug_code8,alias_of,special_report,whole_vial_deduct,doses_per_vial');
     const off = new Set((hb||[]).filter(v=>v.special_report==='hbig_vaccine').map(v=>v.drug_code8));
+    (hb||[]).forEach(v=>{ if(v.whole_vial_deduct) wvInfoD[v.drug_code8] = Number(v.doses_per_vial)||1; });
     (hb||[]).forEach(v=>{ if(off.has(v.drug_code8) || (v.alias_of && off.has(v.alias_of))) hbSetD.add(v.drug_code8); });
   }catch(e){}
   const codeTotal = {}; data.forEach(r=>{ codeTotal[r.drug_code8] = (codeTotal[r.drug_code8]||0) + Number(r.usage_qty||0); });
@@ -7836,7 +7890,7 @@ async function toggleUsageDetail(date, keepOpen){
       <td style="font-family:monospace">${r.lot_no||'—'}</td>
       <td style="text-align:center">${r.usage_qty}${(manualMap[r.drug_code8+'|'+(r.lot_no||'')] && Number(manualMap[r.drug_code8+'|'+(r.lot_no||'')].manual_qty)===Number(r.usage_qty)) ? `<div style="font-size:11px;color:#C77700;white-space:nowrap">✏️ 手動改過（報表原 ${manualMap[r.drug_code8+'|'+(r.lot_no||'')].original_qty}）</div>` : ''}</td>
       <td style="text-align:center;color:#666">${userNameMap[r.uploaded_by] || r.uploaded_by || '—'}</td>
-      <td style="text-align:center;white-space:nowrap">${hbSetD.has(r.drug_code8) ? `<button class="btn btn-sm" style="font-size:12px" onclick='openDoseEdit(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no||'', qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8}).replace(/'/g,'')})'>💉 劑別</button> ` : ''}<button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
+      <td style="text-align:center;white-space:nowrap">${wvInfoD[r.drug_code8] ? (()=>{ const o = wvOv[date+'|'+r.drug_code8+'|'+(r.lot_no||'')], sys = Math.ceil(Number(r.usage_qty||0)/wvInfoD[r.drug_code8]); return `${o?`<span style="font-size:12px;color:#C77700;margin-right:4px">✏️ 手動 ${o.v} 瓶（系統 ${sys} 瓶）</span>`:''}<button class="btn btn-sm" style="font-size:12px" onclick='editWholeVial(${JSON.stringify({date, code8:r.drug_code8, lot_no:r.lot_no||'', qty:r.usage_qty, dpv:wvInfoD[r.drug_code8], name:vnameMap[r.drug_code8]||r.drug_code8}).replace(/'/g,'')})'>🧴 開瓶數</button> `; })() : ''}${hbSetD.has(r.drug_code8) ? `<button class="btn btn-sm" style="font-size:12px" onclick='openDoseEdit(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no||'', qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8}).replace(/'/g,'')})'>💉 劑別</button> ` : ''}<button class="btn btn-sm" style="font-size:12px" onclick='editUsageRowQty(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>修改數量</button> <button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick='deleteUsageRow(${JSON.stringify({date, drug_code8:r.drug_code8, lot_no:r.lot_no, qty:r.usage_qty, name:vnameMap[r.drug_code8]||r.drug_code8})})'>刪除</button></td>
     </tr>`).join('')}</tbody>
   </table>`;
 }
@@ -7872,9 +7926,51 @@ async function saveDoseEdit(){
   appToast('已更新劑別');
 }
 
+/* ══════════════ 整瓶扣帳：手動開瓶數（兩院區各開一瓶等系統算不到的情況） ══════════════
+   存在 app_settings 的 wv_override：{ "日期|8碼|批號": { v: 實際開瓶數, q: 設定時的劑數 } }；人次不受影響 */
+let wvOv = {}, wvOvAt = 0;
+async function wvLoad(force){
+  if(!force && Date.now()-wvOvAt < 30000) return;
+  try{ const { data } = await sb.from('app_settings').select('value').eq('key','wv_override').maybeSingle(); wvOv = data && data.value ? JSON.parse(data.value) : {}; wvOvAt = Date.now(); }catch(e){}
+}
+// 某一列耗用（日期＋8碼＋批號）實際開了幾瓶
+function wvVials(date, code, lot, qty, dpv){
+  const o = wvOv[date+'|'+code+'|'+(lot||'')];
+  return o ? Number(o.v) : Math.ceil(Number(qty||0) / (dpv||1));
+}
+// 只有「8碼＋日期」合計時（不分批號）：有手動的批號用手動，其餘照合計進位
+function wvVialsDay(date, code, totalQty, dpv){
+  const ks = Object.keys(wvOv).filter(k=>k.startsWith(date+'|'+code+'|'));
+  if(!ks.length) return Math.ceil(Number(totalQty||0) / (dpv||1));
+  let v = 0, q = Number(totalQty||0);
+  ks.forEach(k=>{ v += Number(wvOv[k].v); q -= Number(wvOv[k].q||0); });
+  return v + Math.max(0, Math.ceil(q / (dpv||1)));
+}
+async function editWholeVial(x){
+  await wvLoad(true);
+  const k = x.date+'|'+x.code8+'|'+(x.lot_no||''), cur = wvOv[k];
+  const sys = Math.ceil(Number(x.qty||0)/(x.dpv||1));
+  const input = await appPrompt(`${x.date}　${x.name}\n批號 ${x.lot_no||'—'}\n當天 ${x.qty} 人，系統算 ${sys} 瓶${cur?`（目前手動 ${cur.v} 瓶）`:''}\n\n請輸入實際開瓶數；留空＝恢復系統算的：`, cur ? cur.v : sys, {title:'🧴 開瓶數', okText:'儲存'});
+  if(input===null) return;
+  const t = String(input).trim();
+  if(t==='' || Number(t)===sys){ delete wvOv[k]; }
+  else {
+    const v = Number(t);
+    if(!Number.isInteger(v) || v<0){ alert('請輸入 0 以上的整數'); return; }
+    wvOv[k] = { v, q: Number(x.qty||0), by: me.emp_id };
+  }
+  const { error } = await sb.from('app_settings').upsert({ key:'wv_override', value: JSON.stringify(wvOv), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  if(error){ alert('儲存失敗：'+error.message); return; }
+  const warns = await recalcWholeVialForDate(x.date);
+  appToast(wvOv[k] ? `已改成 ${wvOv[k].v} 瓶，藥庫扣帳已重新計算` : '已恢復系統算的開瓶數');
+  if(warns && warns.length) alert(warns.join('\n'));
+  if(document.getElementById('usage-detail-row-'+x.date)) toggleUsageDetail(x.date, true);
+}
+
 // 依某一天資料庫裡現有的耗用，重新計算「藥庫領用即整瓶扣帳」品項的藥庫扣帳（先全部還原，再依剩下的耗用重扣）
 async function recalcWholeVialForDate(date){
   const warnings = [];
+  await wvLoad(true);
   const { data: prevDeducts } = await sb.from('warehouse_transactions').select('drug_code8,lot_no,qty').eq('campus','wh').eq('reason','wholevial_pull').eq('tx_date', date);
   for(const pd of (prevDeducts||[])){
     const { data: lot } = await sb.from('lot_details').select('*').eq('drug_code8', pd.drug_code8).eq('campus','wh').eq('lot_no', pd.lot_no).maybeSingle();
@@ -7896,7 +7992,7 @@ async function recalcWholeVialForDate(date){
     const vm = vmap[r.drug_code8];
     if(!vm || !vm.whole_vial_deduct) continue;
     const ownDosesPerVial = vm.doses_per_vial || 1;
-    const vials = Math.ceil(Number(r.usage_qty||0) / ownDosesPerVial);
+    const vials = wvVials(date, r.drug_code8, r.lot_no, r.usage_qty, ownDosesPerVial);
     const effCode = vm.alias_of || r.drug_code8;
     const costDosesPerVial = vm.alias_of ? ((vmap[vm.alias_of] && vmap[vm.alias_of].doses_per_vial) || ownDosesPerVial) : ownDosesPerVial;
     const doseCost = vials * costDosesPerVial;
@@ -8078,6 +8174,7 @@ async function renderNiisList(){
 
 // 全院庫存核對（藥庫＋斗六＋虎尾）：前一日三站庫存合計－本次耗用 是否等於 當天三站庫存合計
 async function renderNiisStockCheck(vmaster, date, prevDate){
+  await wvLoad();
   const tbody = document.getElementById('niis-stockcheck-body');
   const tbodySameDay = document.getElementById('niis-stockcheck-sameday-body');
   tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
@@ -8170,7 +8267,7 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
     const [code8, d] = k.split('|');
     const v = vmap[code8];
     const dpv = (v && v.doses_per_vial) || 1;
-    const vials = Math.ceil(doses / dpv);
+    const vials = wvVialsDay(d, code8, doses, dpv);
     const c = canon(code8);
     if(!vialUsageByCodeDate[c]) vialUsageByCodeDate[c] = {};
     vialUsageByCodeDate[c][d] = (vialUsageByCodeDate[c][d]||0) + vials;
@@ -8296,6 +8393,7 @@ async function saveStockCheckNote(el){
 /* NIIS申報總表（參考鏡像）：長得像政府NIIS系統的批號清單，用我們自己的資料填，
    純參考對照用，沒辦法真的連到政府系統送出。有耗用的批號會標黃提示。 */
 async function renderNiisMirror(vmaster){
+  await wvLoad();
   lastNiisMirrorVmaster = vmaster;
   const tbody = document.getElementById('niis-mirror-body');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#bbb">載入中...</td></tr>';
@@ -8373,7 +8471,7 @@ async function renderNiisMirror(vmaster){
     if(v && v.whole_vial_deduct){
       const ownDpv = v.doses_per_vial || 1;
       const costDpv = (v.alias_of && vmap[v.alias_of]) ? (vmap[v.alias_of].doses_per_vial || ownDpv) : ownDpv;
-      const vials = Math.ceil(effQty / ownDpv);
+      const vials = wvVials(u.upload_date, u.drug_code8, u.lot_no, effQty, ownDpv);
       effQty = vials * costDpv;
     }
     const key = canon(u.drug_code8)+'|'+u.lot_no+'|'+u.upload_date;
@@ -9042,6 +9140,7 @@ function shiftYm(ym, delta){
 }
 
 async function renderMonthlyReport(){
+  await wvLoad();
   const ym = getMrYm();
   if(!ym){ alert('請選擇月份'); return; }
   monthlyReportYm = ym;
@@ -9126,13 +9225,18 @@ async function renderMonthlyReport(){
 
 
   // 別名解析：把別名自己8碼的紀錄，換算/併回正式管理批號的key；整瓶扣帳的別名品項(例如半劑瓶開了就整瓶報銷)要用「開了幾瓶」再乘上正式管理批號的每瓶劑量換算，跟耗用報表上傳/NIIS結存輔助用同一套公式，才會兜得起來
-  function resolveAliasKey(code8, lotNo, rawQty){
+  function resolveAliasKey(code8, lotNo, rawQty, date){
     const a = aliasMap[code8];
-    if(!a) return { key: code8+'|'+lotNo, doses: rawQty };
+    if(!a){
+      // 正式品項有手動開瓶數：換成「開瓶數 × 每瓶劑量」，後面逐天進位時就會剛好是手動的瓶數
+      const v = vmap[code8], o = date && wvOv[date+'|'+code8+'|'+(lotNo||'')];
+      if(o && v && v.whole_vial_deduct) return { key: code8+'|'+lotNo, doses: Number(o.v) * (v.doses_per_vial || 1) };
+      return { key: code8+'|'+lotNo, doses: rawQty };
+    }
     if(a.whole_vial_deduct){
       const ownDosesPerVial = a.doses_per_vial || 1;
       const canonicalDosesPerVial = (vmap[a.alias_of] && vmap[a.alias_of].doses_per_vial) || ownDosesPerVial;
-      const vials = Math.ceil(rawQty / ownDosesPerVial);
+      const vials = date ? wvVials(date, code8, lotNo, rawQty, ownDosesPerVial) : Math.ceil(rawQty / ownDosesPerVial);
       return { key: a.alias_of+'|'+lotNo, doses: vials * canonicalDosesPerVial };
     }
     return { key: a.alias_of+'|'+lotNo, doses: rawQty };
@@ -9154,7 +9258,7 @@ async function renderMonthlyReport(){
   const personsByLot = {}; // 接種人數：耗用報表實際的劑數（別名整瓶扣帳換算成整瓶劑數只用在消耗瓶數，不能拿來算人數）
   const usageByLotByDate = {}; // key -> {date: doses}，整瓶扣帳品項要逐天各自算開了幾瓶再加總，不能整月人次加總後才算一次(每天各自開新瓶，不會跨天合併)
   (usage||[]).forEach(u=>{
-    const { key, doses } = resolveAliasKey(u.drug_code8, u.lot_no, Number(u.usage_qty||0));
+    const { key, doses } = resolveAliasKey(u.drug_code8, u.lot_no, Number(u.usage_qty||0), u.upload_date);
     usageByLot[key] = (usageByLot[key]||0) + doses;
     personsByLot[key] = (personsByLot[key]||0) + Number(u.usage_qty||0);
     if(!usageByLotByDate[key]) usageByLotByDate[key] = {};
@@ -9754,6 +9858,7 @@ async function uqDeleteGroup(){
 }
 
 async function runUsageQuery(){
+  await wvLoad();
   const chartBox = document.getElementById('uq-chart');
   const tableBox = document.getElementById('uq-table');
   if(!uqSelected.length){ alert('請先加入至少一個品項'); return; }
@@ -9833,7 +9938,7 @@ async function runUsageQuery(){
         const bi = buckets.indexOf(bucketFn(date)); if(bi<0) return;
         const q = dayQty[k]; const cp = dayCampus[k] || {dl:0,hw:0};
         const dl = Math.min(cp.dl||0, q), hw = Math.min(cp.hw||0, q - dl), un = q - dl - hw;
-        pc.total += q; pc.dl += dl; pc.hw += hw; pc.un += un; if(wv) pc.vials += Math.ceil(q/dpv);
+        pc.total += q; pc.dl += dl; pc.hw += hw; pc.un += un; if(wv) pc.vials += wvVialsDay(date, c, q, dpv);
         add(staff?'staff':'general', bi, q);
         add((staff?'s_':'g_')+'dl', bi, dl); add((staff?'s_':'g_')+'hw', bi, hw); add('un', bi, un);
       });
