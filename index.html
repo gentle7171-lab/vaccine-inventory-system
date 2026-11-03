@@ -218,7 +218,6 @@ tr:hover td{background:#fafaf8}
 .fg input,.fg select{padding:7px 9px;font-size:15px;border-radius:8px;border:1px solid #d5d5d5;background:#fff;color:#1a1a1a}
 .mfooter{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .role-wh #mst-sub-pages,.role-wh #mst-sub-accounts,.role-wh button[onclick="openVaccineModal()"],.role-wh button[onclick="openVaccineBatch()"],.role-wh #btn-del-vacc,.role-wh #vacc-danger,.role-wh #vacc-save-btn{display:none !important}
-.role-wh #vacc-ro-note{display:block !important}
 body:not(.role-admin) .vimg-admin{display:none !important}
 #ov-groups .ovc-dl{background:#EEF4FB}#ov-groups .ovc-hw{background:#EEF7F1}#ov-groups .ovc-wh{background:#FBF4EA}
 #ov-groups th.ovc-dl{background:#DCE8F6;color:#1B3A6B}#ov-groups th.ovc-hw{background:#DCEFE3;color:#155F45}#ov-groups th.ovc-wh{background:#F5E6D0;color:#8A5A12}
@@ -279,7 +278,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div id="u-name" style="min-height:24px;margin:-6px 0 12px;font-size:16px;color:#1B3A6B;font-weight:600"></div>
         <div class="field" id="u-pass-wrap" style="display:none">
-          <label class="lbl">密碼（管理者）</label>
+          <label class="lbl">密碼</label>
           <input class="inp" type="password" id="u-pass" placeholder="請輸入密碼；第一次登入可留空" autocomplete="current-password">
         </div>
         <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
@@ -1140,7 +1139,7 @@ input[type=number]{-moz-appearance:textfield}
 <div class="modal-bg" id="modal-vaccine">
   <div class="modal" style="width:960px;max-width:96vw;max-height:90vh;overflow-y:auto">
     <h3 id="vacc-modal-title">新增疫苗</h3>
-    <div id="vacc-ro-note" style="display:none;font-size:13px;color:#C77700;background:#FFF8EC;border-radius:6px;padding:6px 10px;margin-bottom:10px">藥庫權限：品項設定只能檢視，批號管理可以操作。</div>
+    <div id="vacc-ro-note" style="display:none;font-size:13px;color:#C77700;background:#FFF8EC;border-radius:6px;padding:6px 10px;margin-bottom:10px"></div>
     <input type="hidden" id="vacc-edit-code">
 
     <!-- ① 基本資料 -->
@@ -1560,8 +1559,8 @@ input[type=number]{-moz-appearance:textfield}
 <!-- 管理者第一次登入設定密碼 -->
 <div class="modal-bg" id="modal-set-pw">
   <div class="modal">
-    <h3>設定管理者密碼</h3>
-    <div style="font-size:14px;color:#666;margin-bottom:12px">管理者帳號登入需要密碼。這是第一次登入，請設定密碼（至少 6 個字元），之後登入都要輸入。</div>
+    <h3>設定密碼</h3>
+    <div style="font-size:14px;color:#666;margin-bottom:12px">這是第一次登入，請設定密碼（至少 6 個字元），之後登入都要輸入。</div>
     <div class="fg"><label>新密碼</label><input type="password" id="setpw-new" class="inp" autocomplete="new-password"></div>
     <div class="fg"><label>再輸入一次</label><input type="password" id="setpw-confirm" class="inp" autocomplete="new-password"></div>
     <div id="setpw-msg" style="display:none" class="notice n-warn"></div>
@@ -1929,7 +1928,7 @@ async function login(){
     if(pwIsSet(user.password)){
       const pw = document.getElementById('u-pass').value;
       document.getElementById('u-pass-wrap').style.display = '';
-      if(!pw){ err.textContent = '管理者請輸入密碼'; err.style.display='block'; document.getElementById('u-pass').focus(); return; }
+      if(!pw){ err.textContent = '請輸入密碼'; err.style.display='block'; document.getElementById('u-pass').focus(); return; }
       if(await pwHash(user.emp_id, pw) !== user.password){ err.textContent = '密碼錯誤'; err.style.display='block'; return; }
     } else {
       setPwUser = user;
@@ -1979,14 +1978,14 @@ async function initApp(){
   document.body.classList.toggle('role-wh', me.role==='warehouse');
   document.body.classList.toggle('role-admin', me.role==='admin');
   document.getElementById('btn-my-pw').style.display = me.role==='admin' ? '' : 'none';
-  if(isManager){ pill.textContent = me.role==='admin'?'管理者':'藥庫'; pill.className='site-pill pill-admin'; }
-  else{ pill.textContent=campusLabel; pill.className='site-pill '+campusPill; }
+  // 不顯示身分（管理者／藥庫），只顯示院區
+  pill.style.display = isManager ? 'none' : '';
+  if(!isManager){ pill.textContent=campusLabel; pill.className='site-pill '+campusPill; }
 
   const roleLabel = {admin:'管理者', pharm:'一般', warehouse:'藥庫'}[me.role] || '一般';
   document.getElementById('topbar-name').innerHTML =
     me.emp_id+' '+me.name+
-    ' <span class="site-pill '+campusPill+'" style="font-size:12px">'+campusLabel+'</span>'+
-    ' <span class="site-pill pill-admin" style="font-size:12px">'+roleLabel+'</span>';
+    ' <span class="site-pill '+campusPill+'" style="font-size:12px">'+campusLabel+'</span>';
 
   const tabs = isManager
     ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'管理中心'}]
