@@ -150,10 +150,10 @@ table.as-off th.as-th{cursor:default !important}
 .tab.active{color:#fff;border-bottom-color:#fff;font-weight:500}
 .tab:hover:not(.active){background:rgba(255,255,255,0.08);color:#fff}
 
-.content{flex:1;padding:16px;width:100%;max-width:1180px;margin:0 auto}
+.content{flex:1;padding:16px;width:100%;max-width:1180px;margin:0 auto;min-width:0}
 .sec{display:none}.sec.active{display:block}
 
-.subtabs{display:flex;margin-bottom:14px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;width:fit-content}
+.subtabs{display:flex;margin-bottom:14px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow-x:auto;overflow-y:hidden;width:fit-content;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 .subtab{padding:7px 18px;font-size:15px;cursor:pointer;color:#666;border-right:1px solid #e0e0e0;white-space:nowrap}
 .subtab:last-child{border-right:none}
 .subtab.active{background:#1B3A6B;color:#fff;font-weight:500}
@@ -178,6 +178,9 @@ table.as-off th.as-th{cursor:default !important}
 .inv-input.carried{border-color:#C77700;background:#FFF8EC}
 .inv-note{max-width:220px !important}
 @media (max-width:640px){
+  .content{padding:10px}
+  .subtab{padding:7px 12px;font-size:14px}
+  .tab{padding:10px 12px;font-size:14px}
   .inv-input{width:96px;padding:11px 8px;font-size:20px}
   .inv-note{max-width:110px !important;padding:11px 8px !important}
 }
@@ -196,7 +199,12 @@ table.as-off th.as-th{cursor:default !important}
 .card .val{font-size:24px;font-weight:600}
 .c-ok{color:#1D9E75}.c-err{color:#E24B4A}
 
-.tbl-wrap{background:#fff;border-radius:12px;border:1px solid #e8e8e8;overflow-x:auto}
+.tbl-wrap{background:#fff;border-radius:12px;border:1px solid #e8e8e8;overflow:auto;max-height:calc(100vh - 130px)}
+/* 所有表格凍結表頭：表格在自己的捲動區裡捲；多列表頭的 top 由 fixStickyHeads() 補上 */
+.tbl-wrap > table > thead th{position:sticky;top:0;z-index:3;box-shadow:inset 0 -1px 0 #e8e8e8}
+.ov-table td.ov-name{position:sticky;left:0;z-index:2;background:#fff}
+.ov-table tr.ov-sub td.ov-name{background:#fafaf8}
+.ov-table thead th.ov-name{left:0;z-index:5}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 th{background:#fafaf8;padding:8px 10px;text-align:left;font-weight:500;font-size:13px;color:#888;border-bottom:1px solid #e8e8e8;white-space:nowrap}
 th.c,td.c{text-align:center}
@@ -219,8 +227,9 @@ tr:hover td{background:#fafaf8}
 .mfooter{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .role-wh #mst-sub-pages,.role-wh #mst-sub-accounts,.role-wh button[onclick="openVaccineModal()"],.role-wh button[onclick="openVaccineBatch()"],.role-wh #btn-del-vacc,.role-wh #vacc-danger,.role-wh #vacc-save-btn{display:none !important}
 body:not(.role-admin) .vimg-admin{display:none !important}
-#ov-groups .ovc-dl{background:#EEF4FB}#ov-groups .ovc-hw{background:#EEF7F1}#ov-groups .ovc-wh{background:#FBF4EA}
-#ov-groups th.ovc-dl{background:#DCE8F6;color:#1B3A6B}#ov-groups th.ovc-hw{background:#DCEFE3;color:#155F45}#ov-groups th.ovc-wh{background:#F5E6D0;color:#8A5A12}
+#ov-groups td.ovc-dl{background:#F6F9FD}#ov-groups td.ovc-hw{background:#F5FAF7}#ov-groups td.ovc-wh{background:#FDFAF5}
+#ov-groups th.ovc-dl{background:#EAF1FA;color:#1B3A6B}#ov-groups th.ovc-hw{background:#E8F4EC;color:#155F45}#ov-groups th.ovc-wh{background:#F8EEDF;color:#8A5A12}
+#ov-groups th.ovg-dl{background:#C9DBF1;color:#1B3A6B;font-weight:700;font-size:14px}#ov-groups th.ovg-hw{background:#C7E6D2;color:#155F45;font-weight:700;font-size:14px}#ov-groups th.ovg-wh{background:#F0DDBE;color:#8A5A12;font-weight:700;font-size:14px}
 .vsec{border:1px solid #e8ecf2;border-radius:10px;padding:10px 14px;margin-bottom:10px;background:#fcfcfb}
 .vsec-title{font-size:14px;font-weight:600;color:#1B3A6B;margin-bottom:6px}
 details.vsec>summary.vsec-title{cursor:pointer;margin-bottom:0;list-style-position:inside}
@@ -241,7 +250,7 @@ details.vsec>summary.vsec-title{cursor:pointer;margin-bottom:0;list-style-positi
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 input[type=number]{-moz-appearance:textfield}
-.dropzone{border:2px dashed #c9d3e0;border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;background:#fafbfd;transition:all .15s;min-width:260px}
+.dropzone{border:2px dashed #c9d3e0;border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;background:#fafbfd;transition:all .15s;min-width:min(260px,100%)}
 .dropzone:hover{border-color:#1B3A6B;background:#f3f6fb}
 .dropzone.dropzone-over{border-color:#1B3A6B;background:#eaf0fa}
 .dropzone-lg{padding:44px 16px;width:100%}
@@ -4245,19 +4254,19 @@ async function renderOverview(){
     const stock = stockMap[key] !== undefined ? stockMap[key] : null;
     if(skipStockCompare){
       const badge = tally === null
-        ? '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px">尚未盤點</span>'
-        : '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px" title="這個品項設定為略過庫存報表比對">— 不比對</span>';
+        ? '<span style="font-size:12px;color:#aaa;white-space:nowrap">未盤</span>'
+        : '<span style="font-size:12px;color:#aaa;white-space:nowrap" title="這個品項設定為略過庫存報表比對">不比對</span>';
       return { tally, stock, match:false, mismatch:false, badge };
     }
     const match = tally !== null && stock !== null && tally === stock;
     const mismatch = tally !== null && stock !== null && tally !== stock;
     const badge = tally === null
-      ? '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px">尚未盤點</span>'
+      ? '<span style="font-size:12px;color:#aaa;white-space:nowrap">未盤</span>'
       : stock === null
-        ? '<span class="badge" style="background:#f0f0ee;color:#999;font-size:12px">報表未上傳</span>'
+        ? '<span style="font-size:12px;color:#aaa;white-space:nowrap">無報表</span>'
         : match
-          ? '<span class="badge b-ok" style="font-size:12px">✓ 吻合</span>'
-          : '<span class="badge b-err" style="font-size:12px">✕ 不吻合</span>';
+          ? '<span style="font-size:14px;color:#9AA3B2" title="吻合">✓</span>'
+          : `<span class="badge b-err" style="font-size:12px;white-space:nowrap">✕ 差 ${tally-stock>0?'+':''}${tally-stock}</span>`;
     return { tally, stock, match, mismatch, badge };
   }
 
@@ -4369,14 +4378,15 @@ function renderOverviewRows(){
   sections.push({ id:'_un', name: ovGroups.length ? '未分類' : '全部品項', rows:rest, custom:false });
 
   const collapsed = ovCollapsed();
+  const sub = c => `<th class="c ovc-${c}" style="width:64px">盤點</th><th class="c ovc-${c}" style="width:64px">報表</th><th class="c ovc-${c}" style="width:70px">狀態</th>`;
   const head = `<thead><tr>
-      <th style="width:220px">疫苗名稱</th>
-      <th class="c ovc-dl" style="width:85px">斗六盤點</th><th class="c ovc-dl" style="width:85px">斗六庫存報表</th><th class="c ovc-dl" style="width:80px">斗六狀態</th>
-      <th class="c ovc-hw" style="width:85px">虎尾盤點</th><th class="c ovc-hw" style="width:85px">虎尾庫存報表</th><th class="c ovc-hw" style="width:80px">虎尾狀態</th>
-      <th class="c ovc-wh" style="width:85px">藥庫盤點</th><th class="c ovc-wh" style="width:85px">藥庫庫存報表</th><th class="c ovc-wh" style="width:80px">藥庫狀態</th>
-      <th class="c" style="width:90px;background:#EEF3FA">三站庫存報表合計</th>
-      <th style="width:160px">備註</th></tr></thead>`;
+      <th rowspan="2" class="ov-name" style="width:220px;min-width:180px">疫苗名稱</th>
+      <th colspan="3" class="c ovg-dl">斗六</th><th colspan="3" class="c ovg-hw">虎尾</th><th colspan="3" class="c ovg-wh">藥庫</th>
+      <th rowspan="2" class="c" style="width:84px;white-space:normal;line-height:1.3">三站報表<br>合計</th>
+      <th rowspan="2" class="c" style="width:52px">備註</th></tr>
+      <tr>${sub('dl')}${sub('hw')}${sub('wh')}</tr></thead>`;
   const fmtExp = e => e ? e.replace(/-/g,'/') : '';
+  const campCells = (x, c) => `<td class="c ovc-${c}" style="font-size:15px;${x.mismatch?'color:#A32D2D;font-weight:700':'font-weight:600'}">${x.tally===null?'<span style="color:#ccc">—</span>':x.tally}</td><td class="c ovc-${c}" style="color:#888;font-size:14px">${x.stock===null?'<span style="color:#ccc">—</span>':x.stock}</td><td class="c ovc-${c}">${x.badge}</td>`;
   // 三站合計：盤點、庫存報表各自加總；兩邊都有數字、不是「不比對庫存報表」的品項，對不上就紅字
   // 三站庫存報表合計
   const sumCells = r => {
@@ -4387,16 +4397,14 @@ function renderOverviewRows(){
   const rowHtml = r=>{ const { dl, hw, wh } = r;
     const lots = ovLotMap[r.code8] || [], multi = lots.length>=2, open = multi && ovLotOpen.has(r.code8);
     const lotCell = (l, c) => `<td class="c ovc-${c}" style="font-size:14px;color:#555">${l[c]===undefined?'<span style="color:#ccc">—</span>':l[c]}</td><td class="ovc-${c}"></td><td class="ovc-${c}"></td>`;
-    const subRows = open ? lots.map(l=>`<tr style="background:#fafaf8">
-      <td style="padding-left:30px;font-size:13px;color:#555"><span style="font-family:monospace">↳ ${l.lot}</span>${l.exp?`<span style="color:#aaa;margin-left:6px">效期 ${fmtExp(l.exp)}</span>`:''}</td>
+    const subRows = open ? lots.map(l=>`<tr class="ov-sub" style="background:#fafaf8">
+      <td class="ov-name" style="padding-left:30px;font-size:13px;color:#555"><span style="font-family:monospace">↳ ${l.lot}</span>${l.exp?`<span style="color:#aaa;margin-left:6px">效期 ${fmtExp(l.exp)}</span>`:''}</td>
       ${lotCell(l,'dl')}${lotCell(l,'hw')}${lotCell(l,'wh')}<td></td><td></td></tr>`).join('') : '';
     return `<tr draggable="false" data-code8="${r.code8}" ondragstart="ovItemDragStart(event)" ondragover="ovRowDragOver(event)" ondragleave="ovRowDragLeave(event)" ondrop="ovRowDrop(event)" ondragend="ovDragEnd()" style="border-top:2px solid transparent;border-bottom:2px solid transparent">
-      <td style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${multi?`<span style="cursor:pointer;color:#1B3A6B;margin-right:4px" onclick="ovToggleLots('${r.code8}')" title="展開各批號">${open?'▾':'▸'}</span>`:''}<span${multi?` style="cursor:pointer" onclick="ovToggleLots('${r.code8}')"`:''}>${r.name}</span>${multi?`<div style="font-size:12px;color:#999;padding-left:18px">${lots.length} 個批號</div>`:''}${lots.length===1?`<div style="font-size:12px;color:#999;padding-left:18px;font-family:monospace">${lots[0].lot}</div>`:''}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
-      <td class="c ovc-dl">${dl.tally===null?'—':dl.tally}</td><td class="c ovc-dl" style="color:#888;font-size:14px">${dl.stock===null?'—':dl.stock}</td><td class="c ovc-dl">${dl.badge}</td>
-      <td class="c ovc-hw">${hw.tally===null?'—':hw.tally}</td><td class="c ovc-hw" style="color:#888;font-size:14px">${hw.stock===null?'—':hw.stock}</td><td class="c ovc-hw">${hw.badge}</td>
-      <td class="c ovc-wh">${wh.tally===null?'—':wh.tally}</td><td class="c ovc-wh" style="color:#888;font-size:14px">${wh.stock===null?'—':wh.stock}</td><td class="c ovc-wh">${wh.badge}</td>
+      <td class="ov-name" style="font-size:15px"><span style="color:#bbb;margin-right:4px;cursor:grab" onmousedown="this.closest('tr').setAttribute('draggable','true')">☰</span>${multi?`<span style="cursor:pointer;color:#1B3A6B;margin-right:4px" onclick="ovToggleLots('${r.code8}')" title="展開各批號">${open?'▾':'▸'}</span>`:''}<span${multi?` style="cursor:pointer" onclick="ovToggleLots('${r.code8}')"`:''}>${r.name}</span>${multi?`<div style="font-size:12px;color:#999;padding-left:18px">${lots.length} 個批號</div>`:''}${lots.length===1?`<div style="font-size:12px;color:#999;padding-left:18px;font-family:monospace">${lots[0].lot}</div>`:''}${r.code4?`<div style="font-size:12px;color:#999;padding-left:18px">${r.code4}</div>`:''}<div style="font-size:12px;color:#bbb;padding-left:18px">${r.code8}</div></td>
+      ${campCells(dl,'dl')}${campCells(hw,'hw')}${campCells(wh,'wh')}
       ${sumCells(r)}
-      <td><input type="text" class="ov-note-input" data-code="${r.code8}" value="${r.note.replace(/"/g,'&quot;')}" placeholder="備註" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #d5d5d5;box-sizing:border-box" onchange="saveOverviewNote(this)"></td>
+      <td class="c"><button class="btn btn-sm" style="font-size:15px;padding:2px 8px;${r.note?'background:#FFF4D6;border-color:#E8C46A':'opacity:.45'}" title="${r.note?r.note.replace(/"/g,'&quot;'):'寫備註'}" onclick="ovEditNote('${r.code8}')">📝</button></td>
     </tr>` + subRows; };
 
   let shownAny = false;
@@ -4416,7 +4424,7 @@ function renderOverviewRows(){
         ${!isCol && rows.some(r=>(ovLotMap[r.code8]||[]).length>=2) ? `<button class="btn btn-sm" style="font-size:12px" onclick="ovToggleGroupLots('${sec.id}')">${rows.filter(r=>(ovLotMap[r.code8]||[]).length>=2).every(r=>ovLotOpen.has(r.code8))?'全部收合':'全部展開'}批號</button>` : ''}
         ${sec.custom?`<button class="btn btn-sm" style="font-size:12px" onclick="ovRenameGroup('${sec.id}')">改名</button><button class="btn btn-sm" style="font-size:12px;color:#A32D2D;border-color:#f0c0c0" onclick="ovDeleteGroup('${sec.id}')">刪除</button>`:''}
       </div>
-      ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="12" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
+      ${isCol ? '' : `<div class="tbl-wrap" style="border:0;border-radius:0;margin:0"><table data-nosort class="ov-table">${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="12" style="text-align:center;padding:16px;color:#bbb">把品項拖到這裡</td></tr>`}</tbody></table></div>`}
     </div>`;
   }).join('');
   if(!shownAny){ ovMsg('沒有符合條件的品項'); return; }
@@ -4482,6 +4490,26 @@ function ovDragEnd(){
 }
 
 // 管理總覽的「當天備註」：對應 drug_code8 + note_date + source='overview'，換日期查詢就不會帶出來，只跟當天那一列綁定，也不會跟全院庫存核對的備註互相干擾
+async function ovEditNote(code8){
+  const r = ovRowsCache.find(x=>x.code8===code8); if(!r) return;
+  const v = await appPrompt(`${r.name}\n${document.getElementById('ov-date').value} 備註（留空＝刪除）：`, r.note||'', {title:'📝 備註', okText:'儲存'});
+  if(v===null) return;
+  await saveOverviewNote({ dataset:{ code: code8 }, value: String(v), style:{}, disabled:false });
+  r.note = String(v).trim();
+  renderOverviewRows();
+}
+// 多列表頭：第二列以下的 th 要往下疊在第一列下面
+function fixStickyHeads(){
+  document.querySelectorAll('.tbl-wrap > table > thead').forEach(th=>{
+    if(!th.offsetParent || th.rows.length < 2) return;
+    let top = 0;
+    [...th.rows].forEach((r,i)=>{ [...r.cells].forEach(c=>{ if(i===0 || c.rowSpan===1) c.style.top = top+'px'; }); top += r.getBoundingClientRect().height; });
+  });
+}
+let fixStickyTimer = null;
+new MutationObserver(()=>{ clearTimeout(fixStickyTimer); fixStickyTimer = setTimeout(fixStickyHeads, 120); }).observe(document.documentElement, { childList:true, subtree:true });
+window.addEventListener('resize', ()=>{ clearTimeout(fixStickyTimer); fixStickyTimer = setTimeout(fixStickyHeads, 120); });
+
 async function saveOverviewNote(el){
   const code8 = el.dataset.code;
   const noteDate = document.getElementById('ov-date').value;
@@ -10458,7 +10486,7 @@ async function renderHbigReport(){
       ${mfield('e_antigen_positive','＊e抗原陽性數（S抗原陽性中e抗原含HBsAg(+)效價≧2560）',90)}
     </div>
     <div style="display:flex;gap:20px;flex-wrap:wrap">
-      <div style="flex:1;min-width:340px;border:1px solid #eee;border-radius:8px;padding:14px">
+      <div style="flex:1;min-width:min(340px,100%);border:1px solid #eee;border-radius:8px;padding:14px">
         <div style="font-weight:600;color:#1B3A6B;margin-bottom:8px">免疫球蛋白 (H.B.I.G)</div>
         ${igRows.length ? `
           <div style="font-size:13px;color:#888;margin-bottom:8px">${lotListHtml(igRows)}</div>
@@ -10471,7 +10499,7 @@ async function renderHbigReport(){
           </tbody></table>
         ` : `<div style="color:#bbb;font-size:13px">尚未在管理中心把免疫球蛋白品項設定為「B肝報表－免疫球蛋白」分類</div>`}
       </div>
-      <div style="flex:1;min-width:340px;border:1px solid #eee;border-radius:8px;padding:14px">
+      <div style="flex:1;min-width:min(340px,100%);border:1px solid #eee;border-radius:8px;padding:14px">
         <div style="font-weight:600;color:#1B3A6B;margin-bottom:8px">遺傳工程疫苗</div>
         ${vacRows.length ? `
           <div style="font-size:13px;color:#888;margin-bottom:8px">${lotListHtml(vacRows)}</div>
