@@ -288,7 +288,7 @@ input[type=number]{-moz-appearance:textfield}
         <div id="u-name" style="min-height:24px;margin:-6px 0 12px;font-size:16px;color:#1B3A6B;font-weight:600"></div>
         <div class="field" id="u-pass-wrap" style="display:none">
           <label class="lbl">密碼</label>
-          <input class="inp" type="password" id="u-pass" placeholder="請輸入密碼；第一次登入可留空" autocomplete="current-password">
+          <input class="inp" type="password" id="u-pass" placeholder="請輸入密碼" autocomplete="current-password">
         </div>
         <div id="u-err" style="display:none;color:#dc2626;font-size:14px;margin-bottom:8px;background:#FEF2F2;padding:7px 9px;border-radius:6px;"></div>
         <button class="btn-login" id="login-btn" onclick="login()" style="background:#1B3A6B">登入</button>
@@ -350,7 +350,6 @@ input[type=number]{-moz-appearance:textfield}
         <!-- 子分頁切換 -->
         <div class="subtabs" style="margin-bottom:14px">
           <div class="subtab active" id="rec-sub-tally" onclick="switchRecSub('tally')">📋 盤點紀錄</div>
-          <div class="subtab" id="rec-sub-daily" onclick="switchRecSub('daily')">📅 每日總表</div>
           <div class="subtab" id="rec-sub-oplog" onclick="switchRecSub('oplog')" style="display:none">🕘 操作歷程</div>
         </div>
 
@@ -384,20 +383,6 @@ input[type=number]{-moz-appearance:textfield}
               </table>
             </div>
           </div>
-        </div>
-
-        <!-- 每日盤點總表 -->
-        <div id="rec-panel-daily" style="display:none">
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-            <select id="td-site" class="inp" style="width:130px" onchange="renderTallyDaily()">
-              <option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option>
-            </select>
-            <input type="month" id="td-month" class="inp" style="width:160px" onchange="renderTallyDaily()">
-            <label style="display:flex;align-items:center;gap:4px;font-size:14px;color:#555;cursor:pointer"><input type="checkbox" id="td-bylot" onchange="renderTallyDaily()"> 依批號分欄</label>
-            <button class="btn btn-sm" onclick="exportTallyDaily()">📥 匯出 Excel</button>
-            <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合；虛線底＝多個批號。游標移上去看明細</span>
-          </div>
-          <div id="td-wrap"></div>
         </div>
 
         <!-- 操作歷程子頁（管理者限定） -->
@@ -439,6 +424,11 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <div class="sec" id="sec-overview">
+      <div class="subtabs" style="margin-bottom:14px">
+        <div class="subtab active" id="ov-sub-main" onclick="switchOvSub('main')">📊 管理總覽</div>
+        <div class="subtab" id="ov-sub-daily" onclick="switchOvSub('daily')">📅 每日總表</div>
+      </div>
+      <div id="ov-panel-main">
       <div class="cards" style="grid-template-columns:repeat(5,minmax(0,1fr))">
         <div class="card"><div class="lbl">疫苗品項（種）</div><div class="val" id="ov-total">—</div></div>
         <div class="card"><div class="lbl">斗六吻合</div><div class="val c-ok" id="ov-dl-ok">—</div></div>
@@ -477,9 +467,23 @@ input[type=number]{-moz-appearance:textfield}
         <button class="btn btn-sm" onclick="ovAddGroup()">＋ 新增分類</button>
       </div>
       <div id="ov-groups"></div>
+          </div>
+        <!-- 每日盤點總表 -->
+        <div id="ov-panel-daily" style="display:none">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+            <select id="td-site" class="inp" style="width:130px" onchange="renderTallyDaily()">
+              <option value="dl">斗六院區</option><option value="hw">虎尾院區</option><option value="wh">藥庫</option>
+            </select>
+            <input type="month" id="td-month" class="inp" style="width:160px" onchange="renderTallyDaily()">
+            <label style="display:flex;align-items:center;gap:4px;font-size:14px;color:#555;cursor:pointer"><input type="checkbox" id="td-bylot" onchange="renderTallyDaily()"> 依批號分欄</label>
+            <button class="btn btn-sm" onclick="exportTallyDaily()">📥 匯出 Excel</button>
+            <span style="font-size:13px;color:#888"><span style="color:#A32D2D;font-weight:600">紅字</span>＝跟庫存報表不吻合；虛線底＝多個批號。游標移上去看明細</span>
+          </div>
+          <div id="td-wrap"></div>
+        </div>
+
     </div>
 
-    <!-- ══ 報表（報表上傳／NIIS申報輔助／月報表）══ -->
     <div class="sec" id="sec-upload">
       <div id="rpt-main-panel-upload">
         <div class="subtabs" style="margin-bottom:14px">
@@ -2110,16 +2114,20 @@ function getMrYm(){
 function switchRecSub(tab){
   document.getElementById('rec-sub-tally').classList.toggle('active', tab==='tally');
   document.getElementById('rec-sub-oplog').classList.toggle('active', tab==='oplog');
-  document.getElementById('rec-sub-daily').classList.toggle('active', tab==='daily');
   document.getElementById('rec-panel-tally').style.display = tab==='tally'?'':'none';
   document.getElementById('rec-panel-oplog').style.display = tab==='oplog'?'':'none';
-  document.getElementById('rec-panel-daily').style.display = tab==='daily'?'':'none';
   if(tab==='oplog') renderOplog();
-  if(tab==='daily') initTallyDaily();
 }
 
 /* ── 每日盤點總表：一個院區、一個月，一列一天、一欄一個品項（照盤點分頁順序） ── */
 let tdLast = null;
+function switchOvSub(tab){
+  ['main','daily'].forEach(t=>{
+    document.getElementById('ov-sub-'+t).classList.toggle('active', t===tab);
+    document.getElementById('ov-panel-'+t).style.display = t===tab ? '' : 'none';
+  });
+  if(tab==='daily') initTallyDaily();
+}
 function initTallyDaily(){
   const isManager = me.role==='admin'||me.role==='warehouse';
   const sel = document.getElementById('td-site');
@@ -2757,7 +2765,19 @@ async function renderRecords(){
   (lrecs||[]).forEach(l=>{ (lmap[l.drug_code8+'|'+l.campus] = lmap[l.drug_code8+'|'+l.campus] || []).push({ lot:l.lot_no, qty:Number(l.qty) }); });
   const { data: ldx } = await sb.from('lot_details').select('drug_code8').eq('status','active').in('drug_code8', [...new Set(data.map(r=>r.drug_code8))]);
   const hasLot = new Set((ldx||[]).map(x=>x.drug_code8));
-  recRawRows = data.map(r => ({ ...r, name: nameMap[r.drug_code8] || r.drug_code8, hasLot: hasLot.has(r.drug_code8), lots: (lmap[r.drug_code8+'|'+r.campus]||[]).sort((a,b)=>a.lot.localeCompare(b.lot)) }));
+  // 更正過的盤點：找每筆紀錄的修改歷程（最早的原始數字、最後一次修改）
+  const editMap = {};
+  try{
+    const ids = data.map(r=>r.record_id);
+    const { data: logs } = await sb.from('change_logs').select('*').in('record_id', ids.length ? ids : [-1]).eq('action_type','edit');
+    const { data: us } = await sb.from('users').select('emp_id,name');
+    const un = {}; (us||[]).forEach(u=>un[u.emp_id]=u.name);
+    (logs||[]).sort((a,b)=>String(a.ts||'').localeCompare(String(b.ts||''))).forEach(l=>{
+      const e = editMap[l.record_id] = editMap[l.record_id] || { first: l.old_qty, n: 0 };
+      e.n++; e.last = l; e.who = un[l.operator] || l.operator || '';
+    });
+  }catch(e){}
+  recRawRows = data.map(r => ({ ...r, edit: editMap[r.record_id] || null, name: nameMap[r.drug_code8] || r.drug_code8, hasLot: hasLot.has(r.drug_code8), lots: (lmap[r.drug_code8+'|'+r.campus]||[]).sort((a,b)=>a.lot.localeCompare(b.lot)) }));
   applyRecFilterSort();
 }
 
@@ -2805,7 +2825,9 @@ function applyRecFilterSort(){
     return `<tr>
       ${recIsAdmin ? `<td style="white-space:nowrap"><span class="site-pill ${sitePill}" style="font-size:12px;white-space:nowrap">${siteLabel}</span></td>` : ''}
       <td style="font-size:15px">${r.name}${r.lots.length===1?`<div style="font-size:12px;color:#999;font-family:monospace">${r.lots[0].lot}</div>`:''}${!r.lots.length && r.hasLot?`<div style="font-size:12px;color:#C77700">沒有批號明細</div>`:''}</td>
-      <td class="c"><strong>${r.tally_qty}</strong></td>
+      <td class="c">${r.edit ? (()=>{ const l = r.edit.last, t = l.ts ? new Date(l.ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}) : '';
+        const tip = `原 ${r.edit.first} → ${r.tally_qty}${r.edit.n>1?`（共改 ${r.edit.n} 次）`:''}・${r.edit.who}${t?'・'+t:''}${l.reason?'・'+l.reason:''}`.replace(/"/g,'&quot;');
+        return `<strong style="color:#A32D2D" title="${tip}">${r.tally_qty} ✏️</strong><div style="font-size:11px;color:#A32D2D">原 ${r.edit.first}</div>`; })() : `<strong>${r.tally_qty}</strong>`}</td>
       <td style="font-size:13px;color:#888">${r.note||''}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" style="font-size:13px;background:#1B3A6B;color:#fff;border-color:#1B3A6B"
