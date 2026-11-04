@@ -2001,7 +2001,7 @@ async function initApp(){
     ' <span class="site-pill '+campusPill+'" style="font-size:12px">'+campusLabel+'</span>';
 
   const tabs = isManager
-    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'管理中心'}]
+    ? [{id:'overview',label:'管理總覽'},{id:'inv',label:'盤點作業'},{id:'upload',label:'上傳報表'},{id:'niisrep',label:'NIIS申報輔助'},{id:'monthlyrep',label:'月報表'},{id:'master',label:'管理中心'}].filter(t=>!(me.role==='warehouse' && t.id==='monthlyrep'))
     : [{id:'inv',label:'盤點作業'}];
 
   document.getElementById('tab-bar').innerHTML = tabs.map(t =>
@@ -2050,6 +2050,7 @@ function setupDropzones(){
 }
 
 function showTab(id){
+  if(id==='monthlyrep' && me && me.role==='warehouse') id = 'overview';
   document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.id===id));
   document.querySelectorAll('.sec').forEach(el => el.classList.remove('active'));
   document.getElementById('sec-'+id).classList.add('active');
@@ -2917,6 +2918,20 @@ async function confirmRecEdit(){
   if(lotIns.length){
     const { error: le } = await sb.from('tally_lot_records').upsert(lotIns.map(e=>({ campus:rec.campus, tally_date:rec.tally_date, drug_code8:rec.drug_code8, lot_no:e.dataset.lot, qty:parseInt(e.value)||0, saved_by:me.emp_id })), { onConflict:'campus,tally_date,drug_code8,lot_no' });
     if(le) alert('⚠️ 總數已更新，但批號明細更新失敗：'+le.message);
+    else if(rec.tally_date >= shiftDate(todayStr(), -1)){
+      // 燈號跟著盤點走（跟盤點輸入一樣）：改成 0 → 關這個院區的燈；從 0 改成有數量 → 開燈。只在改今天或昨天的紀錄時調整
+      const flag = 'used_'+rec.campus, campN = {dl:'斗六', hw:'虎尾', wh:'藥庫'}[rec.campus] || rec.campus;
+      const { data: ld } = await sb.from('lot_details').select('lot_id,lot_no,campus,used_dl,used_hw,used_wh').eq('drug_code8', rec.drug_code8);
+      const msgs = [];
+      for(const e of lotIns){
+        const g = (ld||[]).filter(x=>x.lot_no===e.dataset.lot); if(!g.length) continue;
+        const p = g.find(x=>x.campus==='wh') || g.find(x=>x.campus==='dl') || g[0];
+        const q = parseInt(e.value)||0;
+        if(q===0 && p[flag]){ await sb.from('lot_details').update({ [flag]: false }).eq('lot_id', p.lot_id); msgs.push(`${e.dataset.lot} 已改成 0，已關閉${campN}燈號`); }
+        else if(q>0 && !p[flag]){ await sb.from('lot_details').update({ [flag]: true }).eq('lot_id', p.lot_id); msgs.push(`${e.dataset.lot} 已打開${campN}燈號`); }
+      }
+      if(msgs.length) appToast(msgs.join('；'));
+    }
   }
   await insertChangeLogs({
     record_id: rec.record_id,
