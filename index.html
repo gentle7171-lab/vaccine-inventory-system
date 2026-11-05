@@ -858,7 +858,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="subtab" id="mst-sub-accounts" onclick="switchMasterSub('accounts')">👤 帳號管理<span id="roster-badge-sub" title="班表名冊有異動，點我處理" onclick="event.stopPropagation();openRosterSyncModal()" style="display:none;width:8px;height:8px;background:#A32D2D;border-radius:50%;cursor:pointer;margin-left:4px;vertical-align:middle"></span></div>
         <div class="subtab" id="mst-sub-init-stock" onclick="switchMasterSub('init-stock')" style="display:none">🎯 起始庫存匯入</div>
         <div class="subtab" id="mst-sub-usage" onclick="switchMasterSub('usage')">📈 品項耗用查詢</div>
-        <div class="subtab" id="mst-sub-flu" onclick="switchMasterSub('flu')">🍂 流感季</div>
+        <div class="subtab" id="mst-sub-flu" onclick="switchMasterSub('flu')">💉 季節疫苗</div>
         <div class="subtab" id="mst-sub-fridge" onclick="switchMasterSub('fridge')">🧊 冰箱配置</div>
         <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
       </div>
@@ -999,7 +999,8 @@ input[type=number]{-moz-appearance:textfield}
         <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
 
           <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
-            <select id="uq-item-add" class="inp" style="width:240px;max-width:100%" onchange="uqAddItem(this.value); this.value=''">
+            <input type="text" id="uq-search" class="inp" style="width:200px;max-width:100%" placeholder="🔍 搜尋藥名／8碼／4碼" oninput="uqFilterItems(this.value)" onkeydown="if(event.key==='Enter'){ const o=document.querySelector('#uq-item-add option[value]:not([value=\'\'])'); if(o){ uqAddItem(o.value); this.value=''; uqFilterItems(''); } }">
+            <select id="uq-item-add" class="inp" style="width:240px;max-width:100%" onchange="uqAddItem(this.value); this.value=''; document.getElementById('uq-search').value=''; uqFilterItems('')">
               <option value="">＋ 加入品項...</option>
             </select>
             <select id="uq-group-select" class="inp" style="width:180px" onchange="uqLoadGroup(this.value)">
@@ -1047,6 +1048,10 @@ input[type=number]{-moz-appearance:textfield}
       </div>
 
       <div id="master-panel-flu" style="display:none">
+        <div class="subtabs" style="margin-bottom:10px">
+          <div class="subtab active" id="flu-kind-flu" onclick="switchFluKind('flu')">🍂 流感</div>
+          <div class="subtab" id="flu-kind-covid" onclick="switchFluKind('covid')">🦠 COVID-19</div>
+        </div>
         <div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px">
           <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">
             <select id="flu-season" class="inp" style="width:200px" onchange="fluClearRange()"></select>
@@ -1054,7 +1059,7 @@ input[type=number]{-moz-appearance:textfield}
             <span id="flu-code-count" style="font-size:13px;color:#999"></span>
           </div>
           <div id="flu-setting" style="display:none;background:#F7F8FB;border:1px solid #E3E7EF;border-radius:10px;padding:12px;margin-bottom:14px">
-            <div style="font-size:13px;color:#666;margin-bottom:8px">要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）</div>
+            <div id="flu-setting-hint" style="font-size:13px;color:#666;margin-bottom:8px">要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）</div>
             <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px">
               <select id="flu-item-add" class="inp" style="width:260px;max-width:100%" onchange="fluAddItem(this.value); this.value=''"></select>
               <button class="btn btn-primary btn-sm" onclick="fluSaveCodes()">💾 儲存</button>
@@ -3885,6 +3890,7 @@ async function saveManualStock(){
   if(error){ alert('儲存失敗：'+error.message); return; }
   closeModal('modal-man-stock');
   appToast(`已儲存 ${date} 手動庫存 ${rows.length} 筆`);
+  try{ renderUploadHistory(); }catch(e){}
 }
 
 /* ══════════════ 員工院區待登記 ══════════════ */
@@ -7777,7 +7783,7 @@ async function renderUploadHistory(){
 
   const [{data:usageRows}, {data:stockRows}, {data:whRows}, {data:userRows}, {data:miss7Rows}] = await Promise.all([
     fetchAllRows(()=>sb.from('usage_uploads').select('upload_date,campus,uploaded_by').gte('upload_date', uR.from).lte('upload_date', uR.to).order('upload_date')),
-    fetchAllRows(()=>sb.from('stock_uploads').select('upload_date,station_code,uploaded_by').gte('upload_date', sR.from).lte('upload_date', sR.to).order('upload_date')),
+    fetchAllRows(()=>sb.from('stock_uploads').select('upload_date,station_code,uploaded_by,product_name').gte('upload_date', sR.from).lte('upload_date', sR.to).order('upload_date')),
     sb.from('warehouse_transactions').select('tx_date,direction,qty,created_by').eq('campus','wh').in('reason',['receive_import','return_import']).gte('tx_date', wR.from).lte('tx_date', wR.to),
     sb.from('users').select('emp_id,name'),
     sb.from('usage_uploads').select('upload_date').gte('upload_date', miss7From)
@@ -7820,11 +7826,12 @@ async function renderUploadHistory(){
     <tr id="usage-detail-row-${d}" style="display:none"><td colspan="4" style="padding:0"><div id="usage-detail-${d}" style="padding:8px 12px;background:#fafaf8"></div></td></tr>`).join('')}</tbody></table></div>`
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
 
-  const sMap = {};
+  const sMap = {}, sManual = {};
   const sByDate = {};
   (stockRows||[]).forEach(r=>{
     if(!sMap[r.upload_date]) sMap[r.upload_date] = {'6101':0,'6201':0,'6000':0};
     sMap[r.upload_date][r.station_code] = (sMap[r.upload_date][r.station_code]||0)+1;
+    if(r.product_name==='手動輸入'){ const k = r.upload_date+'|'+r.station_code; sManual[k] = (sManual[k]||0)+1; }
     if(!sByDate[r.upload_date]) sByDate[r.upload_date] = new Set();
     sByDate[r.upload_date].add(r.uploaded_by);
   });
@@ -7834,9 +7841,7 @@ async function renderUploadHistory(){
     <thead><tr><th style="width:110px">日期</th><th class="c">斗六(6101)</th><th class="c">虎尾(6201)</th><th class="c">藥庫(6000)</th><th style="width:140px">上傳人員</th><th style="width:220px">操作</th></tr></thead>
     <tbody>${sDates.map(d=>`<tr>
       <td style="font-size:14px">${d}</td>
-      <td class="c">${sMap[d]['6101']||0}</td>
-      <td class="c">${sMap[d]['6201']||0}</td>
-      <td class="c">${sMap[d]['6000']||0}</td>
+      ${['6101','6201','6000'].map(st=>`<td class="c">${sMap[d][st]||0}${sManual[d+'|'+st]?`<div style="font-size:11px;color:#C77700">✍ 手動 ${sManual[d+'|'+st]}</div>`:''}</td>`).join('')}
       <td style="font-size:13px;color:#666">${namesOf(sByDate[d])}</td>
       <td>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteStockDate('${d}','6101')">刪斗六</button>
@@ -9608,9 +9613,26 @@ const FLU_FIRST_SEASON = 115;
 let fluCodes = null, fluDraft = [], fluItems = [], fluData = null;
 let fluSort = { key:'total', dir:-1 };
 let fluDaysAlert = 3;
+// 季節疫苗：流感、COVID-19 共用同一套畫面，品項、提醒門檻各自存
+let fluKind = 'flu';
+const FLU_KIND = {
+  flu:   { label:'流感', hint:'要算進流感季的 8 碼（公費成人流感各廠牌，含員工 8 碼）', pick: n=>/流感/.test(n) && !/自費|幼兒|小兒|兒童/.test(n) },
+  covid: { label:'COVID-19', hint:'要算進 COVID-19 季的 8 碼（各廠牌、劑型，含別名 8 碼）', pick: n=>/covid|cov|新冠|spikevax|comirnaty|novavax|nuvaxovid|mnexspike/i.test(n) }
+};
+function switchFluKind(k){
+  if(fluKind===k) return;
+  fluKind = k; fluCodes = null; fluData = null; fluOpen = {}; fluSort = { key:'total', dir:-1 };
+  ['flu','covid'].forEach(x=>document.getElementById('flu-kind-'+x).classList.toggle('active', x===k));
+  document.getElementById('flu-setting-hint').textContent = FLU_KIND[k].hint;
+  document.getElementById('flu-season').innerHTML = '';
+  document.getElementById('flu-setting').style.display = 'none';
+  fluClearRangeSilent();
+  initFluTab();
+}
+function fluClearRangeSilent(){ document.getElementById('flu-from').value=''; document.getElementById('flu-to').value=''; }
 async function fluSaveDaysAlert(v){
   fluDaysAlert = Math.max(0, Number(v)||3);
-  await sb.from('app_settings').upsert({ key:'flu_days_alert', value:String(fluDaysAlert), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  await sb.from('app_settings').upsert({ key: fluKind==='flu' ? 'flu_days_alert' : fluKind+'_days_alert', value:String(fluDaysAlert), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
   renderFluSeason();
 }
 // 品項短名：取名稱裡第一個廠牌英文字（4 個字母以上），例如 AdimFlu-S、Fluarix
@@ -9646,14 +9668,14 @@ async function initFluTab(){
   if(error) ({ data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of').eq('status','active').order('tally_name'));
   fluItems = vrows || [];
   if(fluCodes===null){
-    const { data } = await sb.from('app_settings').select('value').eq('key','flu_season_codes').maybeSingle();
+    const { data } = await sb.from('app_settings').select('value').eq('key', fluKind+'_season_codes').maybeSingle();
     try{ fluCodes = data && data.value ? JSON.parse(data.value) : []; }catch(e){ fluCodes = []; }
   }
   document.getElementById('flu-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + fluItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
   if(!fluCodes.length){
-    fluDraft = fluItems.filter(v=>/流感/.test(v.tally_name||'') && !/自費|幼兒|小兒|兒童/.test(v.tally_name||'')).map(v=>v.drug_code8);
+    fluDraft = fluItems.filter(v=>FLU_KIND[fluKind].pick(v.tally_name||'')).map(v=>v.drug_code8);
     fluToggleSetting(true);
-    document.getElementById('flu-current').innerHTML = '<div style="padding:20px;text-align:center;color:#999">先在上方設定要算進流感季的品項，按儲存後顯示。已先帶入名稱有「流感」的品項，請確認。</div>';
+    document.getElementById('flu-current').innerHTML = `<div style="padding:20px;text-align:center;color:#999">先在上方設定要算進${FLU_KIND[fluKind].label}季的品項，按儲存後顯示。已先帶入名稱看起來是${FLU_KIND[fluKind].label}的品項，請確認。</div>`;
     document.getElementById('flu-history').innerHTML = '';
     document.getElementById('flu-code-count').textContent = '';
     fillFluSeasonSelect([]);
@@ -9685,11 +9707,11 @@ function fluRenderChips(){
 }
 async function fluSaveCodes(){
   if(!fluDraft.length){ alert('請至少加入一個品項'); return; }
-  const { error } = await sb.from('app_settings').upsert({ key:'flu_season_codes', value:JSON.stringify(fluDraft), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
+  const { error } = await sb.from('app_settings').upsert({ key: fluKind+'_season_codes', value:JSON.stringify(fluDraft), updated_by: me.emp_id, updated_at: new Date().toISOString() }, { onConflict:'key' });
   if(error){ alert('儲存失敗：'+error.message); return; }
   fluCodes = fluDraft.slice();
   fluToggleSetting(false);
-  alert('✓ 已儲存流感季品項');
+  appToast(`已儲存${FLU_KIND[fluKind].label}季品項`);
   await loadFluData();
   renderFluSeason();
 }
@@ -9716,7 +9738,7 @@ async function loadFluData(){
     const [tr, ci, th] = await Promise.all([
       fetchAllRows(()=>sb.from('tally_records').select('drug_code8,campus,tally_date,tally_qty').in('drug_code8', canon).gte('tally_date', shiftDate(todayStr(),-90)).order('tally_date')),
       sb.from('vaccine_campus_items').select('drug_code8,campus').eq('status','active').not('page_id','is',null).in('drug_code8', canon),
-      sb.from('app_settings').select('value').eq('key','flu_days_alert').maybeSingle()
+      sb.from('app_settings').select('value').eq('key', fluKind==='flu' ? 'flu_days_alert' : fluKind+'_days_alert').maybeSingle()
     ]);
     (tr.data||[]).forEach(t=>{ (fluData.tally[t.drug_code8] = fluData.tally[t.drug_code8] || []).push({ c:t.campus, d:t.tally_date, q:Number(t.tally_qty||0) }); });
     (ci.data||[]).forEach(x=>{ (fluData.need[x.drug_code8] = fluData.need[x.drug_code8] || new Set()).add(x.campus); });
@@ -9736,7 +9758,7 @@ function fillFluSeasonSelect(seasons){
   const list = [...new Set([...seasons, cur])].sort((a,b)=>b-a);
   const sel = document.getElementById('flu-season');
   const keep = sel.value;
-  sel.innerHTML = list.map(y=>`<option value="${y}">${y} 年流感季（${y+1911}/10～${y+1912}/9）</option>`).join('');
+  sel.innerHTML = list.map(y=>`<option value="${y}">${y} 年${FLU_KIND[fluKind].label}季（${y+1911}/10～${y+1912}/9）</option>`).join('');
   sel.value = list.includes(+keep) ? keep : String(cur);
 }
 function fluClearRange(){ document.getElementById('flu-from').value=''; document.getElementById('flu-to').value=''; renderFluSeason(); }
@@ -9923,12 +9945,19 @@ let uqGroups = []; // 從資料庫載入的已存群組
 let uqCurrentGroupId = null; // 目前套用中的群組id（用來讓「刪除此群組」知道要刪哪個）
 const UQ_COLORS = ['#1B3A6B','#C77700','#1D9E75','#A32D2D','#6B4FA0','#0E7C86','#B23A6B','#4C6EF5'];
 
+// 搜尋框：依藥名、8碼、4碼篩選「＋ 加入品項」的選單（按 Enter 直接加入第一個）
+function uqFilterItems(q){
+  q = String(q||'').trim().toLowerCase();
+  const list = q ? uqAllItems.filter(v=>[v.tally_name, v.drug_code8, v.stock_code4].some(x=>String(x||'').toLowerCase().includes(q))) : uqAllItems;
+  const sel = document.getElementById('uq-item-add');
+  sel.innerHTML = `<option value="">${q ? `找到 ${list.length} 個，請選擇...` : '＋ 加入品項...'}</option>` + list.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}${v.stock_code4?'・'+v.stock_code4:''}）</option>`).join('');
+}
 async function initUsageQueryTab(){
   // 每次打開這個分頁都重新抓一次品項清單（查詢便宜），避免主檔剛新增的品項因為快取沒更新而找不到
-  let { data: vrows, error: vErr } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,staff_item,doses_per_vial,whole_vial_deduct').eq('status','active').order('tally_name');
+  let { data: vrows, error: vErr } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,staff_item,doses_per_vial,whole_vial_deduct,stock_code4').eq('status','active').order('tally_name');
   if(vErr) ({ data: vrows } = await sb.from('vaccine_master').select('drug_code8,tally_name,alias_of,doses_per_vial,whole_vial_deduct').eq('status','active').order('tally_name'));
   uqAllItems = vrows || [];
-  document.getElementById('uq-item-add').innerHTML = '<option value="">＋ 加入品項...</option>' + uqAllItems.map(v=>`<option value="${v.drug_code8}">${v.tally_name}（${v.drug_code8}）</option>`).join('');
+  uqFilterItems(document.getElementById('uq-search') ? document.getElementById('uq-search').value : '');
   if(!uqGroupsLoaded){ uqGroupsLoaded = true; await uqLoadGroupList(); }
   if(!document.getElementById('uq-daily-to').value){
     document.getElementById('uq-daily-to').value = todayStr();
@@ -10129,7 +10158,7 @@ async function runUsageQuery(){
   const fmt = n => Math.round(n).toLocaleString();
   const numCells = (p, bold) => `<td class="c"${bold?' style="font-weight:600"':''}>${fmt(p.total)}${p.wv&&p.vials?`<div style="font-size:11px;color:#888;font-weight:400">開 ${fmt(p.vials)} 瓶</div>`:''}</td>`;
   const campCells = p => `<td class="c">${fmt(p.dl)}</td><td class="c">${fmt(p.hw)}</td><td class="c" style="color:${p.un?'#C77700':'#bbb'}">${fmt(p.un)}</td>`;
-  const showPct = shown.length > 1; // 只有一個品項時佔比永遠 100%，不顯示
+  const showPct = false; // 佔合計欄已拿掉
   document.getElementById('uq-summary').innerHTML = `
     <div style="font-size:15px;font-weight:600;color:#1B3A6B;margin-bottom:6px">區間總量</div>
     <div class="tbl-wrap"><table data-nosort style="font-size:14px">
@@ -10263,14 +10292,14 @@ async function exportUsageQueryExcel(){
 
   // 3. 區間總量
   const grand = R.groups.reduce((a,g)=>a+g.total,0) || 1;
-  const sum = [['品項','藥品8碼','類別','耗用（劑）','佔合計','開瓶數（整瓶扣帳）','斗六','虎尾','未分院區']];
+  const sum = [['品項','藥品8碼','類別','耗用（劑）','開瓶數（整瓶扣帳）','斗六','虎尾','未分院區']];
   R.groups.slice().sort((a,b)=>b.total-a.total).forEach(g=>{
     const t = { dl:0, hw:0, un:0, vials:0 };
     Object.values(g.perCode).forEach(p=>{ t.dl+=p.dl; t.hw+=p.hw; t.un+=p.un; t.vials+=p.vials; });
-    sum.push([g.name, g.code, '合計', g.total, Math.round(g.total/grand*1000)/10+'%', g.wv?t.vials:'', t.dl, t.hw, t.un]);
-    if(g.members.length>1) g.members.forEach(c=>{ const p = g.perCode[c]; sum.push(['　↳ '+p.name, c, p.staff?'員工':'一般', p.total, '', p.wv?p.vials:'', p.dl, p.hw, p.un]); });
+    sum.push([g.name, g.code, '合計', g.total, g.wv?t.vials:'', t.dl, t.hw, t.un]);
+    if(g.members.length>1) g.members.forEach(c=>{ const p = g.perCode[c]; sum.push(['　↳ '+p.name, c, p.staff?'員工':'一般', p.total, p.wv?p.vials:'', p.dl, p.hw, p.un]); });
   });
-  sum.push(['合計','','', R.groups.reduce((a,g)=>a+g.total,0), '100%', '', '', '', '']);
+  sum.push(['合計','','', R.groups.reduce((a,g)=>a+g.total,0), '', '', '', '']);
 
   // 4. 每日院區（每天、每個8碼）
   const camp = [['日期','品項名稱','藥品8碼','類別','耗用（劑）','斗六','虎尾','未分院區','院區來源']];
