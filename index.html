@@ -544,6 +544,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
 
         <div id="rpt-panel-stock" style="display:none">
+          <div style="margin-bottom:10px"><button class="btn btn-sm" onclick="openManualStock()">✍️ 手動輸入庫存</button> <span style="font-size:13px;color:#888">庫存報表沒辦法下載時，對照院內系統逐項填寫</span></div>
           <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-width:520px">
             <div class="fg" style="margin:0"><label>庫存代表日期（非下載日，例如7/3下載到的是7/2庫存就填7/2）</label><input type="date" id="stock-date" class="inp" style="width:200px"></div>
             <div class="fg" style="margin:0">
@@ -1678,6 +1679,24 @@ input[type=number]{-moz-appearance:textfield}
     <div class="mfooter">
       <button class="btn" id="lot-pick-cancel">取消上傳</button>
       <button class="btn btn-primary" id="lot-pick-ok">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- 手動輸入庫存（三站） -->
+<div class="modal-bg" id="modal-man-stock">
+  <div class="modal" style="max-width:760px;width:96%;max-height:92vh;display:flex;flex-direction:column">
+    <h3>✍️ 手動輸入庫存</h3>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <label style="font-size:14px">庫存代表日期</label>
+      <input type="date" id="ms-date" class="inp" style="width:170px" onchange="renderManualStock()">
+      <span style="font-size:12px;color:#888">空白的格子不會存，可以分幾次填完；灰字是前一天的報表數字</span>
+    </div>
+    <div id="ms-body" style="overflow:auto;flex:1;border:1px solid #e8e8e8;border-radius:10px"></div>
+    <div class="mfooter">
+      <span id="ms-count" style="margin-right:auto;font-size:13px;color:#666"></span>
+      <button class="btn" onclick="closeModal('modal-man-stock')">取消</button>
+      <button class="btn btn-primary" onclick="saveManualStock()">💾 儲存</button>
     </div>
   </div>
 </div>
@@ -3801,6 +3820,73 @@ function lotPickDialog(list, vmByCode){
   });
 }
 
+/* ══════════════ 手動輸入庫存：報表無法下載時，三站一起逐項填寫，存成 stock_uploads（product_name＝手動輸入） ══════════════ */
+const MS_ST = { dl:'6101', hw:'6201', wh:'6000' };
+let msItems = [];
+function openManualStock(){
+  const d = document.getElementById('ms-date');
+  d.value = (document.getElementById('stock-date') && document.getElementById('stock-date').value) || shiftDate(todayStr(), -1);
+  d.max = todayStr();
+  document.getElementById('modal-man-stock').classList.add('open');
+  renderManualStock();
+}
+async function renderManualStock(){
+  const date = document.getElementById('ms-date').value, box = document.getElementById('ms-body');
+  if(!date) return;
+  box.innerHTML = '<div style="padding:24px;text-align:center;color:#bbb">載入中...</div>';
+  const prev = shiftDate(date, -1);
+  const [{ data: pages }, { data: ci }, { data: cur }, { data: pre }] = await Promise.all([
+    sb.from('tally_pages').select('page_id,campus,sort_order'),
+    sb.from('vaccine_campus_items').select('drug_code8,campus,page_id,item_sort_order, vaccine_master(tally_name, stock_code4, status, skip_stock_compare)').eq('status','active'),
+    sb.from('stock_uploads').select('drug_code8,station_code,stock_qty').eq('upload_date', date),
+    sb.from('stock_uploads').select('drug_code8,station_code,stock_qty').eq('upload_date', prev)
+  ]);
+  const pOrd = {}; (pages||[]).forEach(p=>pOrd[p.page_id] = (p.campus==='dl'?0:p.campus==='hw'?1000:2000) + (p.sort_order||0));
+  const byCode = {};
+  (ci||[]).forEach(r=>{
+    const v = r.vaccine_master; if(!r.page_id || !v || v.status!=='active' || v.skip_stock_compare) return;
+    const o = byCode[r.drug_code8] = byCode[r.drug_code8] || { code:r.drug_code8, name:v.tally_name, code4:v.stock_code4||'', camps:{}, key:1e9 };
+    o.camps[r.campus] = true;
+    o.key = Math.min(o.key, (pOrd[r.page_id]||0)*1000 + (r.item_sort_order??999));
+  });
+  const val = {}, pv = {};
+  (cur||[]).forEach(r=>val[r.drug_code8+'|'+r.station_code] = r.stock_qty);
+  (pre||[]).forEach(r=>pv[r.drug_code8+'|'+r.station_code] = r.stock_qty);
+  msItems = Object.values(byCode).sort((a,b)=>a.key-b.key);
+  if(!msItems.length){ box.innerHTML = '<div style="padding:24px;text-align:center;color:#bbb">沒有需要比對庫存報表的品項</div>'; return; }
+  const th = 'position:sticky;top:0;z-index:2;background:#F5F7FA;padding:8px;border-bottom:1px solid #e3e3e3';
+  const cell = (it, c) => {
+    if(!it.camps[c]) return `<td class="c" style="color:#ddd;background:#fafafa">—</td>`;
+    const k = it.code+'|'+MS_ST[c], v = val[k], p = pv[k];
+    return `<td class="c" style="padding:4px 6px"><input type="number" min="0" class="inp ms-in" data-code="${it.code}" data-st="${MS_ST[c]}" value="${v===undefined?'':v}" oninput="msCount()" style="width:84px;text-align:center;font-size:15px;padding:5px">${p!==undefined?`<div style="font-size:11px;color:#aaa">前一天 ${p}</div>`:''}</td>`;
+  };
+  box.innerHTML = `<table data-nosort style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px">
+    <thead><tr><th style="${th};text-align:left">品項</th><th class="c" style="${th};color:#1B3A6B">斗六</th><th class="c" style="${th};color:#155F45">虎尾</th><th class="c" style="${th};color:#8A5A12">藥庫</th></tr></thead>
+    <tbody>${msItems.map(it=>`<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:6px 10px">${it.name}<div style="font-size:11px;color:#999">${it.code4?it.code4+'・':''}${it.code}</div></td>${cell(it,'dl')}${cell(it,'hw')}${cell(it,'wh')}</tr>`).join('')}</tbody></table>`;
+  msCount();
+}
+function msCount(){
+  const n = [...document.querySelectorAll('#ms-body .ms-in')].filter(e=>e.value!=='').length;
+  document.getElementById('ms-count').textContent = `已填 ${n} 格`;
+}
+async function saveManualStock(){
+  const date = document.getElementById('ms-date').value;
+  if(!date){ alert('請選日期'); return; }
+  if(date > todayStr()){ alert('不能選未來的日期'); return; }
+  const rows = [...document.querySelectorAll('#ms-body .ms-in')].filter(e=>e.value!=='').map(e=>({ upload_date:date, station_code:e.dataset.st, drug_code8:e.dataset.code, product_name:'手動輸入', stock_qty: Number(e.value), uploaded_by: me.emp_id }));
+  if(!rows.length){ alert('還沒有填任何數字'); return; }
+  if(rows.some(r=>!Number.isFinite(r.stock_qty) || r.stock_qty<0)){ alert('數量要是 0 以上的數字'); return; }
+  for(const st of [...new Set(rows.map(r=>r.station_code))]){
+    const codes = rows.filter(r=>r.station_code===st).map(r=>r.drug_code8);
+    const { error: de } = await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', st).in('drug_code8', codes);
+    if(de){ alert('儲存失敗：'+de.message); return; }
+  }
+  const { error } = await sb.from('stock_uploads').insert(rows);
+  if(error){ alert('儲存失敗：'+error.message); return; }
+  closeModal('modal-man-stock');
+  appToast(`已儲存 ${date} 手動庫存 ${rows.length} 筆`);
+}
+
 /* ══════════════ 員工院區待登記 ══════════════ */
 async function fetchStaffCampusPending(){
   const { data: st, error: stErr } = await sb.from('vaccine_master').select('drug_code8,tally_name').eq('staff_item', true).eq('status','active');
@@ -4255,7 +4341,7 @@ async function renderOverview(){
   const codes = [...seenCodes];
   const [{ data: recs }, { data: stocks }, { data: notes }] = await Promise.all([
     sb.from('tally_records').select('drug_code8, campus, tally_qty').eq('tally_date', selDate).in('drug_code8', codes),
-    sb.from('stock_uploads').select('drug_code8, station_code, stock_qty').eq('upload_date', selDate).in('drug_code8', codes),
+    sb.from('stock_uploads').select('drug_code8, station_code, stock_qty, product_name').eq('upload_date', selDate).in('drug_code8', codes),
     sb.from('overview_notes').select('drug_code8, note').eq('note_date', selDate).eq('source','overview').in('drug_code8', codes)
   ]);
 
@@ -4279,10 +4365,10 @@ async function renderOverview(){
     });
     Object.keys(ovLotMap).forEach(c=>{ ovLotMap[c] = Object.values(ovLotMap[c]).sort((a,b)=>(a.exp||'9999').localeCompare(b.exp||'9999') || a.lot.localeCompare(b.lot)); });
   }catch(e){}
-  const stockMap = {};
+  const stockMap = {}, stockManual = {};
   (stocks||[]).forEach(s => {
     const campus = s.station_code==='6101' ? 'dl' : s.station_code==='6201' ? 'hw' : s.station_code==='6000' ? 'wh' : null;
-    if(campus) stockMap[s.drug_code8+'|'+campus] = s.stock_qty;
+    if(campus){ stockMap[s.drug_code8+'|'+campus] = s.stock_qty; if(s.product_name==='手動輸入') stockManual[s.drug_code8+'|'+campus] = true; }
   });
 
   function badgeFor(code, campus, skipStockCompare){
@@ -4293,7 +4379,7 @@ async function renderOverview(){
       const badge = tally === null
         ? '<span style="font-size:12px;color:#aaa;white-space:nowrap">未盤</span>'
         : '<span style="font-size:12px;color:#aaa;white-space:nowrap" title="這個品項設定為略過庫存報表比對">不比對</span>';
-      return { tally, stock, match:false, mismatch:false, badge };
+      return { tally, stock, match:false, mismatch:false, badge, manual: !!stockManual[key] };
     }
     const match = tally !== null && stock !== null && tally === stock;
     const mismatch = tally !== null && stock !== null && tally !== stock;
@@ -4304,7 +4390,7 @@ async function renderOverview(){
         : match
           ? '<span style="font-size:14px;color:#9AA3B2" title="吻合">✓</span>'
           : `<span class="badge b-err" style="font-size:12px;white-space:nowrap">✕ 差 ${tally-stock>0?'+':''}${tally-stock}</span>`;
-    return { tally, stock, match, mismatch, badge };
+    return { tally, stock, match, mismatch, badge, manual: !!stockManual[key] };
   }
 
   let dlOk=0, hwOk=0, whOk=0, errCount=0;
@@ -4423,7 +4509,7 @@ function renderOverviewRows(){
       <th rowspan="2" class="c" style="width:52px">備註</th></tr>
       <tr>${sub('dl')}${sub('hw')}${sub('wh')}</tr></thead>`;
   const fmtExp = e => e ? e.replace(/-/g,'/') : '';
-  const campCells = (x, c) => `<td class="c ovc-${c}" style="font-size:15px;${x.mismatch?'color:#A32D2D;font-weight:700':'font-weight:600'}">${x.tally===null?'<span style="color:#ccc">—</span>':x.tally}</td><td class="c ovc-${c}" style="color:#888;font-size:14px">${x.stock===null?'<span style="color:#ccc">—</span>':x.stock}</td><td class="c ovc-${c}">${x.badge}</td>`;
+  const campCells = (x, c) => `<td class="c ovc-${c}" style="font-size:15px;${x.mismatch?'color:#A32D2D;font-weight:700':'font-weight:600'}">${x.tally===null?'<span style="color:#ccc">—</span>':x.tally}</td><td class="c ovc-${c}" style="color:#888;font-size:14px"${x.manual?' title="手動輸入"':''}>${x.stock===null?'<span style="color:#ccc">—</span>':x.stock+(x.manual?'<span style="font-size:10px;color:#C77700">✍</span>':'')}</td><td class="c ovc-${c}">${x.badge}</td>`;
   // 三站合計：盤點、庫存報表各自加總；兩邊都有數字、不是「不比對庫存報表」的品項，對不上就紅字
   // 三站庫存報表合計
   const sumCells = r => {
