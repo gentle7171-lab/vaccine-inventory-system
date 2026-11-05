@@ -376,6 +376,7 @@ input[type=number]{-moz-appearance:textfield}
                   <th style="width:76px;white-space:nowrap" id="rec-th-site" class="rec-admin-col">院區</th>
                   <th style="width:200px;cursor:pointer;user-select:none" onclick="sortRecBy('name')">疫苗名稱 <span class="sort-ico" id="sort-ico-rec-name"></span></th>
                   <th class="c" style="width:100px;cursor:pointer;user-select:none" onclick="sortRecBy('qty')">盤點數量 <span class="sort-ico" id="sort-ico-rec-qty"></span></th>
+                  <th class="c" style="width:96px;cursor:pointer;user-select:none" onclick="sortRecBy('time')">盤點時間 <span class="sort-ico" id="sort-ico-rec-time"></span></th>
                   <th>備註</th>
                   <th style="width:100px">修改</th>
                 </tr></thead>
@@ -2825,12 +2826,13 @@ function applyRecFilterSort(){
     rows.sort((a,b)=>{
       let cmp;
       if(recSortKey === 'qty') cmp = Number(a.tally_qty||0) - Number(b.tally_qty||0);
+      else if(recSortKey === 'time') cmp = String(a.created_at||'').localeCompare(String(b.created_at||''));
       else cmp = String(a.name).localeCompare(String(b.name), 'zh-Hant');
       return recSortDir === 'asc' ? cmp : -cmp;
     });
   }
 
-  ['name','qty'].forEach(k=>{
+  ['name','qty','time'].forEach(k=>{
     const el = document.getElementById('sort-ico-rec-'+k);
     if(el) el.textContent = recSortKey===k ? (recSortDir==='asc'?'▲':'▼') : '';
   });
@@ -2853,6 +2855,7 @@ function applyRecFilterSort(){
       <td class="c">${r.edit ? (()=>{ const l = r.edit.last, t = l.ts ? new Date(l.ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}) : '';
         const tip = `原 ${r.edit.first} → ${r.tally_qty}${r.edit.n>1?`（共改 ${r.edit.n} 次）`:''}・${r.edit.who}${t?'・'+t:''}${l.reason?'・'+l.reason:''}`.replace(/"/g,'&quot;');
         return `<strong style="color:#A32D2D" title="${tip}">${r.tally_qty} ✏️</strong><div style="font-size:11px;color:#A32D2D">原 ${r.edit.first}</div>`; })() : `<strong>${r.tally_qty}</strong>`}</td>
+      <td class="c" style="font-size:13px;white-space:nowrap">${recTimeCell(r)}</td>
       <td style="font-size:13px;color:#888">${r.note||''}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" style="font-size:13px;background:#1B3A6B;color:#fff;border-color:#1B3A6B"
@@ -2861,10 +2864,20 @@ function applyRecFilterSort(){
           onclick="openRecDelete('${r.record_id}','${r.name.replace(/'/g,'')}','${recSelDate}',${r.tally_qty})">🗑️ 刪除</button>
       </td>
     </tr>` + (r.lots.length>=2 ? r.lots.map(l=>`<tr style="background:#fafaf8">
-      ${recIsAdmin ? '<td></td>' : ''}<td style="padding-left:28px;font-size:13px;color:#555;font-family:monospace">↳ ${l.lot}</td><td class="c" style="font-size:14px">${l.qty}</td><td></td><td></td></tr>`).join('') : '');
+      ${recIsAdmin ? '<td></td>' : ''}<td style="padding-left:28px;font-size:13px;color:#555;font-family:monospace">↳ ${l.lot}</td><td class="c" style="font-size:14px">${l.qty}</td><td></td><td></td><td></td></tr>`).join('') : '');
   }).join('');
 }
 
+// 盤點時間：第一次儲存的時間（created_at）；補登（存檔日跟盤點日不同）會加上日期；改過的話下方顯示最後修改時間
+function recTimeCell(r){
+  const fmt = (ts, withDate) => new Date(ts).toLocaleString('zh-TW', withDate ? {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false} : {hour:'2-digit',minute:'2-digit',hour12:false});
+  if(!r.created_at) return '<span style="color:#ccc">—</span>';
+  const d = new Date(r.created_at), local = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const late = local !== r.tally_date;
+  let h = `<span${late?' style="color:#C77700" title="補登：存檔日期跟盤點日期不同"':''}>${fmt(r.created_at, late)}</span>`;
+  if(r.edit && r.edit.last && r.edit.last.ts) h += `<div style="font-size:11px;color:#A32D2D">改 ${fmt(r.edit.last.ts, true)}</div>`;
+  return h;
+}
 const recLotOpen = new Set();
 function recToggleLots(id){ id = String(id); recLotOpen.has(id) ? recLotOpen.delete(id) : recLotOpen.add(id); applyRecFilterSort(); }
 let recEditPending = null;
