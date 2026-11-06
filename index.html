@@ -8400,12 +8400,13 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
   const latestNeeded = targetDates.reduce((a,b)=>a>b?a:b);
 
   const [{data:stockRows}, {data:usageRows}, {data:txRows}, {data:noteRows}, {data:lotFlagRows}, {data:tallyRows}] = await Promise.all([
-    sb.from('stock_uploads').select('drug_code8,station_code,upload_date,stock_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
-    sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded),
-    sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded),
+    // 資料庫一次最多回 1000 筆，這幾種資料量大，改成分批讀到完為止
+    fetchAllRows(()=>sb.from('stock_uploads').select('drug_code8,station_code,upload_date,stock_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded).order('upload_date')),
+    fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,upload_date,usage_qty').in('drug_code8', codes).gte('upload_date', earliestNeeded).lte('upload_date', latestNeeded).order('upload_date')),
+    fetchAllRows(()=>sb.from('warehouse_transactions').select('drug_code8,direction,reason,qty,tx_date').in('drug_code8', codes).in('reason',['receive_import','return_import']).gte('tx_date', earliestNeeded).lte('tx_date', latestNeeded).order('tx_date')),
     sb.from('overview_notes').select('drug_code8,note_date,note').in('drug_code8', codes).eq('source','stockcheck').gte('note_date', earliestNeeded).lte('note_date', latestNeeded),
     sb.from('vaccine_campus_items').select('drug_code8,campus,page_id').eq('status','active').not('page_id','is',null).in('drug_code8', codes),
-    sb.from('tally_records').select('drug_code8,campus,tally_qty,tally_date').in('drug_code8', codes).gte('tally_date', earliestNeeded).lte('tally_date', latestNeeded)
+    fetchAllRows(()=>sb.from('tally_records').select('drug_code8,campus,tally_qty,tally_date').in('drug_code8', codes).gte('tally_date', earliestNeeded).lte('tally_date', latestNeeded).order('tally_date'))
   ]);
   const noteMap = {}; (noteRows||[]).forEach(n=>{ noteMap[n.drug_code8+'|'+n.note_date] = n.note; });
 
@@ -8485,11 +8486,15 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
 
   const rows = items.map(it=>{
     const td = it.target_date;
-    const sumMap = it.skip_stock_compare ? tallySum : stockSum;
-    const stationsMap = it.skip_stock_compare ? tallyStations : stockStations;
-    const sourceLabel = it.skip_stock_compare ? '盤點紀錄' : '庫存報表';
     const curKey = td+'|'+it.drug_code8;
     const required = requiredStationsFor(it.drug_code8);
+    // 平常用庫存報表比對的品項：當天報表還沒齊、但三站盤點已經齊了，就先改用盤點量核對（報表補齊後重新查詢就會回到用報表）
+    const complete = m => !!(m[curKey] && [...required].every(s=>m[curKey].has(s)));
+    const fallback = !it.skip_stock_compare && !complete(stockStations) && complete(tallyStations) && !!findBaseDate(it.drug_code8, td, tallySum, tallyStations);
+    const useTally = it.skip_stock_compare || fallback;
+    const sumMap = useTally ? tallySum : stockSum;
+    const stationsMap = useTally ? tallyStations : stockStations;
+    const sourceLabel = useTally ? '盤點紀錄' : '庫存報表';
     const curHave = stationsMap[curKey];
     const curComplete = !!(curHave && [...required].every(s=>curHave.has(s)));
     const curTotal = curComplete ? sumMap[curKey] : null;
@@ -8526,17 +8531,17 @@ async function renderNiisStockCheck(vmaster, date, prevDate){
       for(let i=0; i<=LOOKBACK_DAYS; i++){ const h = stationsMap[d+'|'+it.drug_code8]; if(h && h.has(st)) return false; d = shiftDate(d,-1); }
       return true;
     }).map(st=>stLabel[st]||st);
-    const missHint = neverHave.length ? `<div style="font-size:12px;color:#A32D2D;margin-top:4px">近${LOOKBACK_DAYS}天完全沒有：${neverHave.join('、')}的${it.skip_stock_compare?'盤點':'庫存報表'}</div>` : '';
+    const missHint = neverHave.length ? `<div style="font-size:12px;color:#A32D2D;margin-top:4px">近${LOOKBACK_DAYS}天完全沒有：${neverHave.join('、')}的${useTally?'盤點':'庫存報表'}</div>` : '';
     if(baseDate===null) status = `<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">近${LOOKBACK_DAYS}天找不到完整${sourceLabel}</span>${missHint}`;
     else if(curTotal===null) status = '<span class="badge" style="background:#f0f0ee;color:#999;font-size:13px">當天資料不全</span>';
     else if(expect===curTotal) status = '<span class="badge b-ok" style="font-size:13px">✓ 吻合</span>';
     else status = `<span class="badge b-err" style="font-size:13px">✕ 差 ${curTotal-expect}</span>`;
-    return { ...it, baseDate, gapDays, prevTotal: baseTotal, usage, dayUsage, dayRaw, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
+    return { ...it, fallback, baseDate, gapDays, prevTotal: baseTotal, usage, dayUsage, dayRaw, rawUsageTotal, txIn, txOut, expect, curTotal, status, sourceLabel, note: noteMap[it.drug_code8+'|'+it.target_date] || '' };
   }).sort((a,b)=>(a.tally_name||a.niis_name||'').localeCompare(b.tally_name||b.niis_name||''));
 
   function rowHtml(r){
     return `<tr>
-    <td style="font-size:14px">${r.tally_name||r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.drug_code8}</div>${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}</td>
+    <td style="font-size:14px">${r.tally_name||r.niis_name||r.drug_code8}${r.stock_code4?`<div style="font-size:12px;color:#999">${r.stock_code4}</div>`:''}<div style="font-size:12px;color:#bbb">${r.drug_code8}</div>${r.skip_stock_compare?'<div style="font-size:11px;color:#1B3A6B">（依盤點量核對）</div>':''}${r.fallback?'<div style="font-size:11px;color:#C77700" title="當天庫存報表還沒上傳齊，先用三站盤點核對；報表補齊後重新查詢會改回用報表">（報表未齊，先用盤點量核對）</div>':''}</td>
     <td style="font-size:14px">${r.target_date}${r.baseDate && r.gapDays>1 ? `<br><span style="font-size:11px;color:#999">（比對基準：${r.baseDate}，橫跨${r.gapDays}天）</span>` : ''}</td>
     <td class="c">${r.prevTotal===null?'—':r.prevTotal}</td>
     <td class="c">${(r.txIn||r.txOut) ? `<span style="color:#1B7A4C">+${r.txIn}</span> / <span style="color:#A32D2D">-${r.txOut}</span>` : '—'}</td>
