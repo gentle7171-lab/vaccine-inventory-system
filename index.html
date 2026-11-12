@@ -3475,10 +3475,13 @@ function frRank(layers){
   const ok = st.filter(s=>s.lo!==null && s.hi!==null);
   const label = st.map(()=>'');
   if(ok.length < 2) return { st, label };
-  const hiL = ok.reduce((a,b)=>b.hi>a.hi?b:a).i;
-  const loL = ok.reduce((a,b)=>b.lo<a.lo?b:a).i;
+  // 最低溫：最低溫讀值最低；一樣的話，最高溫讀值較低的比較冷。最高溫：最高溫讀值最高；一樣的話，最低溫讀值較高的比較熱
+  const colder = (a,b) => (b.lo<a.lo || (b.lo===a.lo && b.hi<a.hi)) ? b : a;
+  const hotter = (a,b) => (b.hi>a.hi || (b.hi===a.hi && b.lo>a.lo)) ? b : a;
+  const hiL = ok.reduce(hotter).i;
+  const loL = ok.reduce(colder).i;
   const rest = ok.filter(s=>s.i!==loL && s.i!==hiL);
-  const lo2 = rest.length ? rest.reduce((a,b)=>b.lo<a.lo?b:a).i : null;
+  const lo2 = rest.length ? rest.reduce(colder).i : null;
   st.forEach(s=>{ if(s.lo===null||s.hi===null) return; label[s.i] = s.i===hiL?'最高溫':s.i===loL?'最低溫':s.i===lo2?'次低溫':'次高溫'; });
   return { st, label };
 }
@@ -3710,7 +3713,14 @@ function frMapRead(){
 }
 function frMapPreview(){
   const layers = frMapRead(), r = frRank(layers);
-  document.querySelectorAll('#frm-grid .frm-v').forEach(e=>{ const v = e.value===''?null:Number(e.value); e.style.color = v!==null&&(v<2||v>8) ? '#A32D2D' : ''; e.style.fontWeight = v!==null&&(v<2||v>8) ? '700' : ''; });
+  // 每層 8 個讀值中的最高（紅底）、最低（藍底），一樣的都標；超出 2～8℃ 紅字
+  const ext = layers.map(L=>{ const vs = FR_KEYS.map(k=>L[k]).filter(v=>v!==''&&v!=null&&!isNaN(v)).map(Number); return vs.length ? { mx: Math.max(...vs), mn: Math.min(...vs) } : null; });
+  document.querySelectorAll('#frm-grid .frm-v').forEach(e=>{
+    const v = e.value===''?null:Number(e.value), x = ext[+e.dataset.i];
+    e.style.color = v!==null&&(v<2||v>8) ? '#A32D2D' : '';
+    e.style.fontWeight = v!==null&&(v<2||v>8) ? '700' : '';
+    e.style.background = v!==null && x && x.mx!==x.mn ? (v===x.mx ? '#F8D3D8' : v===x.mn ? '#D6EAF5' : '') : '';
+  });
   layers.forEach((_,i)=>{ const t = r.label[i], el = document.getElementById('frm-res-'+i); if(el) el.innerHTML = t ? `<span style="color:#fff;background:${FR_TAG[t]};border-radius:8px;padding:2px 8px;font-size:12px">${t}</span>` : '<span style="color:#ccc">—</span>'; });
 }
 async function frSaveMap(){
