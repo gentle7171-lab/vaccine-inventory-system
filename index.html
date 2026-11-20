@@ -661,6 +661,7 @@ input[type=number]{-moz-appearance:textfield}
           <span>NIIS申報總表（參考鏡像，僅供對照操作，無法直接送出至政府系統）<span style="font-size:13px;font-weight:400;color:#888;margin-left:8px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動）</span></span>
           <span id="niis-hide-zero-count" style="font-size:12px;color:#1B3A6B;text-decoration:underline;cursor:pointer" onclick="openNiisHiddenModal()"></span>
         </div>
+        <div id="niis-changed-panel" style="display:none;background:#FFF8EC;border:1px solid #F0D9A8;border-radius:12px;padding:12px 14px;margin-bottom:12px"></div>
         <div class="tbl-wrap" style="margin-bottom:20px">
           <table>
             <thead><tr>
@@ -1143,12 +1144,16 @@ input[type=number]{-moz-appearance:textfield}
         <div id="restock-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
             <div style="font-size:15px;font-weight:600;color:#1B3A6B;cursor:pointer" onclick="toggleRestockPanel()">
-              📦 斗六撥補建議 <span id="restock-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
+              📦 撥補建議 <span id="restock-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span>
               <span id="restock-toggle-arrow" style="font-size:12px;color:#999">▼</span>
             </div>
             <div id="restock-asof" style="font-size:12px;color:#999"></div>
           </div>
-          <div style="font-size:12px;color:#999;margin-top:4px">依下方「疫苗主檔」編輯品項時設定的斗六安全庫存/回補目標，比對最近一次上傳的斗六庫存報表，低於安全庫存就會列在這裡並建議撥補量。尚未設定安全庫存的品項不會出現。</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn btn-sm" id="restock-btn-dl" onclick="setRestockCampus('dl')">斗六</button>
+            <button class="btn btn-sm" id="restock-btn-hw" onclick="setRestockCampus('hw')">虎尾</button>
+          </div>
+          <div style="font-size:12px;color:#999;margin-top:4px">依疫苗主檔設定的院區安全庫存／回補目標，比對最近一次上傳的院區庫存報表。建議撥補量以 5 為單位無條件進位；批號依藥庫最近一次批號盤點、效期先出分配。</div>
           <div id="restock-panel-body" style="margin-top:10px"></div>
         </div>
       </div>
@@ -1230,15 +1235,22 @@ input[type=number]{-moz-appearance:textfield}
         <div class="vsec-desc">只有這個品項效期特別短／長才需要填</div>
       </div>
       <div class="fg" style="margin-top:6px">
-        <label>斗六撥補建議</label>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:13px;color:#666">低於
+        <label>撥補建議</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <span style="font-size:13px;color:#666"><b style="color:#1B3A6B">斗六</b>：低於
             <input type="number" id="vacc-dl-reorder-point" placeholder="安全庫存" min="0" step="1" class="inp" style="width:100px;display:inline-block">
             就提醒，建議補到
             <input type="number" id="vacc-dl-par-level" placeholder="回補目標(選填)" min="0" step="1" class="inp" style="width:120px;display:inline-block">
           </span>
         </div>
-        <div class="vsec-desc">留空＝不出現在撥補建議；依最近一次上傳的斗六庫存報表比對</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:13px;color:#666"><b style="color:#155F45">虎尾</b>：低於
+            <input type="number" id="vacc-hw-reorder-point" placeholder="安全庫存" min="0" step="1" class="inp" style="width:100px;display:inline-block">
+            就提醒，建議補到
+            <input type="number" id="vacc-hw-par-level" placeholder="回補目標(選填)" min="0" step="1" class="inp" style="width:120px;display:inline-block">
+          </span>
+        </div>
+        <div class="vsec-desc">留空＝那個院區不出現在撥補建議；各自依最近一次上傳的院區庫存報表比對</div>
       </div>
       <div class="fg" style="margin-top:6px">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -4192,9 +4204,18 @@ async function renderMultiLotPanel(){
   body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
 
   const [{ data: lots }, { data: vmasterRows }] = await Promise.all([
-    sb.from('lot_details').select('drug_code8,lot_no,campus,status,expiry_date'),
+    sb.from('lot_details').select('drug_code8,lot_no,campus,status,expiry_date,used_dl,used_hw,used_wh'),
     sb.from('vaccine_master').select('drug_code8,tally_name,status,alias_of').eq('status','active')
   ]);
+  // 各批號目前在哪幾個院區（燈號，以代表列為準）＋各院區最近一次批號盤點量
+  const lotFlags = {};
+  (lots||[]).forEach(l=>{ const k = l.drug_code8+'|'+l.lot_no; (lotFlags[k] = lotFlags[k] || []).push(l); });
+  const flagOf = k => { const g = lotFlags[k] || []; const p = g.find(r=>r.campus==='wh') || g.find(r=>r.campus==='dl') || g[0] || {}; return { dl:!!p.used_dl, hw:!!p.used_hw, wh:!!p.used_wh }; };
+  const lastLotQty = {};
+  try{
+    const { data: lt } = await fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,campus,lot_no,tally_date,qty').gte('tally_date', shiftDate(todayStr(),-30)).order('tally_date'));
+    (lt||[]).forEach(r=>{ lastLotQty[r.drug_code8+'|'+r.lot_no+'|'+r.campus] = { q:Number(r.qty), d:r.tally_date }; });
+  }catch(e){}
   const vmap = {};
   (vmasterRows||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
@@ -4226,11 +4247,18 @@ async function renderMultiLotPanel(){
   }
 
   body.innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th>使用中批號（依效期排序）</th><th style="width:80px">編輯</th></tr></thead>
+    <thead><tr><th>商品名</th><th style="width:100px">藥品8碼</th><th>使用中批號（依效期排序）・目前在哪些院區</th><th style="width:80px">編輯</th></tr></thead>
     <tbody>${multi.map(m=>`<tr>
       <td>${m.name}</td>
       <td style="font-family:monospace">${m.code8}</td>
-      <td style="font-size:13px">${m.lots.map(([lotNo,exp])=>`<span style="display:inline-block;margin:2px 8px 2px 0;padding:2px 8px;background:#f2f5fa;border-radius:6px;font-family:monospace">${lotNo}${exp?`（${exp}）`:'（無效期）'}</span>`).join('')}</td>
+      <td style="font-size:13px">${m.lots.map(([lotNo,exp])=>{
+        const k = m.code8+'|'+lotNo, fl = flagOf(k);
+        const camp = [['dl','斗六','#1B3A6B','#DCE8F6'],['hw','虎尾','#155F45','#DCEFE3'],['wh','藥庫','#8A5A12','#F5E6D0']].filter(([c])=>fl[c]).map(([c,n,fg,bg])=>{
+          const t = lastLotQty[k+'|'+c];
+          return `<span style="display:inline-block;margin-left:4px;padding:1px 7px;border-radius:9px;font-size:12px;font-family:inherit;color:${fg};background:${bg}" title="${t?`${t.d} 盤點 ${t.q}`:'近 30 天沒有這個批號的盤點'}">${n}${t?` ${t.q}`:''}</span>`;
+        }).join('');
+        return `<div style="margin:3px 0"><span style="display:inline-block;padding:2px 8px;background:#f2f5fa;border-radius:6px;font-family:monospace">${lotNo}${exp?`（${exp}）`:'（無效期）'}</span>${camp || '<span style="margin-left:6px;font-size:12px;color:#A32D2D">三個院區都沒開燈</span>'}</div>`;
+      }).join('')}</td>
       <td><button class="btn btn-sm" style="font-size:12px" onclick="openVaccineModal('${m.code8}')">編輯</button></td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -4245,33 +4273,41 @@ function toggleRestockPanel(){
   document.getElementById('restock-toggle-arrow').textContent = restockPanelOpen ? '▼' : '▶';
 }
 
+let restockCampus = 'dl';
+const RESTOCK_UNIT = 5;
+function setRestockCampus(c){ restockCampus = c; renderRestockPanel(); }
 async function renderRestockPanel(){
+  const C = restockCampus, CN = C==='dl' ? '斗六' : '虎尾', ST = C==='dl' ? '6101' : '6201';
+  const RP = C+'_reorder_point', PL = C+'_par_level';
+  ['dl','hw'].forEach(x=>{ const b = document.getElementById('restock-btn-'+x); if(b){ b.style.background = x===C ? '#1B3A6B' : ''; b.style.color = x===C ? '#fff' : ''; b.style.borderColor = x===C ? '#1B3A6B' : ''; } });
   const body = document.getElementById('restock-panel-body');
   const asof = document.getElementById('restock-asof');
   body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb">載入中...</div>';
   asof.textContent = '';
 
-  const { data: vmasterRowsRaw, error: vErr } = await sb.from('vaccine_master')
-    .select('drug_code8,tally_name,status,dl_par_level,dl_reorder_point,alias_of,doses_per_vial,whole_vial_deduct,stock_code4,skip_stock_compare')
-    .eq('status','active').not('dl_reorder_point','is',null);
+  const { data: vmasterRowsRaw0, error: vErr } = await sb.from('vaccine_master')
+    .select(`drug_code8,tally_name,status,${RP},${PL},alias_of,doses_per_vial,whole_vial_deduct,stock_code4,skip_stock_compare`)
+    .eq('status','active').not(RP,'is',null);
+  // 統一欄位名稱，下面沿用
+  const vmasterRowsRaw = (vmasterRowsRaw0||[]).map(v=>({ ...v, dl_reorder_point: v[RP], dl_par_level: v[PL] }));
   // 略過庫存報表比對的品項（庫存報表數字不可信），撥補建議也不該用那個數字算，直接排除
   const vmasterRows = (vmasterRowsRaw||[]).filter(v=>!v.skip_stock_compare);
 
   if(vErr){
-    body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">尚未建立 dl_reorder_point / dl_par_level 欄位，請先執行 ALTER TABLE vaccine_master ADD COLUMN dl_par_level numeric, ADD COLUMN dl_reorder_point numeric;（${vErr.message}）</div>`;
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:#A32D2D;font-size:13px">資料庫還沒有${CN}撥補欄位，請先執行 SQL：ALTER TABLE vaccine_master ADD COLUMN IF NOT EXISTS ${RP} numeric, ADD COLUMN IF NOT EXISTS ${PL} numeric; NOTIFY pgrst, 'reload schema';</div>`;
     document.getElementById('restock-count-badge').textContent = '';
     return;
   }
 
   if(!vmasterRows || !vmasterRows.length){
-    body.innerHTML = '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">尚未設定任何品項的斗六安全庫存，請在下方「疫苗主檔」編輯品項時設定</div>';
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">尚未設定任何品項的${CN}安全庫存，請在「疫苗主檔」編輯品項時設定</div>`;
     document.getElementById('restock-count-badge').textContent = '';
     return;
   }
 
   const codes = vmasterRows.map(v=>v.drug_code8);
   // 找出這些品項在斗六（station_code=6101）最近一次上傳的庫存報表日期
-  const { data: allUploads } = await sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code','6101').in('drug_code8', codes).order('upload_date',{ascending:false});
+  const { data: allUploads } = await fetchAllRows(()=>sb.from('stock_uploads').select('drug_code8,upload_date,stock_qty').eq('station_code', ST).in('drug_code8', codes).order('upload_date',{ascending:false}));
   const latestQtyMap = {}; // drug_code8 -> {qty, date}
   let latestDateOverall = null;
   (allUploads||[]).forEach(u=>{
@@ -4293,10 +4329,17 @@ async function renderRestockPanel(){
 
   // 撈需要撥補的品項在「藥庫」目前使用中的批號（依代表列邏輯排除已停用殘留列），依效期排序（先進先出）
   const effCodes = [...new Set(needRestock.map(r=>r.effCode8))];
-  let whLotMap = {};
+  let whLotMap = {}, whTallyDate = {};
   if(effCodes.length){
     const { data: whLotsRaw } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,expiry_date,current_qty').in('drug_code8', effCodes);
     const activeWhLots = activeLotGroupsFromRows(whLotsRaw).filter(l=>l.campus==='wh');
+    // 藥庫最近一次批號盤點：有的話，批號數量用盤點量（帳面不準），沒盤到的批號視為 0
+    const { data: whTally } = await fetchAllRows(()=>sb.from('tally_lot_records').select('drug_code8,lot_no,tally_date,qty').eq('campus','wh').in('drug_code8', effCodes).gte('tally_date', shiftDate(todayStr(),-30)).order('tally_date'));
+    const lastDay = {}, qtyOn = {};
+    (whTally||[]).forEach(t=>{ if(!lastDay[t.drug_code8] || t.tally_date > lastDay[t.drug_code8]) lastDay[t.drug_code8] = t.tally_date; });
+    (whTally||[]).forEach(t=>{ if(t.tally_date===lastDay[t.drug_code8]) qtyOn[t.drug_code8+'|'+t.lot_no] = Number(t.qty||0); });
+    whTallyDate = lastDay;
+    activeWhLots.forEach(l=>{ if(lastDay[l.drug_code8]){ l.current_qty = qtyOn[l.drug_code8+'|'+l.lot_no] || 0; l._byTally = true; } });
     activeWhLots.forEach(l=>{
       if(!whLotMap[l.drug_code8]) whLotMap[l.drug_code8] = [];
       whLotMap[l.drug_code8].push(l);
@@ -4334,19 +4377,21 @@ async function renderRestockPanel(){
   let html = '';
   if(needRestock.length){
     html += `<div class="tbl-wrap"><table style="font-size:15px">
-      <thead><tr><th style="width:160px;font-size:14px">商品名</th><th style="width:110px;font-size:14px">藥品8碼</th><th class="c" style="width:90px;font-size:14px">斗六目前庫存</th><th class="c" style="width:80px;font-size:14px">安全庫存</th><th class="c" style="width:80px;font-size:14px">回補目標</th><th class="c" style="width:90px;font-size:14px">建議撥補量</th><th style="width:260px;font-size:14px">藥庫批號分配建議（先進先出）</th><th style="width:100px;font-size:14px">報表日期</th></tr></thead>
+      <thead><tr><th style="width:160px;font-size:14px">商品名</th><th style="width:110px;font-size:14px">藥品8碼</th><th class="c" style="width:90px;font-size:14px">${CN}目前庫存</th><th class="c" style="width:80px;font-size:14px">安全庫存</th><th class="c" style="width:80px;font-size:14px">回補目標</th><th class="c" style="width:90px;font-size:14px">建議撥補量</th><th style="width:280px;font-size:14px">藥庫批號分配建議（效期先出）</th><th style="width:100px;font-size:14px">報表日期</th></tr></thead>
       <tbody>${needRestock.map(r=>{
-        const suggest = r.dl_par_level!=null ? Math.max(Number(r.dl_par_level) - r.currentQty, 0) : null;
+        const gap = r.dl_par_level!=null ? Math.max(Number(r.dl_par_level) - r.currentQty, 0) : null;
+        const suggest = gap!=null ? Math.ceil(gap / RESTOCK_UNIT) * RESTOCK_UNIT : null; // 以 5 為單位無條件進位
         let fefoHtml = '<span style="color:#bbb;font-size:14px">—</span>';
         if(suggest!=null && suggest>0){
           const { plan, shortfall, lotCount } = allocateFefo(r.effCode8, suggest);
           if(!lotCount){
             fefoHtml = '<span style="color:#A32D2D;font-size:14px">⚠️ 藥庫查無使用中批號</span>';
           } else {
-            const multiNote = lotCount>1 ? `<div style="font-size:13px;color:#C77700;margin-bottom:4px">⚠️ 藥庫有 ${lotCount} 個批號，已依效期排序，請先出效期較早的</div>` : '';
-            const planHtml = plan.map(p=>`<div style="font-size:15px;font-family:monospace">${p.lot_no}${p.expiry_date?`（效期${p.expiry_date}）`:'（無效期）'}：撥 <b>${p.take}</b></div>`).join('');
-            const shortHtml = shortfall>0 ? `<div style="font-size:13px;color:#A32D2D;margin-top:4px">⚠️ 藥庫所有批號合計仍不足 ${shortfall}，請確認藥庫庫存或調整撥補量</div>` : '';
-            fefoHtml = multiNote + planHtml + shortHtml;
+            const td = whTallyDate[r.effCode8];
+            const src = td ? `<div style="font-size:12px;color:#888;margin-bottom:3px">依藥庫 ${+td.slice(5,7)}/${+td.slice(8,10)} 批號盤點</div>` : `<div style="font-size:12px;color:#C77700;margin-bottom:3px">藥庫近 30 天沒有批號盤點，依帳面數量</div>`;
+            const planHtml = plan.map(p=>`<div style="font-size:15px;font-family:monospace">${p.lot_no}${p.expiry_date?`（效期${p.expiry_date}）`:'（無效期）'}：撥 <b>${p.take}</b>${p.take===p.avail && plan.length>1 ? `<span style="font-family:inherit;font-size:12px;color:#888">（藥庫只剩 ${p.avail}）</span>`:''}</div>`).join('');
+            const shortHtml = !plan.length ? `<div style="font-size:13px;color:#A32D2D">⚠️ 藥庫盤點沒有可撥的數量</div>` : shortfall>0 ? `<div style="font-size:13px;color:#A32D2D;margin-top:4px">⚠️ 藥庫不足：只能撥 ${suggest-shortfall}，還差 ${shortfall}</div>` : '';
+            fefoHtml = src + planHtml + shortHtml;
           }
         } else if(suggest === 0){
           fefoHtml = '<span style="color:#bbb;font-size:14px">已達回補目標</span>';
@@ -4357,7 +4402,7 @@ async function renderRestockPanel(){
           <td class="c" style="color:#A32D2D;font-weight:600;font-size:17px">${r.currentQty}</td>
           <td class="c" style="font-size:16px">${r.dl_reorder_point}</td>
           <td class="c" style="font-size:16px">${r.dl_par_level!=null?r.dl_par_level:'—'}</td>
-          <td class="c" style="font-weight:600;color:#1B3A6B;font-size:17px">${suggest!=null?suggest:'（未設定回補目標）'}</td>
+          <td class="c" style="font-weight:600;color:#1B3A6B;font-size:17px">${suggest!=null?suggest:'（未設定回補目標）'}${gap!=null&&gap!==suggest?`<div style="font-size:11px;font-weight:400;color:#999">差 ${gap}</div>`:''}</td>
           <td>${fefoHtml}</td>
           <td style="font-size:14px;color:#999">${r.uploadDate||'—'}</td>
         </tr>`;
@@ -4367,7 +4412,7 @@ async function renderRestockPanel(){
     html += '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">目前沒有低於安全庫存的品項</div>';
   }
   if(noData.length){
-    html += `<div style="margin-top:8px;font-size:12px;color:#C77700">⚠️ 以下品項已設定安全庫存，但目前查無斗六庫存報表資料，無法比對：${noData.map(r=>r.tally_name).join('、')}</div>`;
+    html += `<div style="margin-top:8px;font-size:12px;color:#C77700">⚠️ 以下品項已設定安全庫存，但目前查無${CN}庫存報表資料，無法比對：${noData.map(r=>r.tally_name).join('、')}</div>`;
   }
   body.innerHTML = html;
 }
@@ -5377,6 +5422,8 @@ async function openVaccineModal(code8){
       document.getElementById('vacc-expiry-alert-days').value = data.expiry_alert_days||'';
       document.getElementById('vacc-dl-reorder-point').value = data.dl_reorder_point!=null ? data.dl_reorder_point : '';
       document.getElementById('vacc-dl-par-level').value = data.dl_par_level!=null ? data.dl_par_level : '';
+      document.getElementById('vacc-hw-reorder-point').value = data.hw_reorder_point!=null ? data.hw_reorder_point : '';
+      document.getElementById('vacc-hw-par-level').value = data.hw_par_level!=null ? data.hw_par_level : '';
       document.getElementById('vacc-whole-vial-deduct').checked = !!data.whole_vial_deduct;
       document.getElementById('vacc-skip-stock-compare').checked = !!data.skip_stock_compare;
       document.getElementById('vacc-lab-form-reminder').checked = !!data.lab_form_reminder;
@@ -5402,6 +5449,8 @@ async function openVaccineModal(code8){
     document.getElementById('vacc-expiry-alert-days').value = '';
     document.getElementById('vacc-dl-reorder-point').value = '';
     document.getElementById('vacc-dl-par-level').value = '';
+    document.getElementById('vacc-hw-reorder-point').value = '';
+    document.getElementById('vacc-hw-par-level').value = '';
     document.getElementById('vacc-whole-vial-deduct').checked = false;
     document.getElementById('vacc-skip-stock-compare').checked = false;
     document.getElementById('vacc-lab-form-reminder').checked = false;
@@ -5454,6 +5503,7 @@ function updateVaccSectionSummary(autoOpen){
   const remind = [];
   if(g('vacc-expiry-alert-days').value) remind.push(`效期 ${g('vacc-expiry-alert-days').value} 天`);
   if(g('vacc-dl-reorder-point').value) remind.push('斗六撥補');
+  if(g('vacc-hw-reorder-point').value) remind.push('虎尾撥補');
   if(g('vacc-lab-form-reminder').checked) remind.push('檢驗單');
   const rep = g('vacc-special-report');
   const report = rep.value ? [rep.options[rep.selectedIndex].text.replace(/（.*$/,'')] : [];
@@ -5482,6 +5532,8 @@ async function saveVaccine(){
     expiry_alert_days: (function(){ const v = document.getElementById('vacc-expiry-alert-days').value.trim(); return v ? parseInt(v,10) : null; })(),
     dl_reorder_point: (function(){ const v = document.getElementById('vacc-dl-reorder-point').value.trim(); return v ? parseFloat(v) : null; })(),
     dl_par_level: (function(){ const v = document.getElementById('vacc-dl-par-level').value.trim(); return v ? parseFloat(v) : null; })(),
+    hw_reorder_point: (function(){ const v = document.getElementById('vacc-hw-reorder-point').value.trim(); return v ? parseFloat(v) : null; })(),
+    hw_par_level: (function(){ const v = document.getElementById('vacc-hw-par-level').value.trim(); return v ? parseFloat(v) : null; })(),
     whole_vial_deduct: document.getElementById('vacc-whole-vial-deduct').checked,
     skip_stock_compare: document.getElementById('vacc-skip-stock-compare').checked,
     lab_form_reminder: document.getElementById('vacc-lab-form-reminder').checked,
@@ -5514,6 +5566,13 @@ async function saveVaccine(){
     // 尚未執行新增 staff_item 欄位的SQL時，沒勾就不送這個欄位，避免整個主檔存不進去
     const { error: colErr } = await sb.from('vaccine_master').select('staff_item').limit(1);
     if(colErr) delete row.staff_item;
+  }
+  {
+    const { error: hwErr } = await sb.from('vaccine_master').select('hw_reorder_point').limit(1);
+    if(hwErr){
+      if(row.hw_reorder_point!=null || row.hw_par_level!=null) alert('虎尾撥補設定沒有存到：資料庫還沒有虎尾欄位，請先執行 SQL：\nALTER TABLE vaccine_master ADD COLUMN IF NOT EXISTS hw_reorder_point numeric, ADD COLUMN IF NOT EXISTS hw_par_level numeric;\nNOTIFY pgrst, \'reload schema\';');
+      delete row.hw_reorder_point; delete row.hw_par_level;
+    }
   }
   const { error } = editCode
     ? await sb.from('vaccine_master').update(row).eq('drug_code8', editCode)
@@ -8678,6 +8737,42 @@ async function saveStockCheckNote(el){
 
 /* NIIS申報總表（參考鏡像）：長得像政府NIIS系統的批號清單，用我們自己的資料填，
    純參考對照用，沒辦法真的連到政府系統送出。有耗用的批號會標黃提示。 */
+/* ── 結存後耗用有變動：已結存的日期後來又多了耗用 → 補結存（改那天的申報耗用，差額從那天和之後每一天的結存扣掉） ── */
+let niisChangedList = [], niisChangedVmap = {};
+function renderNiisChanged(){
+  const box = document.getElementById('niis-changed-panel'); if(!box) return;
+  if(!niisChangedList.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
+  box.style.display = '';
+  box.innerHTML = `<div style="font-size:15px;font-weight:600;color:#A35A00;margin-bottom:4px">⚠ 結存後耗用有變動（${niisChangedList.length} 筆）</div>
+    <div style="font-size:13px;color:#7a5a20;margin-bottom:8px">這些日期已經結存過，但之後又上傳了那天的耗用，還沒扣到。按「補結存」補扣進去，並記得到 NIIS 網站補報。</div>
+    <div class="tbl-wrap" style="max-height:none"><table data-nosort style="font-size:14px;background:#fff">
+      <thead><tr><th>日期</th><th>品項</th><th>批號</th><th class="c">結存時耗用</th><th class="c">現在耗用</th><th class="c">要補</th><th></th></tr></thead>
+      <tbody>${niisChangedList.map((c,i)=>{ const v = niisChangedVmap[c.code8] || niisChangedVmap[c.key.split('|')[0]] || {};
+        return `<tr><td>${md(c.date)}</td><td>${v.tally_name||c.code8}</td><td style="font-family:monospace">${c.lot}</td><td class="c">${c.was}</td><td class="c">${c.now}</td><td class="c" style="font-weight:700;color:#A32D2D">${c.diff}${v.whole_vial_deduct?' 瓶':''}</td>
+        <td><button class="btn btn-sm btn-primary" style="font-size:13px" onclick="niisRedeclare(${i})">補結存</button></td></tr>`; }).join('')}</tbody>
+    </table></div>`;
+}
+async function niisRedeclare(i){
+  const c = niisChangedList[i]; if(!c) return;
+  const { data: logs, error } = await sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock,opening_stock,declared_usage').eq('drug_code8', c.code8).eq('lot_no', c.lot).gte('declare_date', c.date).order('declare_date');
+  if(error || !logs || !logs.length){ alert('讀取結存紀錄失敗：'+(error?error.message:'找不到紀錄')); return; }
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
+  const last = logs[logs.length-1];
+  const lines = logs.map(l=>`${md(l.declare_date)} 結存 ${l.closing_stock} → ${Math.round((Number(l.closing_stock)-c.diff)*100)/100}`).join('\n');
+  if(!await appConfirm(`${md(c.date)} 申報耗用 ${c.was} → ${c.now}（補 ${c.diff}）\n\n${lines}\n\n目前最新結存會變成 ${Math.round((Number(last.closing_stock)-c.diff)*100)/100}。\n⚠️ 記得到 NIIS 網站補報 ${md(c.date)} 的 ${c.diff}。`, {title:`補結存 ${c.lot}`, okText:'確認補結存'})) return;
+  const finalStock = Math.round((Number(last.closing_stock)-c.diff)*100)/100;
+  for(const l of logs.map(x=>({...x}))){
+    const upd = { closing_stock: Math.round((Number(l.closing_stock)-c.diff)*100)/100 };
+    if(l.declare_date === c.date) upd.declared_usage = c.now;
+    else if(l.opening_stock!=null) upd.opening_stock = Math.round((Number(l.opening_stock)-c.diff)*100)/100;
+    const { error: ue } = await sb.from('niis_declare_log').update(upd).eq('drug_code8', l.drug_code8).eq('lot_no', l.lot_no).eq('declare_date', l.declare_date);
+    if(ue){ alert('補結存失敗：'+ue.message); return; }
+  }
+  appToast(`已補結存 ${c.lot}，最新結存 ${finalStock}`);
+  if(lastNiisMirrorVmaster) renderNiisMirror(lastNiisMirrorVmaster);
+}
+
 async function renderNiisMirror(vmaster){
   await wvLoad();
   lastNiisMirrorVmaster = vmaster;
@@ -8696,9 +8791,9 @@ async function renderNiisMirror(vmaster){
 
   const [{data:lots}, {data:declareLog, error:declareErr}, {data:usageRows}, {data:allUploadDates}, {data:whTx}] = await Promise.all([
     sb.from('lot_details').select('drug_code8,lot_no,current_qty,campus').eq('status','active').in('drug_code8', codes),
-    sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,closing_stock,hold_qty,declared_usage,declared_at').in('drug_code8', codes).order('declare_date',{ascending:true}),
-    sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').in('drug_code8', codes).gte('upload_date', earliestNeeded),
-    sb.from('usage_uploads').select('upload_date').gte('upload_date', earliestNeeded),
+    fetchAllRows(()=>sb.from('niis_declare_log').select('drug_code8,lot_no,declare_date,opening_stock,closing_stock,hold_qty,declared_usage,declared_at').in('drug_code8', codes).order('declare_date',{ascending:true})),
+    fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').in('drug_code8', codes).gte('upload_date', earliestNeeded).order('upload_date')),
+    fetchAllRows(()=>sb.from('usage_uploads').select('upload_date').gte('upload_date', earliestNeeded).order('upload_date')),
     sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,qty,tx_date,reason').eq('campus','wh').in('reason',['receive_import','return_import']).in('drug_code8', codes).or('niis_adjusted.is.false,niis_adjusted.is.null')
   ]);
   // 第一次結存的起始庫存要扣掉「申報日期之後」才發生的進出貨，所以另外抓這些批號全部的藥庫進出貨（含整瓶扣帳）
@@ -8769,17 +8864,28 @@ async function renderNiisMirror(vmaster){
   // 目前最新一次上傳耗用報表的日期（不限品項），沒有待結存項目時申報日期預設帶這天
   const latestOverallUploadDate = niisUploadedDates.size ? [...niisUploadedDates].sort().at(-1) : null;
   const pendingByLot = {}; // key(code8|lot) -> [{date,usage}, ...] ascending
+  const niisChanged = [];
   Object.keys(usageSum).forEach(fullKey=>{
     const parts = fullKey.split('|');
     const uDate = parts.pop();
     const key = parts.join('|');
-    if(declareByDate[fullKey]) return; // 這天已經結存過了
+    if(declareByDate[fullKey]){
+      // 這天已經結存過：耗用後來又變多（例如入庫當天先結存、隔天才上傳那天的耗用），列入「結存後耗用有變動」
+      const d = declareByDate[fullKey], vv = vmap[key.split('|')[0]] || {}, raw = usageSum[fullKey];
+      const now = vv.whole_vial_deduct ? Math.ceil(raw / (vv.doses_per_vial||1)) : Math.round(raw*100)/100; // 整瓶扣帳品項用瓶數比
+      const was = Number(d.declared_usage||0);
+      if(now > was + 0.001) niisChanged.push({ key, code8: d.drug_code8, lot: d.lot_no, date: uDate, was, now, diff: Math.round((now-was)*100)/100 });
+      return;
+    }
     const usage = usageSum[fullKey];
     if(usage<=0) return;
     if(!pendingByLot[key]) pendingByLot[key] = [];
     pendingByLot[key].push({date:uDate, usage});
   });
   Object.values(pendingByLot).forEach(list => list.sort((a,b)=>a.date.localeCompare(b.date)));
+  niisChangedList = niisChanged.sort((a,b)=>a.date.localeCompare(b.date) || a.lot.localeCompare(b.lot));
+  niisChangedVmap = vmap;
+  renderNiisChanged();
 
   // 常駐清單：每個現行批號固定一列。有尚未結存的耗用 → 變色提示；結存完（沒有待結存項目）→ 恢復原色
   const allKeys = new Set([...Object.keys(lotFallbackMap), ...Object.keys(lastDeclareMap), ...Object.keys(pendingByLot)]);
