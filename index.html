@@ -8886,7 +8886,9 @@ async function renderNiisMirror(vmaster){
     Object.keys(logsByLot).forEach(k=>{
       const logs = logsByLot[k], vv = vmap[k.split('|')[0]] || {};
       const firstD = logs[0].declare_date, lastD = logs[logs.length-1].declare_date;
-      const start = firstD > earliestNeeded ? firstD : earliestNeeded;
+      // 只檢查最近 14 天：更早的差額可能已用改起始庫存或其他異動處理過（月報表已對帳），不再列出
+      const recent = shiftDate(todayStr(), -14);
+      const start = [firstD, earliestNeeded, recent].sort().at(-1);
       const conv = raw => vv.whole_vial_deduct ? Math.ceil(raw / (vv.doses_per_vial||1)) : raw;
       const days = usageByLotDay[k] || {};
       let sys = 0, dec = 0;
