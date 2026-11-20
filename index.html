@@ -8869,20 +8869,37 @@ async function renderNiisMirror(vmaster){
     const parts = fullKey.split('|');
     const uDate = parts.pop();
     const key = parts.join('|');
-    if(declareByDate[fullKey]){
-      // 這天已經結存過：耗用後來又變多（例如入庫當天先結存、隔天才上傳那天的耗用），列入「結存後耗用有變動」
-      const d = declareByDate[fullKey], vv = vmap[key.split('|')[0]] || {}, raw = usageSum[fullKey];
-      const now = vv.whole_vial_deduct ? Math.ceil(raw / (vv.doses_per_vial||1)) : Math.round(raw*100)/100; // 整瓶扣帳品項用瓶數比
-      const was = Number(d.declared_usage||0);
-      if(now > was + 0.001) niisChanged.push({ key, code8: d.drug_code8, lot: d.lot_no, date: uDate, was, now, diff: Math.round((now-was)*100)/100 });
-      return;
-    }
+    if(declareByDate[fullKey]) return; // 這天已經結存過了（後來才補進的耗用，下面用累計總數另外檢查）
     const usage = usageSum[fullKey];
     if(usage<=0) return;
     if(!pendingByLot[key]) pendingByLot[key] = [];
     pendingByLot[key].push({date:uDate, usage});
   });
   Object.values(pendingByLot).forEach(list => list.sort((a,b)=>a.date.localeCompare(b.date)));
+  // 結存後耗用有變動：比「累計總數」，不是一天一天比（以前可能把某天耗用併在隔天申報，總數對就沒問題）
+  //   從第一次結存日（或 60 天前）到最後結存日：系統耗用合計 > 申報耗用合計，才列出；差額補到最近一個「系統比申報多」的已結存日期
+  {
+    const usageByLotDay = {};
+    Object.keys(usageSum).forEach(fk=>{ const ps = fk.split('|'), d = ps.pop(), k = ps.join('|'); (usageByLotDay[k] = usageByLotDay[k] || {})[d] = usageSum[fk]; });
+    const logsByLot = {};
+    (declareLog||[]).forEach(d=>{ const k = canon(d.drug_code8)+'|'+d.lot_no; (logsByLot[k] = logsByLot[k] || []).push(d); });
+    Object.keys(logsByLot).forEach(k=>{
+      const logs = logsByLot[k], vv = vmap[k.split('|')[0]] || {};
+      const firstD = logs[0].declare_date, lastD = logs[logs.length-1].declare_date;
+      const start = firstD > earliestNeeded ? firstD : earliestNeeded;
+      const conv = raw => vv.whole_vial_deduct ? Math.ceil(raw / (vv.doses_per_vial||1)) : raw;
+      const days = usageByLotDay[k] || {};
+      let sys = 0, dec = 0;
+      Object.keys(days).forEach(d=>{ if(d>=start && d<=lastD) sys += conv(days[d]); });
+      logs.forEach(l=>{ if(l.declare_date>=start && l.declare_date<=lastD) dec += Number(l.declared_usage||0); });
+      const diff = Math.round((sys-dec)*100)/100;
+      if(diff <= 0.001) return;
+      const cand = logs.filter(l=>l.declare_date>=start && conv(days[l.declare_date]||0) > Number(l.declared_usage||0)).map(l=>l.declare_date);
+      const target = cand.length ? cand[cand.length-1] : lastD;
+      const tl = logs.find(l=>l.declare_date===target);
+      niisChanged.push({ key:k, code8: tl.drug_code8, lot: tl.lot_no, date: target, was: Number(tl.declared_usage||0), now: Math.round((Number(tl.declared_usage||0)+diff)*100)/100, diff, sys: Math.round(sys*100)/100, dec: Math.round(dec*100)/100, start });
+    });
+  }
   niisChangedList = niisChanged.sort((a,b)=>a.date.localeCompare(b.date) || a.lot.localeCompare(b.lot));
   niisChangedVmap = vmap;
   renderNiisChanged();
