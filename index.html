@@ -1105,6 +1105,12 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
+        <div id="mrmis-panel" style="display:none;background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B">📊 月報表對不上 <span id="mrmis-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
+          <div style="font-size:12px;color:#999;margin-top:4px">這個月（和還沒存結存的上個月）：系統結存跟 NIIS 最後一次結存，在同一天比對不一樣的批號。</div>
+          <div id="mrmis-panel-body" style="margin-top:10px"></div>
+        </div>
+
         <div id="lotempty-panel" style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B">📦 批號已用完待停用 <span id="lotempty-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
           <div style="font-size:12px;color:#999;margin-top:4px">使用中，但斗六、虎尾、藥庫三個院區燈號都關掉的批號。確認全院已用完就按「停用」；還有庫存的話，到批號管理把有放的院區燈號打開。</div>
@@ -3306,7 +3312,7 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0, masterBadgeLotEmpty = 0;
+let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0, masterBadgeLotEmpty = 0, masterBadgeMrMis = 0;
 async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
@@ -3324,6 +3330,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     try{ masterBadgeManual = (await fetchManualEditPending()).length; }catch(e){ masterBadgeManual = 0; }
     try{ masterBadgeStaff = (await fetchStaffCampusPending()).pending.length; }catch(e){ masterBadgeStaff = 0; }
     try{ masterBadgeLotEmpty = (await fetchLotEmptyPending()).length; }catch(e){ masterBadgeLotEmpty = 0; }
+    try{ masterBadgeMrMis = (me && me.role==='admin') ? (await fetchMrMismatch()).length : 0; }catch(e){ masterBadgeMrMis = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -3339,11 +3346,12 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     count = Object.values(groups).filter(done=>!done).length;
   }
   masterBadgeHis = count;
-  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff + masterBadgeLotEmpty;
+  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff + masterBadgeLotEmpty + masterBadgeMrMis;
   const parts = [];
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
   if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
+  if(masterBadgeMrMis) parts.push(`📊 月報表對不上 <b>${masterBadgeMrMis}</b> 筆：系統結存跟 NIIS 結存不一樣`);
   if(masterBadgeLotEmpty) parts.push(`📦 批號已用完待停用 <b>${masterBadgeLotEmpty}</b> 筆：三個院區燈號都關了，確認後停用`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
   const subBadge = document.getElementById('mst-sub-remind-badge');
@@ -3387,6 +3395,44 @@ async function toggleLotHisSetup(lotId, current, code8){
   if(error){ alert('更新失敗：'+error.message+'\n請確認 lot_details 已新增 his_setup 欄位'); return; }
   await refreshLots(code8);
   renderVaccines();
+}
+
+/* ══════════════ 月報表對不上：這個月＋還沒存結存的上個月，系統結存（算到 NIIS 結存那天）≠ NIIS 結存 ══════════════ */
+let mrMisCache = null, mrMisAt = 0;
+async function fetchMrMismatch(force){
+  if(!force && mrMisCache && Date.now()-mrMisAt < 60000) return mrMisCache;
+  const cur = todayStr().slice(0,7), prev = shiftYm(cur, -1), out = [];
+  for(const ym of [prev, cur]){
+    const rows = await renderMonthlyReport({ ym, silent:true }) || [];
+    rows.forEach(r=>{ if(r.niisMismatch && !(ym===prev && r.saved)) out.push({ ym, ...r }); });
+  }
+  mrMisCache = out; mrMisAt = Date.now();
+  return out;
+}
+async function renderMrMisPanel(){
+  const panel = document.getElementById('mrmis-panel'); if(!panel) return;
+  if(!me || me.role!=='admin'){ panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  const body = document.getElementById('mrmis-panel-body');
+  body.innerHTML = '<div style="padding:12px;text-align:center;color:#bbb">檢查中...</div>';
+  let list; try{ list = await fetchMrMismatch(true); }catch(e){ body.innerHTML = `<div style="color:#A32D2D;font-size:13px">檢查失敗：${e.message}</div>`; return; }
+  document.getElementById('mrmis-count-badge').textContent = list.length ? `（${list.length}筆）` : '';
+  masterBadgeMrMis = list.length; refreshMasterTabBadge(masterBadgeHis);
+  if(!list.length){ body.innerHTML = '<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">目前沒有對不上的批號</div>'; return; }
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
+  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th>月份</th><th>品項</th><th>批號</th><th class="c">比對日期</th><th class="c">系統結存</th><th class="c">NIIS 結存</th><th class="c">差</th><th></th></tr></thead>
+    <tbody>${list.map(r=>{ const d = Math.round((r.sysAtNiis - r.niisLatest.vials)*100)/100;
+      return `<tr><td>${+r.ym.slice(5,7)} 月</td><td>${r.name}</td><td style="font-family:monospace;font-size:14px">${r.lotNo}</td><td class="c">${md(r.niisLatest.date)}</td><td class="c">${r.sysAtNiis}</td><td class="c">${r.niisLatest.vials}</td><td class="c" style="font-weight:700;color:#A32D2D">${d>0?'+':''}${d}</td>
+      <td><button class="btn btn-sm" style="font-size:13px" onclick="mrMisOpen('${r.ym}')">看月報表</button></td></tr>`; }).join('')}</tbody></table></div>
+    <div style="font-size:12px;color:#999;margin-top:4px">系統結存＝上月結存＋撥入－撥出－消耗，都算到 NIIS 那次結存的日期。常見原因：結存後才上傳那天的耗用（到 NIIS 申報輔助的橘色框補結存）。</div>`;
+}
+function mrMisOpen(ym){
+  showTab('monthlyrep');
+  document.getElementById('mr-year').value = ym.slice(0,4);
+  document.getElementById('mr-month').value = ym.slice(5,7);
+  switchMrReport('1');
+  renderMonthlyReport();
 }
 
 /* ══════════════ 批號已用完待停用：使用中、三個院區燈號都關 ══════════════ */
@@ -6630,6 +6676,7 @@ function switchMasterSub(tab){
     renderManualEditPanel();
     renderStaffCampusPanel();
     renderLotEmptyPanel();
+    renderMrMisPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -9569,12 +9616,15 @@ function shiftYm(ym, delta){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-async function renderMonthlyReport(){
+async function renderMonthlyReport(opts){
+  opts = opts || {};
+  const silent = !!opts.silent; // silent：只算不畫（提醒中心用）
   await wvLoad();
-  const ym = getMrYm();
-  if(!ym){ alert('請選擇月份'); return; }
-  monthlyReportYm = ym;
-  document.getElementById('mr-body').innerHTML = '<tr><td colspan="12" style="text-align:center;padding:24px;color:#bbb">計算中...</td></tr>';
+  const ym = opts.ym || getMrYm();
+  if(!ym){ if(!silent) alert('請選擇月份'); return; }
+  if(!silent) monthlyReportYm = ym;
+  const mrBodyEl = silent ? { set innerHTML(v){} } : document.getElementById('mr-body');
+  mrBodyEl.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:24px;color:#bbb">計算中...</td></tr>';
 
   const prevYm = shiftYm(ym, -1);
   const [yearStr, monthStr] = ym.split('-');
@@ -9586,7 +9636,7 @@ async function renderMonthlyReport(){
   // 1. 全部批號（用於取得各批號有效日期，以及還在用的藥品8碼清單）
   const { data: lots, error: lotsErr } = await sb.from('lot_details').select('drug_code8,campus,lot_no,expiry_date');
   if(lotsErr){
-    document.getElementById('mr-body').innerHTML = `<tr><td colspan="12" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${lotsErr.message}</td></tr>`;
+    mrBodyEl.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗：${lotsErr.message}</td></tr>`;
     return;
   }
 
@@ -9620,7 +9670,7 @@ async function renderMonthlyReport(){
     { data: niisLatest }
   ] = await Promise.all([
     queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
-    queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
+    queryCodes.length ? fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes).order('upload_date')) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('vaccine_master').select('drug_code8,tally_name,doses_per_vial,whole_vial_deduct,special_report,report1_sort_order').in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -9636,7 +9686,7 @@ async function renderMonthlyReport(){
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
-    document.getElementById('mr-body').innerHTML = `<tr><td colspan="12" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗，請確認 lot_monthly_closing／warehouse_transactions 資料表已建立（${firstErr.message}）</td></tr>`;
+    mrBodyEl.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:20px;color:#A32D2D">查詢失敗，請確認 lot_monthly_closing／warehouse_transactions 資料表已建立（${firstErr.message}）</td></tr>`;
     return;
   }
 
@@ -9672,7 +9722,7 @@ async function renderMonthlyReport(){
     return { key: a.alias_of+'|'+lotNo, doses: rawQty };
   }
 
-  const inByLot = {}, outByLot = {};
+  const inByLot = {}, outByLot = {}, txByLotDate = {};
   const correctionByLot = {}; // 起始庫存匯入時產生的一次性校正，不算進正式撥入撥出欄位(避免污染官方口徑)，但要讓批號能出現、並在備註提示
   (whTx||[]).forEach(t=>{
     const { key, doses } = resolveAliasKey(t.drug_code8, t.lot_no, Number(t.qty||0));
@@ -9683,6 +9733,7 @@ async function renderMonthlyReport(){
     }
     const map = t.direction==='in' ? inByLot : outByLot;
     map[key] = (map[key]||0) + doses;
+    (txByLotDate[key] = txByLotDate[key] || []).push({ d: t.tx_date, q: t.direction==='in' ? doses : -doses });
   });
   const usageByLot = {};
   const personsByLot = {}; // 接種人數：耗用報表實際的劑數（別名整瓶扣帳換算成整瓶劑數只用在消耗瓶數，不能拿來算人數）
@@ -9767,6 +9818,18 @@ async function renderMonthlyReport(){
     const correctionDoses = correctionByLot[key] || 0;
     const correctionNote = correctionDoses ? `本月有起始庫存校正淨額${correctionDoses>0?'+':''}${Math.round(correctionDoses)}瓶，請人工確認本月結存` : '';
     const niisLatest = niisLatestMap[key] || null;
+    // 跟 NIIS 比對要「同一天」：系統結存也只算到 NIIS 最後結存那天（上月結存＋到那天為止的撥入撥出－消耗）
+    let sysAtNiis = null, niisMismatch = false;
+    if(niisLatest && hasBaseline){
+      const D = niisLatest.date;
+      const tx = (txByLotDate[key]||[]).filter(x=>x.d<=D).reduce((a,x)=>a+x.q,0);
+      const days = usageByLotByDate[key] || {};
+      const cons = isWholeVialItem
+        ? Object.keys(days).filter(d=>d<=D).reduce((a,d)=>a+Math.ceil(days[d]/dosesPerVial),0)
+        : Math.ceil(Object.keys(days).filter(d=>d<=D).reduce((a,d)=>a+days[d],0)/dosesPerVial);
+      sysAtNiis = Math.round((startVials + tx - cons)*100)/100;
+      niisMismatch = Math.abs(sysAtNiis - niisLatest.vials) > 0.001;
+    }
 
     results.push({
       code8, lotNo,
@@ -9783,7 +9846,7 @@ async function renderMonthlyReport(){
       tallySuggested,
       suggestSource,
       note: saved ? (saved.note || '') : correctionNote,
-      niisLatest,
+      niisLatest, sysAtNiis, niisMismatch,
       saved: !!saved,
     });
   }
@@ -9794,6 +9857,7 @@ async function renderMonthlyReport(){
     if(sa!==sb2) return sa-sb2;
     return a.name.localeCompare(b.name) || a.lotNo.localeCompare(b.lotNo);
   });
+  if(silent) return results;
   lastMonthlyReport = results;
 
   // 民國年標題，比照衛生所紙本表格式
@@ -9816,10 +9880,11 @@ async function renderMonthlyReport(){
     const dk = ym+'|'+key, dr = mrDraft[dk] || {};
     const endValue = dr.end!==undefined ? dr.end : (r.endVials!=null ? r.endVials : (r.tallySuggested!=null ? r.tallySuggested : ''));
     const tallyHint = r.tallySuggested!=null ? `<div style="font-size:11px;color:#1B7A4C">已帶入${r.suggestSource}：${r.tallySuggested}瓶，請確認後儲存</div>` : '';
+    const nd = r.niisLatest ? `${+r.niisLatest.date.slice(5,7)}/${+r.niisLatest.date.slice(8,10)}` : '';
     const niisCompareNote = r.niisLatest
-      ? (endValue!=='' && Number(endValue)!==r.niisLatest.vials
-          ? `<div style="font-size:11px;color:#C77700">⚠ NIIS結存輔助（${r.niisLatest.date}）：${r.niisLatest.vials}瓶，對不上</div>`
-          : `<div style="font-size:11px;color:#bbb">NIIS結存輔助：${r.niisLatest.vials}瓶</div>`)
+      ? (r.niisMismatch
+          ? `<div style="font-size:11px;color:#C77700">⚠ ${nd} 系統 ${r.sysAtNiis} 瓶、NIIS ${r.niisLatest.vials} 瓶，對不上</div>`
+          : `<div style="font-size:11px;color:#bbb">NIIS（${nd}）：${r.niisLatest.vials}瓶 ✓</div>`)
       : '';
     const statusBadge = r.saved
       ? `<span style="color:#2E7D32;font-size:12px">✓ 已確認</span>`
