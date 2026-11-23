@@ -1105,7 +1105,13 @@ input[type=number]{-moz-appearance:textfield}
           <div id="hissetup-panel-body" style="margin-top:10px"></div>
         </div>
 
-        <div id="mrmis-panel" style="display:none;background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+        <div id="tallychk-panel" style="display:none;background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:600;color:#1B3A6B">🔍 盤點對不上 <span id="tallychk-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
+          <div style="font-size:12px;color:#999;margin-top:4px" id="tallychk-sub"></div>
+          <div id="tallychk-panel-body" style="margin-top:10px"></div>
+        </div>
+
+        <div id="mrmis-panel" style=""display:none;background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:14px 16px;margin-bottom:16px">
           <div style="font-size:15px;font-weight:600;color:#1B3A6B">📊 月報表對不上 <span id="mrmis-count-badge" style="font-size:12px;font-weight:400;color:#A32D2D"></span></div>
           <div style="font-size:12px;color:#999;margin-top:4px">這個月（和還沒存結存的上個月）：系統結存跟 NIIS 最後一次結存，在同一天比對不一樣的批號。</div>
           <div id="mrmis-panel-body" style="margin-top:10px"></div>
@@ -2569,7 +2575,7 @@ function invBuildLotCtx(site, selDate, prevDate, codes, lotRows, lotRecs){
       if(!shown.length && active.length) shown = active.slice();
     }
     const others = active.filter(a=>!shown.some(x=>x.lot===a.lot));
-    invLotCtx[code] = { shown, others, today, prev };
+    invLotCtx[code] = { shown, others, today, prev, latest };
   });
 }
 function invLotSubtitle(ctx, locked){
@@ -2724,6 +2730,28 @@ async function saveInv(){
       lotRowsToSave.push({ campus:site, tally_date:selDate, drug_code8:it.drug_code8, lot_no:e.dataset.lot, qty: parseInt(e.value)||0, saved_by: me.emp_id });
     });
   });
+  // 同一品項有兩個以上批號：儲存前列出來給藥師確認有沒有盤對（新舊批號交接最容易盤錯）
+  {
+    const byCode = {};
+    lotRowsToSave.forEach(r=>{ (byCode[r.drug_code8] = byCode[r.drug_code8] || []).push(r); });
+    const multi = pendingItems.filter(it => (byCode[it.drug_code8]||[]).length >= 2);
+    if(multi.length){
+      const esc = x => String(x).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const html = `<div style="font-size:14px;color:#666;margin-bottom:8px">以下品項有兩個以上批號，請確認每個批號的數量有沒有盤對：</div>` + multi.map(it=>{
+        const ctx = invLotCtx[it.drug_code8] || {}, last = ctx.latest || {};
+        const exp = lot => ((ctx.shown||[]).concat(ctx.others||[]).find(a=>a.lot===lot)||{}).exp || '';
+        const nm = (it.vaccine_master && it.vaccine_master.tally_name) || it.drug_code8;
+        return `<div style="margin-top:10px"><div style="font-weight:600;color:#1B3A6B">${esc(nm)}</div>` + byCode[it.drug_code8].map(r=>{
+          const was = last[r.lot_no], toZero = r.qty===0 && was>0;
+          return `<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0 3px 10px;${toZero?'background:#FDECEC;border-radius:6px':''}">
+            <span style="flex:1;font-family:monospace;font-size:14px">${esc(r.lot_no)}${exp(r.lot_no)?`<span style="font-family:inherit;font-size:12px;color:#999;margin-left:6px">效期 ${exp(r.lot_no)}</span>`:''}</span>
+            <span style="font-size:12px;color:#999;white-space:nowrap">${was!==undefined?`上次 ${was} →`:''}</span>
+            <span style="font-weight:700;min-width:28px;text-align:right;${toZero?'color:#A32D2D':''}">${r.qty}</span></div>`;
+        }).join('') + `</div>`;
+      }).join('') + `<div style="font-size:12px;color:#A32D2D;margin-top:10px">紅底＝上次還有、這次盤 0，請再看一下實品。</div>`;
+      if(!await appConfirm('', { title:'請確認批號有沒有盤對', html, okText:'沒錯，儲存', cancelText:'回去檢查', kind:'confirm' })){ resetBtn(); return; }
+    }
+  }
   const rows = pendingItems.map(it => {
     const el = document.getElementById('inv-'+it.drug_code8);
     const noteEl = document.getElementById('inv-note-'+it.drug_code8);
@@ -3312,7 +3340,7 @@ async function renderHisSetupPanel(){
 }
 
 // 主檔維護分頁上的紅色數字提醒：有新批號還沒去院內系統設定時，不用特地點進提醒中心才看得到
-let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0, masterBadgeLotEmpty = 0, masterBadgeMrMis = 0;
+let masterBadgeHis = 0, masterBadgeLab = 0, masterBadgeManual = 0, masterBadgeStaff = 0, masterBadgeLotEmpty = 0, masterBadgeMrMis = 0, masterBadgeTally = 0;
 async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   const badgeEl = document.getElementById('tab-badge-master');
   if(!badgeEl) return;
@@ -3331,6 +3359,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     try{ masterBadgeStaff = (await fetchStaffCampusPending()).pending.length; }catch(e){ masterBadgeStaff = 0; }
     try{ masterBadgeLotEmpty = (await fetchLotEmptyPending()).length; }catch(e){ masterBadgeLotEmpty = 0; }
     try{ masterBadgeMrMis = (me && me.role==='admin') ? (await fetchMrMismatch()).length : 0; }catch(e){ masterBadgeMrMis = 0; }
+    try{ masterBadgeTally = (me && me.role==='admin') ? (await fetchTallyCheck()).list.length : 0; }catch(e){ masterBadgeTally = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -3346,11 +3375,12 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     count = Object.values(groups).filter(done=>!done).length;
   }
   masterBadgeHis = count;
-  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff + masterBadgeLotEmpty + masterBadgeMrMis;
+  const total = masterBadgeHis + masterBadgeLab + masterBadgeManual + masterBadgeStaff + masterBadgeLotEmpty + masterBadgeMrMis + masterBadgeTally;
   const parts = [];
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
   if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
+  if(masterBadgeTally) parts.push(`🔍 盤點對不上 <b>${masterBadgeTally}</b> 筆：盤點、NIIS、月報表數字不一樣`);
   if(masterBadgeMrMis) parts.push(`📊 月報表對不上 <b>${masterBadgeMrMis}</b> 筆：系統結存跟 NIIS 結存不一樣`);
   if(masterBadgeLotEmpty) parts.push(`📦 批號已用完待停用 <b>${masterBadgeLotEmpty}</b> 筆：三個院區燈號都關了，確認後停用`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
@@ -3427,6 +3457,70 @@ async function renderMrMisPanel(){
       <td><button class="btn btn-sm" style="font-size:13px" onclick="mrMisOpen('${r.ym}')">看月報表</button></td></tr>`; }).join('')}</tbody></table></div>
     <div style="font-size:12px;color:#999;margin-top:4px">系統結存＝上月結存＋撥入－撥出－消耗，都算到 NIIS 那次結存的日期。常見原因：結存後才上傳那天的耗用（到 NIIS 申報輔助的橘色框補結存）。</div>`;
 }
+/* ══════════════ 盤點對不上：最近一次每個地點都有盤點的那天（下班後盤），批號盤點合計 vs NIIS 結存 vs 月報表結存 ══════════════ */
+let tallyChkCache = null, tallyChkAt = 0;
+async function fetchTallyCheck(force){
+  if(!force && tallyChkCache && Date.now()-tallyChkAt < 60000) return tallyChkCache;
+  const { data: tl } = await fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', shiftDate(todayStr(),-45)).order('tally_date'));
+  const byDate = {};
+  (tl||[]).forEach(t=>{ (byDate[t.tally_date] = byDate[t.tally_date] || []).push(t); });
+  const camps = ['dl','hw','wh'].filter(c=>(tl||[]).some(t=>t.campus===c));
+  const T = Object.keys(byDate).sort().reverse().find(d=>camps.every(c=>byDate[d].some(t=>t.campus===c)));
+  if(!T){ tallyChkCache = { date:null, list:[], camps }; tallyChkAt = Date.now(); return tallyChkCache; }
+  const { data: vm } = await sb.from('vaccine_master').select('drug_code8,alias_of');
+  const canon = {}; (vm||[]).forEach(v=>{ canon[v.drug_code8] = v.alias_of || v.drug_code8; });
+  const cnt = {}, codeCamp = new Set();
+  byDate[T].forEach(t=>{
+    const c8 = canon[t.drug_code8] || t.drug_code8, k = c8+'|'+t.lot_no;
+    codeCamp.add(c8+'|'+t.campus);
+    cnt[k] = cnt[k] || {};
+    cnt[k][t.campus] = (cnt[k][t.campus]||0) + Number(t.qty||0);
+  });
+  const rows = await renderMonthlyReport({ ym: T.slice(0,7), silent:true, asOf:T }) || [];
+  const list = [], seen = new Set();
+  rows.forEach(r=>{
+    const k = r.code8+'|'+r.lotNo; seen.add(k);
+    if(!camps.some(c=>codeCamp.has(r.code8+'|'+c))) return; // 這天完全沒盤這個品項
+    if(r.sysAtDay===null || !r.niisAtDay || r.niisStale) return; // 月報表沒基準、或 NIIS 還沒結存到這天，先不比
+    const by = cnt[k] || {}, tally = Math.round(camps.reduce((a,c)=>a+(by[c]||0),0)*100)/100;
+    const niis = r.niisAtDay.vials, sys = r.sysAtDay;
+    if(Math.abs(tally-niis)<0.001 && Math.abs(tally-sys)<0.001) return;
+    list.push({ name:r.name, lotNo:r.lotNo, by, tally, niis, niisDate:r.niisAtDay.date, sys });
+  });
+  Object.keys(cnt).forEach(k=>{ // 有盤到、但月報表沒有的批號
+    if(seen.has(k)) return;
+    const by = cnt[k], tally = camps.reduce((a,c)=>a+(by[c]||0),0);
+    if(tally>0) list.push({ name:k.split('|')[0], lotNo:k.split('|').slice(1).join('|'), by, tally, niis:null, sys:null });
+  });
+  tallyChkCache = { date:T, list, camps }; tallyChkAt = Date.now();
+  return tallyChkCache;
+}
+async function renderTallyChkPanel(){
+  const panel = document.getElementById('tallychk-panel'); if(!panel) return;
+  if(!me || me.role!=='admin'){ panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  const body = document.getElementById('tallychk-panel-body');
+  body.innerHTML = '<div style="padding:12px;text-align:center;color:#bbb">檢查中...</div>';
+  let res; try{ res = await fetchTallyCheck(true); }catch(e){ body.innerHTML = `<div style="color:#A32D2D;font-size:13px">檢查失敗：${e.message}</div>`; return; }
+  const { date, list, camps } = res;
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
+  document.getElementById('tallychk-count-badge').textContent = list.length ? `（${list.length}筆）` : '';
+  document.getElementById('tallychk-sub').textContent = date
+    ? `${md(date)} 盤點（${camps.map(c=>CAMPUS_LABEL[c]||c).join('、')}都有盤）：批號盤點合計、NIIS 結存、月報表結存，不一樣的列出來。`
+    : '最近 45 天沒有每個地點同一天都盤點的紀錄。';
+  masterBadgeTally = list.length; refreshMasterTabBadge(masterBadgeHis);
+  if(!list.length){ body.innerHTML = `<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">${date?'三個數字都對得上':'沒有可以比對的盤點'}</div>`; return; }
+  const v = x => (x===null||x===undefined) ? '<span style="color:#bbb">—</span>' : x;
+  const diff = (a,b,lab) => (a===null||b===null||Math.abs(a-b)<0.001) ? '' : `${lab}${a-b>0?'多':'少'} ${Math.round(Math.abs(a-b)*100)/100}`;
+  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th>品項</th><th>批號</th>${camps.map(c=>`<th class="c">${CAMPUS_LABEL[c]||c}</th>`).join('')}<th class="c">盤點合計</th><th class="c">NIIS 結存</th><th class="c">月報表結存</th><th>差異</th></tr></thead>
+    <tbody>${list.map(r=>`<tr><td>${r.name}</td><td style="font-family:monospace;font-size:14px">${r.lotNo}</td>
+      ${camps.map(c=>`<td class="c">${r.by[c]!==undefined?r.by[c]:'<span style="color:#bbb">—</span>'}</td>`).join('')}
+      <td class="c" style="font-weight:700">${r.tally}</td><td class="c">${v(r.niis)}${r.niisDate&&r.niisDate!==date?`<div style="font-size:11px;color:#bbb">${md(r.niisDate)}</div>`:''}</td><td class="c">${v(r.sys)}</td>
+      <td style="color:#A32D2D;font-size:13px">${r.niis===null&&r.sys===null?'月報表沒有這個批號':[diff(r.niis,r.tally,'NIIS '),diff(r.sys,r.tally,'月報表 ')].filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table></div>
+    <div style="font-size:12px;color:#999;margin-top:4px">「多／少」是跟盤點合計比。「—」＝那個地點當天沒盤到這個批號（算 0）。NIIS 還沒結存到盤點那天的批號先不比。</div>`;
+}
+
 function mrMisOpen(ym){
   showTab('monthlyrep');
   document.getElementById('mr-year').value = ym.slice(0,4);
@@ -6677,6 +6771,7 @@ function switchMasterSub(tab){
     renderStaffCampusPanel();
     renderLotEmptyPanel();
     renderMrMisPanel();
+    renderTallyChkPanel();
     renderMultiLotPanel();
     renderRestockPanel();
   }
@@ -9694,11 +9789,14 @@ async function renderMonthlyReport(opts){
   (vmaster||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
   const niisLatestMap = {}; // key: code8|lot_no -> {vials, date}
+  const niisAllByKey = {}; // key -> [{date, vials}] 新到舊
   const niisAppliedMap = {}; // key -> Set('方向|日期|數量')：在 NIIS 申報輔助套用進結存的進出貨
   (niisLatest||[]).forEach(n=>{
     const key = n.drug_code8+'|'+n.lot_no;
     let aa = n.applied_adjust; if(typeof aa==='string'){ try{ aa = JSON.parse(aa); }catch(e){ aa = []; } }
     (Array.isArray(aa)?aa:[]).forEach(x=>{ (niisAppliedMap[key] = niisAppliedMap[key] || new Set()).add(x.direction+'|'+x.tx_date+'|'+Number(x.rawQty)); });
+    { const dpv0 = (vmap[n.drug_code8] && vmap[n.drug_code8].doses_per_vial) || 1, wv0 = !!(vmap[n.drug_code8] && vmap[n.drug_code8].whole_vial_deduct);
+      (niisAllByKey[key] = niisAllByKey[key] || []).push({ date: n.declare_date, vials: Math.round((wv0 ? Number(n.closing_stock) : Number(n.closing_stock)/dpv0)*100)/100 }); }
     if(niisLatestMap[key]) return; // 已依declare_date新到舊排序，第一筆遇到的就是最新
     const dosesPerVial = (vmap[n.drug_code8] && vmap[n.drug_code8].doses_per_vial) || 1;
     const wholeVial = !!(vmap[n.drug_code8] && vmap[n.drug_code8].whole_vial_deduct);
@@ -9833,6 +9931,21 @@ async function renderMonthlyReport(opts){
       sysAtNiis = Math.round((startVials + tx - cons)*100)/100;
       niisMismatch = Math.abs(sysAtNiis - niisLatest.vials) > 0.001;
     }
+    // 盤點檢核用：算到盤點那天（opts.asOf）的月報表結存、NIIS 結存
+    let sysAtDay = null, niisAtDay = null, niisStale = false;
+    if(opts.asOf && hasBaseline){
+      const T = opts.asOf, days = usageByLotByDate[key] || {};
+      const tx = (txByLotDate[key]||[]).filter(x=>x.d<=T).reduce((a,x)=>a+x.q,0);
+      const cons = isWholeVialItem
+        ? Object.keys(days).filter(d=>d<=T).reduce((a,d)=>a+Math.ceil(days[d]/dosesPerVial),0)
+        : Math.ceil(Object.keys(days).filter(d=>d<=T).reduce((a,d)=>a+days[d],0)/dosesPerVial);
+      sysAtDay = Math.round((startVials + tx - cons)*100)/100;
+      niisAtDay = (niisAllByKey[key]||[]).find(n=>n.date<=T) || null;
+      if(niisAtDay && niisAtDay.date < T){
+        const nd = niisAtDay.date;
+        niisStale = Object.keys(days).some(d=>d>nd && d<=T && days[d]>0) || (txByLotDate[key]||[]).some(x=>x.d>nd && x.d<=T);
+      }
+    }
 
     results.push({
       code8, lotNo,
@@ -9849,7 +9962,7 @@ async function renderMonthlyReport(opts){
       tallySuggested,
       suggestSource,
       note: saved ? (saved.note || '') : correctionNote,
-      niisLatest, sysAtNiis, niisMismatch,
+      niisLatest, sysAtNiis, niisMismatch, sysAtDay, niisAtDay, niisStale,
       saved: !!saved,
     });
   }
