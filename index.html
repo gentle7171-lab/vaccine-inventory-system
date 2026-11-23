@@ -9669,7 +9669,7 @@ async function renderMonthlyReport(opts){
     { data: priorUsage },
     { data: niisLatest }
   ] = await Promise.all([
-    queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
+    queryCodes.length ? sb.from('warehouse_transactions').select('drug_code8,lot_no,direction,reason,qty,tx_date,niis_adjusted').eq('campus','wh').in('reason',['receive_import','return_import','correction']).gte('tx_date', monthStart).lte('tx_date', monthEnd).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     queryCodes.length ? fetchAllRows(()=>sb.from('usage_uploads').select('drug_code8,lot_no,usage_qty,upload_date').gte('upload_date', monthStart).lte('upload_date', monthEnd).in('drug_code8', queryCodes).order('upload_date')) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note').eq('year_month', prevYm).in('drug_code8', codes) : Promise.resolve({data:[]}),
     codes.length ? sb.from('lot_monthly_closing').select('drug_code8,lot_no,closing_qty,note,created_at').eq('year_month', ym).in('drug_code8', codes) : Promise.resolve({data:[]}),
@@ -9682,7 +9682,7 @@ async function renderMonthlyReport(opts){
     queryCodes.length ? sb.from('usage_uploads').select('drug_code8,lot_no').lt('upload_date', monthStart).in('drug_code8', queryCodes) : Promise.resolve({data:[]}),
     // NIIS結存輔助目前最新的結存數量，純粹當比對參考用，不影響任何計算
     // 只取月底（含）以前最近一次的結存，避免拿下個月的結存來比
-    codes.length ? sb.from('niis_declare_log').select('drug_code8,lot_no,closing_stock,declare_date').in('drug_code8', codes).lte('declare_date', monthEnd).order('declare_date',{ascending:false}) : Promise.resolve({data:[]})
+    codes.length ? fetchAllRows(()=>sb.from('niis_declare_log').select('drug_code8,lot_no,closing_stock,declare_date,applied_adjust').in('drug_code8', codes).lte('declare_date', monthEnd).order('declare_date',{ascending:false})) : Promise.resolve({data:[]})
   ]);
   const firstErr = whErr || usageErr || prevErr || thisErr;
   if(firstErr){
@@ -9694,8 +9694,11 @@ async function renderMonthlyReport(opts){
   (vmaster||[]).forEach(v=>{ vmap[v.drug_code8] = v; });
 
   const niisLatestMap = {}; // key: code8|lot_no -> {vials, date}
+  const niisAppliedMap = {}; // key -> Set('方向|日期|數量')：在 NIIS 申報輔助套用進結存的進出貨
   (niisLatest||[]).forEach(n=>{
     const key = n.drug_code8+'|'+n.lot_no;
+    let aa = n.applied_adjust; if(typeof aa==='string'){ try{ aa = JSON.parse(aa); }catch(e){ aa = []; } }
+    (Array.isArray(aa)?aa:[]).forEach(x=>{ (niisAppliedMap[key] = niisAppliedMap[key] || new Set()).add(x.direction+'|'+x.tx_date+'|'+Number(x.rawQty)); });
     if(niisLatestMap[key]) return; // 已依declare_date新到舊排序，第一筆遇到的就是最新
     const dosesPerVial = (vmap[n.drug_code8] && vmap[n.drug_code8].doses_per_vial) || 1;
     const wholeVial = !!(vmap[n.drug_code8] && vmap[n.drug_code8].whole_vial_deduct);
@@ -9733,7 +9736,7 @@ async function renderMonthlyReport(opts){
     }
     const map = t.direction==='in' ? inByLot : outByLot;
     map[key] = (map[key]||0) + doses;
-    (txByLotDate[key] = txByLotDate[key] || []).push({ d: t.tx_date, q: t.direction==='in' ? doses : -doses });
+    (txByLotDate[key] = txByLotDate[key] || []).push({ d: t.tx_date, a: !!t.niis_adjusted, s: t.direction+'|'+t.tx_date+'|'+Number(t.qty), q: t.direction==='in' ? doses : -doses });
   });
   const usageByLot = {};
   const personsByLot = {}; // 接種人數：耗用報表實際的劑數（別名整瓶扣帳換算成整瓶劑數只用在消耗瓶數，不能拿來算人數）
@@ -9822,7 +9825,7 @@ async function renderMonthlyReport(opts){
     let sysAtNiis = null, niisMismatch = false;
     if(niisLatest && hasBaseline){
       const D = niisLatest.date;
-      const tx = (txByLotDate[key]||[]).filter(x=>x.d<=D).reduce((a,x)=>a+x.q,0);
+      const tx = (txByLotDate[key]||[]).filter(x=>x.a || x.d<=D || (niisAppliedMap[key] && niisAppliedMap[key].has(x.s))).reduce((a,x)=>a+x.q,0); // 已在 NIIS 申報輔助套用過的進出貨一律算進去（套用到哪天結存就是哪天），沒套用的才看日期
       const days = usageByLotByDate[key] || {};
       const cons = isWholeVialItem
         ? Object.keys(days).filter(d=>d<=D).reduce((a,d)=>a+Math.ceil(days[d]/dosesPerVial),0)
