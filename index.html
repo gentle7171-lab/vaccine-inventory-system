@@ -3461,38 +3461,67 @@ async function renderMrMisPanel(){
 let tallyChkCache = null, tallyChkAt = 0;
 async function fetchTallyCheck(force){
   if(!force && tallyChkCache && Date.now()-tallyChkAt < 60000) return tallyChkCache;
-  const { data: tl } = await fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', shiftDate(todayStr(),-45)).order('tally_date'));
-  const byDate = {};
-  (tl||[]).forEach(t=>{ (byDate[t.tally_date] = byDate[t.tally_date] || []).push(t); });
-  const camps = ['dl','hw','wh'].filter(c=>(tl||[]).some(t=>t.campus===c));
-  const T = Object.keys(byDate).sort().reverse().find(d=>camps.every(c=>byDate[d].some(t=>t.campus===c)));
-  if(!T){ tallyChkCache = { date:null, list:[], camps }; tallyChkAt = Date.now(); return tallyChkCache; }
-  const { data: vm } = await sb.from('vaccine_master').select('drug_code8,alias_of');
+  const today = todayStr(), from = shiftDate(today, -21);
+  const [{ data: tl }, { data: tr }, { data: vm }] = await Promise.all([
+    fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', from).order('tally_date')),
+    fetchAllRows(()=>sb.from('tally_records').select('campus,drug_code8,tally_date,tally_qty').gte('tally_date', shiftDate(today,-45)).order('tally_date')),
+    sb.from('vaccine_master').select('drug_code8,alias_of')
+  ]);
   const canon = {}; (vm||[]).forEach(v=>{ canon[v.drug_code8] = v.alias_of || v.drug_code8; });
-  const cnt = {}, codeCamp = new Set();
-  byDate[T].forEach(t=>{
-    const c8 = canon[t.drug_code8] || t.drug_code8, k = c8+'|'+t.lot_no;
-    codeCamp.add(c8+'|'+t.campus);
-    cnt[k] = cnt[k] || {};
-    cnt[k][t.campus] = (cnt[k][t.campus]||0) + Number(t.qty||0);
+  const cc = c => canon[c] || c;
+  // 平常有盤這個品項的地點（最近 45 天）、每天每地點的盤點總數、批號明細加總、批號數量
+  const usual = {}, tot = {}, lotSum = {}, cnt = {};
+  (tr||[]).forEach(t=>{
+    const c8 = cc(t.drug_code8);
+    (usual[c8] = usual[c8] || new Set()).add(t.campus);
+    if(t.tally_date >= from){ const k = c8+'|'+t.campus+'|'+t.tally_date; tot[k] = (tot[k]||0) + Number(t.tally_qty||0); }
   });
-  const rows = await renderMonthlyReport({ ym: T.slice(0,7), silent:true, asOf:T }) || [];
-  const list = [], seen = new Set();
-  rows.forEach(r=>{
-    const k = r.code8+'|'+r.lotNo; seen.add(k);
-    if(!camps.some(c=>codeCamp.has(r.code8+'|'+c))) return; // 這天完全沒盤這個品項
-    if(r.sysAtDay===null || !r.niisAtDay || r.niisStale) return; // 月報表沒基準、或 NIIS 還沒結存到這天，先不比
-    const by = cnt[k] || {}, tally = Math.round(camps.reduce((a,c)=>a+(by[c]||0),0)*100)/100;
-    const niis = r.niisAtDay.vials, sys = r.sysAtDay;
-    if(Math.abs(tally-niis)<0.001 && Math.abs(tally-sys)<0.001) return;
-    list.push({ name:r.name, lotNo:r.lotNo, by, tally, niis, niisDate:r.niisAtDay.date, sys });
+  (tl||[]).forEach(t=>{
+    const c8 = cc(t.drug_code8), k = c8+'|'+t.campus+'|'+t.tally_date;
+    lotSum[k] = (lotSum[k]||0) + Number(t.qty||0);
+    const lk = c8+'|'+t.lot_no+'|'+t.tally_date;
+    cnt[lk] = cnt[lk] || {}; cnt[lk][t.campus] = (cnt[lk][t.campus]||0) + Number(t.qty||0);
   });
-  Object.keys(cnt).forEach(k=>{ // 有盤到、但月報表沒有的批號
-    if(seen.has(k)) return;
-    const by = cnt[k], tally = camps.reduce((a,c)=>a+(by[c]||0),0);
-    if(tally>0) list.push({ name:k.split('|')[0], lotNo:k.split('|').slice(1).join('|'), by, tally, niis:null, sys:null });
+  // 品項「盤齊」的日子：平常有盤的地點，那天全部都有盤，而且批號明細加起來等於盤點總數
+  const dates = [...new Set((tr||[]).filter(t=>t.tally_date>=from).map(t=>t.tally_date))].sort().reverse();
+  const fullOn = (c8, d) => usual[c8] && [...usual[c8]].every(c => tot[c8+'|'+c+'|'+d]!==undefined && Math.abs((lotSum[c8+'|'+c+'|'+d]||0) - tot[c8+'|'+c+'|'+d]) < 0.001);
+  const pick = {}; // c8 -> 最近一次盤齊的日期
+  Object.keys(usual).forEach(c8=>{ const d = dates.find(d=>fullOn(c8, d)); if(d) pick[c8] = d; });
+  // 依日期分批算月報表（同一天的品項一起算）
+  const cur = await renderMonthlyReport({ ym: today.slice(0,7), silent:true }) || [];
+  const reportCodes = new Set(cur.map(r=>r.code8));
+  const byDay = {};
+  [...reportCodes].forEach(c8=>{ if(pick[c8]) (byDay[pick[c8]] = byDay[pick[c8]] || new Set()).add(c8); });
+  const list = [], skipped = [], nameOf = {};
+  cur.forEach(r=>{ nameOf[r.code8] = r.name; });
+  const camps = ['dl','hw','wh'];
+  for(const d of Object.keys(byDay).sort().reverse()){
+    const rows = await renderMonthlyReport({ ym: d.slice(0,7), silent:true, asOf:d }) || [];
+    const codes = byDay[d], seen = new Set();
+    rows.forEach(r=>{
+      if(!codes.has(r.code8)) return;
+      seen.add(r.code8+'|'+r.lotNo);
+      if(r.sysAtDay===null || !r.niisAtDay) return;
+      const by = cnt[r.code8+'|'+r.lotNo+'|'+d] || {}, tally = Math.round(camps.reduce((a,c)=>a+(by[c]||0),0)*100)/100;
+      if(r.niisStale){ if(tally>0 || r.sysAtDay>0) skipped.push({ name:r.name, lotNo:r.lotNo, why:`NIIS 還沒結存到 ${+d.slice(5,7)}/${+d.slice(8,10)}` }); return; }
+      const niis = r.niisAtDay.vials, sys = r.sysAtDay;
+      if(Math.abs(tally-niis)<0.001 && Math.abs(tally-sys)<0.001) return;
+      list.push({ date:d, name:r.name, lotNo:r.lotNo, by, tally, niis, niisDate:r.niisAtDay.date, sys });
+    });
+    Object.keys(cnt).forEach(lk=>{ // 有盤到、但月報表沒有的批號
+      const ps = lk.split('|'), dd = ps.pop(), c8 = ps[0], lot = ps.slice(1).join('|');
+      if(dd!==d || !codes.has(c8) || seen.has(c8+'|'+lot)) return;
+      const by = cnt[lk], tally = camps.reduce((a,c)=>a+(by[c]||0),0);
+      if(tally>0) list.push({ date:d, name:nameOf[c8]||c8, lotNo:lot, by, tally, niis:null, sys:null });
+    });
+  }
+  // 沒比到的品項：最近 21 天沒有一天盤齊
+  [...reportCodes].forEach(c8=>{
+    if(pick[c8] || !usual[c8]) return;
+    const need = ['dl','hw','wh'].filter(c=>usual[c8].has(c)).map(c=>CAMPUS_LABEL[c]).join('、');
+    skipped.push({ name:nameOf[c8]||c8, lotNo:'', why:`最近 21 天沒有一天${need}都分批號盤齊` });
   });
-  tallyChkCache = { date:T, list, camps }; tallyChkAt = Date.now();
+  tallyChkCache = { list, skipped, camps }; tallyChkAt = Date.now();
   return tallyChkCache;
 }
 async function renderTallyChkPanel(){
@@ -3502,23 +3531,24 @@ async function renderTallyChkPanel(){
   const body = document.getElementById('tallychk-panel-body');
   body.innerHTML = '<div style="padding:12px;text-align:center;color:#bbb">檢查中...</div>';
   let res; try{ res = await fetchTallyCheck(true); }catch(e){ body.innerHTML = `<div style="color:#A32D2D;font-size:13px">檢查失敗：${e.message}</div>`; return; }
-  const { date, list, camps } = res;
+  const { list, skipped, camps } = res;
   const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
   document.getElementById('tallychk-count-badge').textContent = list.length ? `（${list.length}筆）` : '';
-  document.getElementById('tallychk-sub').textContent = date
-    ? `${md(date)} 盤點（${camps.map(c=>CAMPUS_LABEL[c]||c).join('、')}都有盤）：批號盤點合計、NIIS 結存、月報表結存，不一樣的列出來。`
-    : '最近 45 天沒有每個地點同一天都盤點的紀錄。';
+  document.getElementById('tallychk-sub').textContent = '每個品項用最近一次「平常有盤的地點都同一天分批號盤齊」的那天：批號盤點合計、NIIS 結存、月報表結存，不一樣的列出來。';
   masterBadgeTally = list.length; refreshMasterTabBadge(masterBadgeHis);
-  if(!list.length){ body.innerHTML = `<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">${date?'三個數字都對得上':'沒有可以比對的盤點'}</div>`; return; }
   const v = x => (x===null||x===undefined) ? '<span style="color:#bbb">—</span>' : x;
   const diff = (a,b,lab) => (a===null||b===null||Math.abs(a-b)<0.001) ? '' : `${lab}${a-b>0?'多':'少'} ${Math.round(Math.abs(a-b)*100)/100}`;
-  body.innerHTML = `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
-    <thead><tr><th>品項</th><th>批號</th>${camps.map(c=>`<th class="c">${CAMPUS_LABEL[c]||c}</th>`).join('')}<th class="c">盤點合計</th><th class="c">NIIS 結存</th><th class="c">月報表結存</th><th>差異</th></tr></thead>
-    <tbody>${list.map(r=>`<tr><td>${r.name}</td><td style="font-family:monospace;font-size:14px">${r.lotNo}</td>
+  let h = list.length ? `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
+    <thead><tr><th class="c">盤點日</th><th>品項</th><th>批號</th>${camps.map(c=>`<th class="c">${CAMPUS_LABEL[c]}</th>`).join('')}<th class="c">盤點合計</th><th class="c">NIIS 結存</th><th class="c">月報表結存</th><th>差異</th></tr></thead>
+    <tbody>${list.map(r=>`<tr><td class="c">${md(r.date)}</td><td>${r.name}</td><td style="font-family:monospace;font-size:14px">${r.lotNo}</td>
       ${camps.map(c=>`<td class="c">${r.by[c]!==undefined?r.by[c]:'<span style="color:#bbb">—</span>'}</td>`).join('')}
-      <td class="c" style="font-weight:700">${r.tally}</td><td class="c">${v(r.niis)}${r.niisDate&&r.niisDate!==date?`<div style="font-size:11px;color:#bbb">${md(r.niisDate)}</div>`:''}</td><td class="c">${v(r.sys)}</td>
+      <td class="c" style="font-weight:700">${r.tally}</td><td class="c">${v(r.niis)}${r.niisDate&&r.niisDate!==r.date?`<div style="font-size:11px;color:#bbb">${md(r.niisDate)}</div>`:''}</td><td class="c">${v(r.sys)}</td>
       <td style="color:#A32D2D;font-size:13px">${r.niis===null&&r.sys===null?'月報表沒有這個批號':[diff(r.niis,r.tally,'NIIS '),diff(r.sys,r.tally,'月報表 ')].filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table></div>
-    <div style="font-size:12px;color:#999;margin-top:4px">「多／少」是跟盤點合計比。「—」＝那個地點當天沒盤到這個批號（算 0）。NIIS 還沒結存到盤點那天的批號先不比。</div>`;
+    <div style="font-size:12px;color:#999;margin-top:4px">「多／少」是跟盤點合計比。「—」＝那個地點當天沒盤到這個批號（算 0）。</div>`
+    : '<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">有比到的品項都對得上</div>';
+  if(skipped.length) h += `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#666">這次沒比到的品項（${skipped.length}）</summary>
+    <div style="font-size:13px;color:#666;margin-top:6px;line-height:1.8">${skipped.map(x=>`${x.name}${x.lotNo?`<span style="font-family:monospace;margin-left:6px">${x.lotNo}</span>`:''}：<span style="color:#999">${x.why}</span>`).join('<br>')}</div></details>`;
+  body.innerHTML = h;
 }
 
 function mrMisOpen(ym){
