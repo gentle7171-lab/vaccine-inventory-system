@@ -4344,6 +4344,7 @@ async function saveManualStock(){
   const rows = [...document.querySelectorAll('#ms-body .ms-in')].filter(e=>e.value!=='').map(e=>({ upload_date:date, station_code:e.dataset.st, drug_code8:e.dataset.code, product_name:'手動輸入', stock_qty: Number(e.value), uploaded_by: me.emp_id }));
   if(!rows.length){ alert('還沒有填任何數字'); return; }
   if(rows.some(r=>!Number.isFinite(r.stock_qty) || r.stock_qty<0)){ alert('數量要是 0 以上的數字'); return; }
+  if(!await backupStockOrAsk(date, [...new Set(rows.map(r=>r.station_code))], '手動輸入覆蓋')) return;
   for(const st of [...new Set(rows.map(r=>r.station_code))]){
     const codes = rows.filter(r=>r.station_code===st).map(r=>r.drug_code8);
     const { error: de } = await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', st).in('drug_code8', codes);
@@ -8246,6 +8247,7 @@ async function commitStockUpload(){
   const stationLabels = stations.map(st=>st==='6101'?'斗六':st==='6201'?'虎尾':'藥庫');
   if(!await appConfirm(`${date}　${stationLabels.join('、')}\n共 ${validRows.length} 筆`, {title:'寫入庫存報表？', okText:'寫入'})) return;
 
+  if(!await backupStockOrAsk(date, stations, '覆蓋')) return;
   for(const st of stations){
     await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', st);
   }
@@ -8300,6 +8302,8 @@ async function renderUploadHistory(){
     sb.from('users').select('emp_id,name'),
     sb.from('usage_uploads').select('upload_date').gte('upload_date', miss7From)
   ]);
+  const { data: bkRows } = await sb.from('stock_upload_backups').select('upload_date,station_code').gte('upload_date', sR.from).lte('upload_date', sR.to);
+  const bkSet = new Set((bkRows||[]).map(b=>b.upload_date+'|'+b.station_code));
   const miss7Set = new Set((miss7Rows||[]).map(r=>r.upload_date));
   const nameMap = {}; (userRows||[]).forEach(u=>{ nameMap[u.emp_id] = u.name; });
   const namesOf = empIdSet => [...empIdSet].filter(Boolean).map(id => nameMap[id] || id).join('、') || '—';
@@ -8347,6 +8351,7 @@ async function renderUploadHistory(){
     if(!sByDate[r.upload_date]) sByDate[r.upload_date] = new Set();
     sByDate[r.upload_date].add(r.uploaded_by);
   });
+  (bkRows||[]).forEach(b=>{ if(!sMap[b.upload_date]) sMap[b.upload_date] = {'6101':0,'6201':0,'6000':0}; if(!sByDate[b.upload_date]) sByDate[b.upload_date] = new Set(); });
   const sDates = Object.keys(sMap).sort().reverse();
 
   document.getElementById('stock-history-body').innerHTML = sDates.length ? `<div class="tbl-wrap"><table>
@@ -8359,6 +8364,7 @@ async function renderUploadHistory(){
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteStockDate('${d}','6101')">刪斗六</button>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteStockDate('${d}','6201')">刪虎尾</button>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteStockDate('${d}','6000')">刪藥庫</button>
+        ${['6101','6201','6000'].filter(st=>bkSet.has(d+'|'+st)).map(st=>`<button class="btn btn-sm" style="font-size:13px;margin:4px 4px 0 0" onclick="restoreStock('${d}','${st}')">↩ 還原${STOCK_ST_LABEL[st]}</button>`).join('')}
       </td>
     </tr>`).join('')}</tbody></table></div>`
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
@@ -8777,9 +8783,48 @@ async function deleteUsageDate(date){
   renderUploadHistory();
 }
 
+/* ── 庫存報表備份／還原：覆蓋或刪除前先把那天那個地點的舊資料存一份，每天每地點保留最近 5 版 ── */
+const STOCK_ST_LABEL = {'6101':'斗六','6201':'虎尾','6000':'藥庫'};
+async function backupStock(date, station, reason){
+  const { data: old, error: qe } = await sb.from('stock_uploads').select('upload_date,station_code,drug_code8,product_name,stock_qty,uploaded_by').eq('upload_date', date).eq('station_code', station);
+  if(qe) return { error: qe };
+  if(!old || !old.length) return {};
+  const { error } = await sb.from('stock_upload_backups').insert({ upload_date: date, station_code: station, rows: old, reason, backed_up_by: me.emp_id });
+  if(error) return { error };
+  const { data: list } = await sb.from('stock_upload_backups').select('id').eq('upload_date', date).eq('station_code', station).order('backed_up_at', { ascending:false });
+  const extra = (list||[]).slice(5).map(x=>x.id);
+  if(extra.length) await sb.from('stock_upload_backups').delete().in('id', extra);
+  return {};
+}
+// 覆蓋前先備份；備份失敗（例如還沒建備份資料表）問要不要照樣覆蓋
+async function backupStockOrAsk(date, stations, reason){
+  const failed = [];
+  for(const st of stations){ const { error } = await backupStock(date, st, reason); if(error) failed.push(`${STOCK_ST_LABEL[st]||st}：${error.message}`); }
+  if(!failed.length) return true;
+  return await appConfirm(`${date} 的舊資料沒辦法備份，覆蓋後就不能還原。\n${failed.join('\n')}`, { title:'無法備份', okText:'仍要覆蓋', kind:'danger' });
+}
+async function restoreStock(date, station){
+  const label = STOCK_ST_LABEL[station] || station;
+  const { data: bk, error } = await sb.from('stock_upload_backups').select('*').eq('upload_date', date).eq('station_code', station).order('backed_up_at', { ascending:false }).limit(1);
+  if(error){ alert('讀取備份失敗：'+error.message); return; }
+  const b = (bk||[])[0];
+  if(!b){ alert('這天沒有可以還原的版本'); return; }
+  const rows = (b.rows||[]).map(r=>({ upload_date: date, station_code: station, drug_code8: r.drug_code8, product_name: r.product_name, stock_qty: r.stock_qty, uploaded_by: r.uploaded_by }));
+  if(!await appConfirm(`會改回 ${fmtDateTime(b.backed_up_at)} ${b.reason||'覆蓋'}前的版本（共 ${rows.length} 筆）。\n目前的版本會先備份，還原錯了可以再按一次還原改回來。`, { title:`還原 ${date} ${label}庫存報表？`, okText:'還原', kind:'confirm' })) return;
+  const { error: be } = await backupStock(date, station, '還原');
+  if(be){ alert('備份目前版本失敗，沒有還原：'+be.message); return; }
+  const { error: de } = await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', station);
+  if(de){ alert('還原失敗：'+de.message); return; }
+  if(rows.length){ const { error: ie } = await sb.from('stock_uploads').insert(rows); if(ie){ alert('還原失敗：'+ie.message); return; } }
+  try{ await recalcWholeVialForDate(date); }catch(e){}
+  appToast(`已還原 ${date} ${label}庫存報表（${rows.length} 筆）`);
+  renderUploadHistory();
+}
+
 async function deleteStockDate(date, station){
   const label = station==='6101'?'斗六':station==='6201'?'虎尾':'藥庫';
   if(!await appConfirm(`確定刪除 ${date} ${label}(${station}) 的庫存上傳紀錄？`)) return;
+  if(!await backupStockOrAsk(date, [station], '刪除')) return;
   await sb.from('stock_uploads').delete().eq('upload_date', date).eq('station_code', station);
   renderUploadHistory();
 }
