@@ -747,7 +747,7 @@ input[type=number]{-moz-appearance:textfield}
         </div>
         <div id="mr-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:4px"></div>
         <div style="text-align:center;font-size:12px;color:#999;margin-bottom:10px">🔀 可直接拖曳疫苗列調整順序（同疫苗多批號會一起移動，匯出Excel也會照這個順序）</div>
-        <div class="tbl-wrap" style="overflow-x:auto">
+        <div class="tbl-wrap" data-noexport style="overflow-x:auto">
           <table>
             <thead><tr>
               <th style="width:150px">疫苗名稱</th>
@@ -784,7 +784,7 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn btn-sm" onclick="exportPcvReportExcel()">📥 匯出Excel</button>
         </div>
         <div id="mr2-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:10px"></div>
-        <div class="tbl-wrap" style="overflow-x:auto">
+        <div class="tbl-wrap" data-noexport style="overflow-x:auto">
           <table>
             <thead><tr>
               <th style="width:150px">疫苗名稱</th>
@@ -832,7 +832,7 @@ input[type=number]{-moz-appearance:textfield}
           <button class="btn btn-sm" onclick="exportBcgReportExcel()">📥 匯出Excel</button>
         </div>
         <div id="mr4-title" style="text-align:center;font-size:17px;font-weight:700;margin-bottom:10px"></div>
-        <div class="tbl-wrap" style="overflow-x:auto">
+        <div class="tbl-wrap" data-noexport style="overflow-x:auto">
           <table>
             <thead><tr>
               <th>機關別</th>
@@ -866,6 +866,7 @@ input[type=number]{-moz-appearance:textfield}
         <div class="subtab" id="mst-sub-flu" onclick="switchMasterSub('flu')">💉 季節疫苗</div>
         <div class="subtab" id="mst-sub-fridge" onclick="switchMasterSub('fridge')">🧊 冰箱配置</div>
         <div class="subtab" id="mst-sub-reminders" onclick="switchMasterSub('reminders')">🔔 提醒中心 <span id="mst-sub-remind-badge" style="display:none;background:#A32D2D;color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:1px 6px;margin-left:2px"></span></div>
+        <div class="subtab" style="margin-left:auto;border:1px dashed #1B3A6B55" onclick="openExportAll()">📦 全部資料匯出</div>
       </div>
 
       <div id="master-panel-vaccines">
@@ -2804,6 +2805,141 @@ async function saveInv(){
   document.querySelectorAll('.inv-input').forEach(el => el.classList.remove('changed'));
   alert(`✓「${page.page_name}」盤點資料已儲存`);
   renderInvList();
+}
+
+/* ══════════════ 匯出 Excel：每張表格自動加「📥 匯出 Excel」（匯出畫面上看到的內容）＋管理中心「全部資料匯出」 ══════════════ */
+function xlCellValue(td){
+  const c = td.cloneNode(true);
+  c.querySelectorAll('button,script,style,.no-export').forEach(e=>e.remove());
+  // 輸入框、下拉選單換成目前的值
+  const origIns = td.querySelectorAll('input,select,textarea'), cloneIns = c.querySelectorAll('input,select,textarea');
+  cloneIns.forEach((e,i)=>{
+    const o = origIns[i]; let v = '';
+    if(o.tagName==='SELECT') v = o.selectedIndex>=0 ? o.options[o.selectedIndex].text : '';
+    else if(o.type==='checkbox' || o.type==='radio') v = o.checked ? '✓' : '';
+    else v = o.value;
+    e.replaceWith(document.createTextNode(v ? ' '+v+' ' : ''));
+  });
+  c.querySelectorAll('br,div,p,tr').forEach(e=>e.insertAdjacentText('beforebegin',' '));
+  const t = c.textContent.replace(/\s+/g,' ').trim();
+  if(/^-?(0|[1-9]\d*)(\.\d+)?$/.test(t) && t.length < 15) return Number(t);
+  return t;
+}
+function xlFileLabel(){
+  const parts = [];
+  const tab = document.querySelector('.tab.active'); if(tab) parts.push(tab.textContent.replace(/[0-9]+$/,'').trim());
+  const sec = document.querySelector('.sec.active');
+  if(sec){ sec.querySelectorAll('.subtab.active').forEach(st=>{ if(st.offsetParent) parts.push(st.textContent.trim()); }); }
+  return parts.join('_').replace(/[\\/:*?"<>|\s]+/g,'').replace(/[^\p{L}\p{N}_-]/gu,'') || '匯出';
+}
+function exportTableExcel(tbl){
+  const rows = [];
+  tbl.querySelectorAll('tr').forEach(tr=>{
+    if(tr.offsetParent===null && tr.closest('tbody')) return; // 篩選隱藏的列不匯出
+    const cells = [...tr.children].filter(x=>x.tagName==='TD'||x.tagName==='TH');
+    if(!cells.length) return;
+    const row = [];
+    cells.forEach(td=>{ row.push(xlCellValue(td)); const span = parseInt(td.getAttribute('colspan')||'1'); for(let i=1;i<span;i++) row.push(''); });
+    rows.push(row);
+  });
+  if(rows.length < 2){ alert('這張表目前沒有資料可以匯出'); return; }
+  // 去掉整欄都是空白的欄位（例如勾選框、操作按鈕欄）
+  const w = Math.max(...rows.map(r=>r.length));
+  const keep = [...Array(w).keys()].filter(i=>rows.some(r=>r[i]!==undefined && r[i]!==''));
+  const aoa = rows.map(r=>keep.map(i=>r[i]===undefined?'':r[i]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = keep.map((_,ci)=>({ wch: Math.min(50, Math.max(6, ...aoa.map(r=>String(r[ci]).replace(/[^\x00-\xff]/g,'xx').length+2))) }));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '資料');
+  XLSX.writeFile(wb, `${xlFileLabel()}_${todayStr()}.xlsx`);
+}
+function xlInjectButtons(){
+  document.querySelectorAll('.tbl-wrap').forEach(w=>{
+    if(w.dataset.xl || w.closest('#master-panel-accounts') || w.dataset.noexport!==undefined) return;
+    const tbl = w.querySelector('table'); if(!tbl) return;
+    w.dataset.xl = '1';
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;justify-content:flex-end;margin:0 0 4px';
+    bar.innerHTML = '<button type="button" class="btn btn-sm" style="font-size:12px;padding:2px 10px">📥 匯出 Excel</button>';
+    bar.querySelector('button').onclick = () => { const t = w.querySelector('table'); if(t) exportTableExcel(t); };
+    w.parentNode.insertBefore(bar, w);
+  });
+}
+{
+  let xlT = null;
+  const start = () => { xlInjectButtons(); new MutationObserver(()=>{ clearTimeout(xlT); xlT = setTimeout(xlInjectButtons, 300); }).observe(document.body, { childList:true, subtree:true }); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', start); else start();
+}
+
+// 全部資料匯出：選日期區間，一個 Excel、每種資料一個工作表（不含帳號資料）
+const XL_HEAD = { drug_code8:'藥品8碼', tally_name:'品名', product_name:'商品名', niis_name:'NIIS名稱', niis_code:'NIIS代碼', lot_no:'批號', campus:'地點', qty:'數量', tally_date:'盤點日期', tally_qty:'盤點數量', note:'備註', upload_date:'耗用日期', usage_qty:'耗用量', direction:'方向', reason:'原因', tx_date:'日期', target_campus:'目標地點', declare_date:'申報日期', opening_stock:'起始庫存', declared_usage:'申報消耗', other_adjust:'其他異動', closing_stock:'結存後庫存', hold_qty:'保留量', declared_at:'結存時間', first_declare:'第一次結存', applied_adjust:'套用的進出貨', expiry_date:'效期', status:'狀態', current_qty:'現有量', initial_qty:'初始量', year_month:'年月', closing_qty:'月結存', created_at:'建立時間', updated_at:'更新時間', saved_by:'儲存者', created_by:'建立者', uploaded_by:'上傳者', doses_per_vial:'每瓶劑量', whole_vial_deduct:'整瓶扣帳', alias_of:'共用批號品項', dl_reorder_point:'斗六安全量', dl_par_level:'斗六回補目標', hw_reorder_point:'虎尾安全量', hw_par_level:'虎尾回補目標', used_dl:'斗六使用中', used_hw:'虎尾使用中', used_wh:'藥庫使用中', niis_adjusted:'已套用NIIS' };
+const XL_VAL = {
+  campus: { dl:'斗六', hw:'虎尾', wh:'藥庫' }, target_campus: { dl:'斗六', hw:'虎尾', wh:'藥庫' },
+  direction: { in:'撥入', out:'撥出' },
+  reason: { receive_import:'衛生所撥入', return_import:'退回衛生所', wholevial_pull:'整瓶扣帳', correction:'起始庫存校正', receive:'建檔入庫' },
+  status: { active:'使用中', inactive:'停用' }
+};
+function openExportAll(){
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,50,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  const t = todayStr(), f = t.slice(0,8)+'01';
+  ov.innerHTML = `<div style="background:#fff;border-radius:14px;width:100%;max-width:440px;overflow:hidden">
+    <div style="background:#1B3A6B;color:#fff;padding:12px 18px;font-size:16px;font-weight:600">📦 全部資料匯出</div>
+    <div style="padding:16px 18px;font-size:14px;line-height:1.8;color:#333">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">日期 <input type="date" class="inp" id="xa-from" value="${f}" style="width:150px"> ～ <input type="date" class="inp" id="xa-to" value="${t}" style="width:150px"></div>
+      <div style="font-size:12px;color:#888;margin-top:8px">一個 Excel，每種資料一個工作表：疫苗主檔、批號、月結存（全部）；盤點紀錄、批號盤點、耗用、藥庫進出貨、NIIS 結存紀錄（照上面的日期）。</div>
+      <div id="xa-msg" style="font-size:13px;color:#1B3A6B;margin-top:8px"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;padding:10px 18px 14px">
+      <button class="btn" id="xa-cancel">取消</button><button class="btn btn-primary" id="xa-go">📥 匯出</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#xa-cancel').onclick = () => ov.remove();
+  ov.querySelector('#xa-go').onclick = async () => {
+    const from = ov.querySelector('#xa-from').value, to = ov.querySelector('#xa-to').value;
+    if(!from || !to || from > to){ ov.querySelector('#xa-msg').textContent = '請選正確的日期區間'; return; }
+    const btn = ov.querySelector('#xa-go'); btn.disabled = true;
+    try{ await exportAllData(from, to, m => { ov.querySelector('#xa-msg').textContent = m; }); ov.remove(); }
+    catch(e){ ov.querySelector('#xa-msg').textContent = '匯出失敗：'+e.message; btn.disabled = false; }
+  };
+}
+async function exportAllData(from, to, say){
+  const defs = [
+    { name:'疫苗主檔', q:()=>sb.from('vaccine_master').select('*').order('drug_code8') },
+    { name:'批號', q:()=>sb.from('lot_details').select('*').order('drug_code8') },
+    { name:'月結存', q:()=>sb.from('lot_monthly_closing').select('*').order('year_month') },
+    { name:'盤點紀錄', q:()=>sb.from('tally_records').select('*').gte('tally_date', from).lte('tally_date', to).order('tally_date') },
+    { name:'批號盤點', q:()=>sb.from('tally_lot_records').select('*').gte('tally_date', from).lte('tally_date', to).order('tally_date') },
+    { name:'耗用', q:()=>sb.from('usage_uploads').select('*').gte('upload_date', from).lte('upload_date', to).order('upload_date') },
+    { name:'藥庫進出貨', q:()=>sb.from('warehouse_transactions').select('*').gte('tx_date', from).lte('tx_date', to).order('tx_date') },
+    { name:'NIIS結存紀錄', q:()=>sb.from('niis_declare_log').select('*').gte('declare_date', from).lte('declare_date', to).order('declare_date') }
+  ];
+  say('讀取疫苗主檔…');
+  const { data: vm } = await fetchAllRows(defs[0].q);
+  const nameOf = {}; (vm||[]).forEach(v=>{ nameOf[v.drug_code8] = v.tally_name || ''; });
+  const wb = XLSX.utils.book_new();
+  for(const d of defs){
+    say(`讀取${d.name}…`);
+    const { data, error } = d.name==='疫苗主檔' ? { data: vm } : await fetchAllRows(d.q);
+    if(error) throw new Error(`${d.name}：${error.message}`);
+    const rows = data || [];
+    let cols = rows.length ? Object.keys(rows[0]).filter(k=>!/(^id$|_id$|password|pwd)/i.test(k)) : [];
+    const addName = d.name!=='疫苗主檔' && cols.includes('drug_code8');
+    const head = (addName ? ['品名'] : []).concat(cols.map(k=>XL_HEAD[k]||k));
+    const aoa = [head].concat(rows.map(r => (addName ? [nameOf[r.drug_code8]||''] : []).concat(cols.map(k=>{
+      let v = r[k];
+      if(v===null || v===undefined) return '';
+      if(XL_VAL[k] && XL_VAL[k][v]!==undefined) return XL_VAL[k][v];
+      if(typeof v==='boolean') return v ? '是' : '';
+      if(typeof v==='object') return JSON.stringify(v);
+      if(/_at$/.test(k) && typeof v==='string') return fmtDateTime(v) || v;
+      return v;
+    }))));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = head.map((_,ci)=>({ wch: Math.min(40, Math.max(8, ...aoa.slice(0,200).map(r=>String(r[ci]).replace(/[^\x00-\xff]/g,'xx').length+2))) }));
+    XLSX.utils.book_append_sheet(wb, ws, d.name);
+  }
+  say('產生檔案…');
+  XLSX.writeFile(wb, `疫苗系統全部資料_${from}_${to}.xlsx`);
 }
 
 /* ══════════════ 盤點紀錄 ══════════════ */
