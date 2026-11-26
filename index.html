@@ -8363,8 +8363,13 @@ async function renderUploadHistory(){
     sb.from('users').select('emp_id,name'),
     sb.from('usage_uploads').select('upload_date').gte('upload_date', miss7From)
   ]);
-  const { data: bkRows } = await sb.from('stock_upload_backups').select('upload_date,station_code').gte('upload_date', sR.from).lte('upload_date', sR.to);
+  const { data: bkRows } = await sb.from('stock_upload_backups').select('upload_date,station_code,backed_up_at,reason').gte('upload_date', sR.from).lte('upload_date', sR.to).order('backed_up_at', { ascending:false });
   const bkSet = new Set((bkRows||[]).map(b=>b.upload_date+'|'+b.station_code));
+  const bkLatest = {}; (bkRows||[]).forEach(b=>{ const k = b.upload_date+'|'+b.station_code; if(!bkLatest[k]) bkLatest[k] = b; });
+  // 按鈕寫清楚按了會改回哪個版本：「↩ 斗六改回 09:55 覆蓋前」
+  const bkLabel = (d, st) => { const b = bkLatest[d+'|'+st]; if(!b) return ''; const t = new Date(b.backed_up_at); const p2 = n => String(n).padStart(2,'0');
+    const day = `${t.getFullYear()}-${p2(t.getMonth()+1)}-${p2(t.getDate())}`, hm = `${p2(t.getHours())}:${p2(t.getMinutes())}`;
+    return `↩ ${STOCK_ST_LABEL[st]}改回 ${day===todayStr()?'':`${t.getMonth()+1}/${t.getDate()} `}${hm} ${b.reason||'覆蓋'}前`; };
   const miss7Set = new Set((miss7Rows||[]).map(r=>r.upload_date));
   const nameMap = {}; (userRows||[]).forEach(u=>{ nameMap[u.emp_id] = u.name; });
   const namesOf = empIdSet => [...empIdSet].filter(Boolean).map(id => nameMap[id] || id).join('、') || '—';
@@ -8425,7 +8430,7 @@ async function renderUploadHistory(){
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0" onclick="deleteStockDate('${d}','6101')">刪斗六</button>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteStockDate('${d}','6201')">刪虎尾</button>
         <button class="btn btn-sm" style="font-size:13px;color:#A32D2D;border-color:#f0c0c0;margin-left:4px" onclick="deleteStockDate('${d}','6000')">刪藥庫</button>
-        ${['6101','6201','6000'].filter(st=>bkSet.has(d+'|'+st)).map(st=>`<button class="btn btn-sm" style="font-size:13px;margin:4px 4px 0 0" onclick="restoreStock('${d}','${st}')">↩ 還原${STOCK_ST_LABEL[st]}</button>`).join('')}
+        ${['6101','6201','6000'].filter(st=>bkSet.has(d+'|'+st)).map(st=>`<button class="btn btn-sm" style="font-size:13px;margin:4px 4px 0 0" onclick="restoreStock('${d}','${st}')">${bkLabel(d, st)}</button>`).join('')}
       </td>
     </tr>`).join('')}</tbody></table></div>`
     : '<div style="padding:16px;text-align:center;color:#bbb;font-size:14px">近14天尚無上傳紀錄</div>';
