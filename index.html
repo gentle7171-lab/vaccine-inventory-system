@@ -3642,11 +3642,14 @@ async function fetchTallyCheck(force){
   const [{ data: tl }, { data: tr }, { data: vm }, { data: up }] = await Promise.all([
     fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', shiftDate(from,-7)).order('tally_date')),
     fetchAllRows(()=>sb.from('tally_records').select('campus,drug_code8,tally_date,tally_qty').gte('tally_date', shiftDate(today,-45)).order('tally_date')),
-    sb.from('vaccine_master').select('drug_code8,alias_of'),
-    fetchAllRows(()=>sb.from('usage_uploads').select('upload_date').gte('upload_date', from).order('upload_date'))
+    sb.from('vaccine_master').select('drug_code8,alias_of,niis_declare_timing'),
+    fetchAllRows(()=>sb.from('usage_uploads').select('upload_date,drug_code8').gte('upload_date', from).order('upload_date'))
   ]);
-  const uploaded = new Set((up||[]).map(r=>r.upload_date));
-  const canon = {}; (vm||[]).forEach(v=>{ canon[v.drug_code8] = v.alias_of || v.drug_code8; });
+  const canon = {}, timing = {}; (vm||[]).forEach(v=>{ canon[v.drug_code8] = v.alias_of || v.drug_code8; timing[v.drug_code8] = v.niis_declare_timing==='same_day' ? 'same_day' : 'next_day'; });
+  // 耗用上傳要照申報時效分開看：當天申報的品項先傳了，不代表隔天申報的品項那天也傳了
+  const uploadedBy = { same_day:new Set(), next_day:new Set() };
+  (up||[]).forEach(r=>{ uploadedBy[timing[r.drug_code8]||'next_day'].add(r.upload_date); });
+  const uploadedFor = c8 => uploadedBy[timing[c8]||'next_day'];
   const cc = c => canon[c] || c;
   const usual = {}, tot = {}, lotSum = {}, cnt = {};
   (tr||[]).forEach(t=>{
@@ -3665,7 +3668,7 @@ async function fetchTallyCheck(force){
   const fullOn = (c8, d) => usual[c8] && [...usual[c8]].every(c => tot[c8+'|'+c+'|'+d]!==undefined && Math.abs((lotSum[c8+'|'+c+'|'+d]||0) - tot[c8+'|'+c+'|'+d]) < 0.001);
   const allDates = [...new Set((tr||[]).map(t=>t.tally_date))].filter(d=>d>=shiftDate(from,-7)).sort().reverse();
   // 可比的日子：盤齊、而且那天的耗用已經上傳（耗用隔天才上傳，當天盤完先不比）
-  const okDays = c8 => allDates.filter(d => d>=from && fullOn(c8, d) && uploaded.has(d));
+  const okDays = c8 => allDates.filter(d => d>=from && fullOn(c8, d) && uploadedFor(c8).has(d));
   const rptCache = {};
   const rptOn = async d => rptCache[d] || (rptCache[d] = (await renderMonthlyReport({ ym: d.slice(0,7), silent:true, asOf:d })) || []);
   const cur = await renderMonthlyReport({ ym: today.slice(0,7), silent:true }) || [];
