@@ -3536,7 +3536,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
     try{ masterBadgeStaff = (await fetchStaffCampusPending()).pending.length; }catch(e){ masterBadgeStaff = 0; }
     try{ masterBadgeLotEmpty = (await fetchLotEmptyPending()).length; }catch(e){ masterBadgeLotEmpty = 0; }
     try{ masterBadgeMrMis = (me && me.role==='admin') ? (await fetchMrMismatch()).length : 0; }catch(e){ masterBadgeMrMis = 0; }
-    try{ masterBadgeTally = (me && me.role==='admin') ? (await fetchTallyCheck()).list.length : 0; }catch(e){ masterBadgeTally = 0; }
+    try{ masterBadgeTally = (me && me.role==='admin') ? (await fetchTallyCheck()).badge : 0; }catch(e){ masterBadgeTally = 0; }
   }
   if(count===undefined){
     const { data: lots } = await sb.from('lot_details').select('drug_code8,campus,lot_no,status,his_setup');
@@ -3557,7 +3557,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
   if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
-  if(masterBadgeTally) parts.push(`🔍 盤點對不上 <b>${masterBadgeTally}</b> 筆：盤點、NIIS、月報表數字不一樣`);
+  if(masterBadgeTally) parts.push(`🔍 盤點對不上 <b>${masterBadgeTally}</b> 筆：連續 2 天以上盤點、NIIS、月報表數字不一樣`);
   if(masterBadgeMrMis) parts.push(`📊 月報表對不上 <b>${masterBadgeMrMis}</b> 筆：系統結存跟 NIIS 結存不一樣`);
   if(masterBadgeLotEmpty) parts.push(`📦 批號已用完待停用 <b>${masterBadgeLotEmpty}</b> 筆：三個院區燈號都關了，確認後停用`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
@@ -3639,19 +3639,20 @@ let tallyChkCache = null, tallyChkAt = 0;
 async function fetchTallyCheck(force){
   if(!force && tallyChkCache && Date.now()-tallyChkAt < 60000) return tallyChkCache;
   const today = todayStr(), from = shiftDate(today, -21);
-  const [{ data: tl }, { data: tr }, { data: vm }] = await Promise.all([
-    fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', from).order('tally_date')),
+  const [{ data: tl }, { data: tr }, { data: vm }, { data: up }] = await Promise.all([
+    fetchAllRows(()=>sb.from('tally_lot_records').select('campus,drug_code8,lot_no,tally_date,qty').gte('tally_date', shiftDate(from,-7)).order('tally_date')),
     fetchAllRows(()=>sb.from('tally_records').select('campus,drug_code8,tally_date,tally_qty').gte('tally_date', shiftDate(today,-45)).order('tally_date')),
-    sb.from('vaccine_master').select('drug_code8,alias_of')
+    sb.from('vaccine_master').select('drug_code8,alias_of'),
+    fetchAllRows(()=>sb.from('usage_uploads').select('upload_date').gte('upload_date', from).order('upload_date'))
   ]);
+  const uploaded = new Set((up||[]).map(r=>r.upload_date));
   const canon = {}; (vm||[]).forEach(v=>{ canon[v.drug_code8] = v.alias_of || v.drug_code8; });
   const cc = c => canon[c] || c;
-  // 平常有盤這個品項的地點（最近 45 天）、每天每地點的盤點總數、批號明細加總、批號數量
   const usual = {}, tot = {}, lotSum = {}, cnt = {};
   (tr||[]).forEach(t=>{
     const c8 = cc(t.drug_code8);
     (usual[c8] = usual[c8] || new Set()).add(t.campus);
-    if(t.tally_date >= from){ const k = c8+'|'+t.campus+'|'+t.tally_date; tot[k] = (tot[k]||0) + Number(t.tally_qty||0); }
+    if(t.tally_date >= shiftDate(from,-7)){ const k = c8+'|'+t.campus+'|'+t.tally_date; tot[k] = (tot[k]||0) + Number(t.tally_qty||0); }
   });
   (tl||[]).forEach(t=>{
     const c8 = cc(t.drug_code8), k = c8+'|'+t.campus+'|'+t.tally_date;
@@ -3659,46 +3660,93 @@ async function fetchTallyCheck(force){
     const lk = c8+'|'+t.lot_no+'|'+t.tally_date;
     cnt[lk] = cnt[lk] || {}; cnt[lk][t.campus] = (cnt[lk][t.campus]||0) + Number(t.qty||0);
   });
-  // 品項「盤齊」的日子：平常有盤的地點，那天全部都有盤，而且批號明細加起來等於盤點總數
-  const dates = [...new Set((tr||[]).filter(t=>t.tally_date>=from).map(t=>t.tally_date))].sort().reverse();
-  const fullOn = (c8, d) => usual[c8] && [...usual[c8]].every(c => tot[c8+'|'+c+'|'+d]!==undefined && Math.abs((lotSum[c8+'|'+c+'|'+d]||0) - tot[c8+'|'+c+'|'+d]) < 0.001);
-  const pick = {}; // c8 -> 最近一次盤齊的日期
-  Object.keys(usual).forEach(c8=>{ const d = dates.find(d=>fullOn(c8, d)); if(d) pick[c8] = d; });
-  // 依日期分批算月報表（同一天的品項一起算）
-  const cur = await renderMonthlyReport({ ym: today.slice(0,7), silent:true }) || [];
-  const reportCodes = new Set(cur.map(r=>r.code8));
-  const byDay = {};
-  [...reportCodes].forEach(c8=>{ if(pick[c8]) (byDay[pick[c8]] = byDay[pick[c8]] || new Set()).add(c8); });
-  const list = [], skipped = [], nameOf = {};
-  cur.forEach(r=>{ nameOf[r.code8] = r.name; });
   const camps = ['dl','hw','wh'];
-  for(const d of Object.keys(byDay).sort().reverse()){
-    const rows = await renderMonthlyReport({ ym: d.slice(0,7), silent:true, asOf:d }) || [];
-    const codes = byDay[d], seen = new Set();
+  // 盤齊：平常有盤的地點那天都有盤，而且批號明細加總＝盤點總數
+  const fullOn = (c8, d) => usual[c8] && [...usual[c8]].every(c => tot[c8+'|'+c+'|'+d]!==undefined && Math.abs((lotSum[c8+'|'+c+'|'+d]||0) - tot[c8+'|'+c+'|'+d]) < 0.001);
+  const allDates = [...new Set((tr||[]).map(t=>t.tally_date))].filter(d=>d>=shiftDate(from,-7)).sort().reverse();
+  // 可比的日子：盤齊、而且那天的耗用已經上傳（耗用隔天才上傳，當天盤完先不比）
+  const okDays = c8 => allDates.filter(d => d>=from && fullOn(c8, d) && uploaded.has(d));
+  const rptCache = {};
+  const rptOn = async d => rptCache[d] || (rptCache[d] = (await renderMonthlyReport({ ym: d.slice(0,7), silent:true, asOf:d })) || []);
+  const cur = await renderMonthlyReport({ ym: today.slice(0,7), silent:true }) || [];
+  const reportCodes = new Set(cur.map(r=>r.code8)), nameOf = {};
+  cur.forEach(r=>{ nameOf[r.code8] = r.name; });
+  const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
+  // 某品項某天，每個批號的三個數字；只回傳對不上的批號
+  const mismatchesOn = async (c8, d) => {
+    const rows = (await rptOn(d)).filter(r=>r.code8===c8);
+    const out = [], seen = new Set();
     rows.forEach(r=>{
-      if(!codes.has(r.code8)) return;
-      seen.add(r.code8+'|'+r.lotNo);
-      if(r.sysAtDay===null || !r.niisAtDay) return;
-      const by = cnt[r.code8+'|'+r.lotNo+'|'+d] || {}, tally = Math.round(camps.reduce((a,c)=>a+(by[c]||0),0)*100)/100;
-      if(r.niisStale){ if(tally>0 || r.sysAtDay>0) skipped.push({ name:r.name, lotNo:r.lotNo, why:`NIIS 還沒結存到 ${+d.slice(5,7)}/${+d.slice(8,10)}` }); return; }
+      seen.add(r.lotNo);
+      if(r.sysAtDay===null || !r.niisAtDay || r.niisStale) return;
+      const by = cnt[c8+'|'+r.lotNo+'|'+d] || {}, tally = Math.round(camps.reduce((a,c)=>a+(by[c]||0),0)*100)/100;
       const niis = r.niisAtDay.vials, sys = r.sysAtDay;
       if(Math.abs(tally-niis)<0.001 && Math.abs(tally-sys)<0.001) return;
-      list.push({ date:d, name:r.name, lotNo:r.lotNo, by, tally, niis, niisDate:r.niisAtDay.date, sys });
+      out.push({ lotNo:r.lotNo, by, tally, niis, sys, niisDate:r.niisAtDay.date });
     });
-    Object.keys(cnt).forEach(lk=>{ // 有盤到、但月報表沒有的批號
-      const ps = lk.split('|'), dd = ps.pop(), c8 = ps[0], lot = ps.slice(1).join('|');
-      if(dd!==d || !codes.has(c8) || seen.has(c8+'|'+lot)) return;
+    Object.keys(cnt).forEach(lk=>{
+      const ps = lk.split('|'), dd = ps.pop(); if(dd!==d || ps[0]!==c8) return;
+      const lot = ps.slice(1).join('|'); if(seen.has(lot)) return;
       const by = cnt[lk], tally = camps.reduce((a,c)=>a+(by[c]||0),0);
-      if(tally>0) list.push({ date:d, name:nameOf[c8]||c8, lotNo:lot, by, tally, niis:null, sys:null });
+      if(tally>0) out.push({ lotNo:lot, by, tally, niis:null, sys:null });
+    });
+    return out;
+  };
+  const list = [], skipped = [];
+  for(const c8 of [...reportCodes]){
+    if(!usual[c8]) continue;
+    const days = okDays(c8);
+    if(!days.length){
+      const latestFull = allDates.find(d=>d>=from && fullOn(c8, d));
+      const need = camps.filter(c=>usual[c8].has(c)).map(c=>CAMPUS_LABEL[c]).join('、');
+      skipped.push({ name:nameOf[c8]||c8, lotNo:'', why: latestFull ? `${md(latestFull)} 耗用還沒上傳` : `最近 21 天沒有一天${need}都分批號盤齊` });
+      continue;
+    }
+    const d = days[0], mm = await mismatchesOn(c8, d);
+    if(!mm.length) continue;
+    // D：前一個可比的日子是不是也對不上（同一個批號）
+    let prevBad = new Set();
+    if(days[1]){ (await mismatchesOn(c8, days[1])).forEach(x=>prevBad.add(x.lotNo)); }
+    // C：前一次盤點（不管有沒有盤齊）各地點的數量
+    const prevTally = (lot, campus) => {
+      const ds = Object.keys(cnt).filter(lk=>lk.startsWith(c8+'|'+lot+'|')).map(lk=>lk.split('|').pop()).filter(x=>x<d).sort().reverse();
+      for(const pd of ds){ const v = (cnt[c8+'|'+lot+'|'+pd]||{})[campus]; if(campus===undefined || v!==undefined) return { d:pd, v: campus===undefined ? cnt[c8+'|'+lot+'|'+pd] : v }; }
+      return null;
+    };
+    const lastTallyDay = campus => { const ds = Object.keys(tot).filter(k=>k.startsWith(c8+'|'+campus+'|')).map(k=>k.split('|').pop()).filter(x=>x<d).sort().reverse(); return ds[0] || null; };
+    const used = new Set();
+    // A：一多一少、差數一樣、NIIS＝月報表 → 疑似盤錯批號
+    const swapable = mm.filter(x=>x.niis!==null && Math.abs(x.niis-x.sys)<0.001);
+    for(const over of swapable.filter(x=>x.tally>x.niis)){
+      const under = swapable.find(y=>!used.has(y.lotNo) && y!==over && Math.abs((y.niis-y.tally)-(over.tally-over.niis))<0.001);
+      if(!under || used.has(over.lotNo)) continue;
+      used.add(over.lotNo); used.add(under.lotNo);
+      const n = Math.round((over.tally-over.niis)*100)/100;
+      const who = camps.filter(c=>(over.by[c]||0)>0);
+      const whoTxt = who.length===1 ? CAMPUS_LABEL[who[0]] : (who.map(c=>CAMPUS_LABEL[c]).join('或') || '');
+      const pdC = who.length===1 ? who[0] : null;
+      let prevLine = '';
+      if(pdC){ const pd = lastTallyDay(pdC); if(pd) prevLine = `${CAMPUS_LABEL[pdC]}前一次（${md(pd)}）：${over.lotNo} ${(cnt[c8+'|'+over.lotNo+'|'+pd]||{})[pdC]||0}、${under.lotNo} ${(cnt[c8+'|'+under.lotNo+'|'+pd]||{})[pdC]||0}`; }
+      list.push({ date:d, name:nameOf[c8]||c8, kind:'swap', lots:[over, under],
+        lines:[`${whoTxt?whoTxt+' ':''}${over.lotNo} 多 ${n}`, `${under.lotNo} 少 ${n}`, `實品問題，請${whoTxt||''}覆盤批號`],
+        prevLine, consec: (prevBad.has(over.lotNo) && prevBad.has(under.lotNo)) ? 2 : 1 });
+    }
+    // B：其他對不上的批號，判斷是實品還是帳的問題
+    mm.filter(x=>!used.has(x.lotNo)).forEach(x=>{
+      const f = v => Math.round(Math.abs(v)*100)/100, dir = v => v>0 ? '多' : '少';
+      let kind, lines;
+      if(x.niis===null){ kind = 'other'; lines = ['月報表沒有這個批號', '請確認批號有沒有建檔、盤點的批號有沒有打錯']; }
+      else if(Math.abs(x.niis-x.sys)<0.001){ kind = 'stock'; lines = [`盤點比帳${dir(x.tally-x.niis)} ${f(x.tally-x.niis)}`, 'NIIS＝月報表 → 實品問題，請覆盤']; }
+      else if(Math.abs(x.tally-x.sys)<0.001){ kind = 'book'; lines = [`NIIS ${dir(x.niis-x.tally)} ${f(x.niis-x.tally)}`, '盤點＝月報表 → 帳的問題，請查 NIIS 申報']; }
+      else if(Math.abs(x.tally-x.niis)<0.001){ kind = 'book'; lines = [`月報表 ${dir(x.sys-x.tally)} ${f(x.sys-x.tally)}`, '盤點＝NIIS → 帳的問題，請查耗用上傳或進出貨']; }
+      else { kind = 'both'; lines = [`NIIS ${dir(x.niis-x.tally)} ${f(x.niis-x.tally)}、月報表 ${dir(x.sys-x.tally)} ${f(x.sys-x.tally)}`, '三個都不一樣 → 先查帳，再覆盤']; }
+      const p = prevTally(x.lotNo);
+      const prevLine = p ? `前一次盤點（${md(p.d)}）：${camps.filter(c=>p.v[c]!==undefined).map(c=>`${CAMPUS_LABEL[c]} ${p.v[c]}`).join('、')}` : '';
+      list.push({ date:d, name:nameOf[c8]||c8, kind, lots:[x], lines, prevLine, consec: prevBad.has(x.lotNo) ? 2 : 1 });
     });
   }
-  // 沒比到的品項：最近 21 天沒有一天盤齊
-  [...reportCodes].forEach(c8=>{
-    if(pick[c8] || !usual[c8]) return;
-    const need = ['dl','hw','wh'].filter(c=>usual[c8].has(c)).map(c=>CAMPUS_LABEL[c]).join('、');
-    skipped.push({ name:nameOf[c8]||c8, lotNo:'', why:`最近 21 天沒有一天${need}都分批號盤齊` });
-  });
-  tallyChkCache = { list, skipped, camps }; tallyChkAt = Date.now();
+  list.sort((a,b)=>(b.consec-a.consec) || a.name.localeCompare(b.name));
+  tallyChkCache = { list, skipped, camps, badge: list.filter(x=>x.consec>=2).length }; tallyChkAt = Date.now();
   return tallyChkCache;
 }
 async function renderTallyChkPanel(){
@@ -3708,20 +3756,30 @@ async function renderTallyChkPanel(){
   const body = document.getElementById('tallychk-panel-body');
   body.innerHTML = '<div style="padding:12px;text-align:center;color:#bbb">檢查中...</div>';
   let res; try{ res = await fetchTallyCheck(true); }catch(e){ body.innerHTML = `<div style="color:#A32D2D;font-size:13px">檢查失敗：${e.message}</div>`; return; }
-  const { list, skipped, camps } = res;
+  const { list, skipped, camps, badge } = res;
   const md = d => `${+d.slice(5,7)}/${+d.slice(8,10)}`;
   document.getElementById('tallychk-count-badge').textContent = list.length ? `（${list.length}筆）` : '';
-  document.getElementById('tallychk-sub').textContent = '每個品項用最近一次「平常有盤的地點都同一天分批號盤齊」的那天：批號盤點合計、NIIS 結存、月報表結存，不一樣的列出來。';
-  masterBadgeTally = list.length; refreshMasterTabBadge(masterBadgeHis);
+  document.getElementById('tallychk-sub').textContent = '每個品項用「耗用已上傳、平常有盤的地點都同一天分批號盤齊」的最近一天來比。';
+  masterBadgeTally = badge; refreshMasterTabBadge(masterBadgeHis);
   const v = x => (x===null||x===undefined) ? '<span style="color:#bbb">—</span>' : x;
-  const diff = (a,b,lab) => (a===null||b===null||Math.abs(a-b)<0.001) ? '' : `${lab}${a-b>0?'多':'少'} ${Math.round(Math.abs(a-b)*100)/100}`;
+  const tag = { swap:['疑似盤錯批號','#FDECEC','#A32D2D'], stock:['實品問題','#FFF4E0','#8A5A12'], book:['帳的問題','#EEF2F8','#1B3A6B'], both:['帳和實品都要查','#FDECEC','#A32D2D'], other:['批號問題','#F2F2F2','#555'] };
+  const stack = arr => arr.map(x=>`<div style="line-height:1.9">${x}</div>`).join('');
   let h = list.length ? `<div class="tbl-wrap"><table data-nosort style="font-size:15px">
-    <thead><tr><th class="c">盤點日</th><th>品項</th><th>批號</th>${camps.map(c=>`<th class="c">${CAMPUS_LABEL[c]}</th>`).join('')}<th class="c">盤點合計</th><th class="c">NIIS 結存</th><th class="c">月報表結存</th><th>差異</th></tr></thead>
-    <tbody>${list.map(r=>`<tr><td class="c">${md(r.date)}</td><td>${r.name}</td><td style="font-family:monospace;font-size:14px">${r.lotNo}</td>
-      ${camps.map(c=>`<td class="c">${r.by[c]!==undefined?r.by[c]:'<span style="color:#bbb">—</span>'}</td>`).join('')}
-      <td class="c" style="font-weight:700">${r.tally}</td><td class="c">${v(r.niis)}${r.niisDate&&r.niisDate!==r.date?`<div style="font-size:11px;color:#bbb">${md(r.niisDate)}</div>`:''}</td><td class="c">${v(r.sys)}</td>
-      <td style="color:#A32D2D;font-size:13px">${r.niis===null&&r.sys===null?'月報表沒有這個批號':[diff(r.niis,r.tally,'NIIS '),diff(r.sys,r.tally,'月報表 ')].filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table></div>
-    <div style="font-size:12px;color:#999;margin-top:4px">「多／少」是跟盤點合計比。「—」＝那個地點當天沒盤到這個批號（算 0）。</div>`
+    <thead><tr><th class="c">盤點日</th><th>品項／批號</th><th class="c">盤點</th><th class="c">NIIS</th><th class="c">月報表</th><th>判斷</th></tr></thead>
+    <tbody>${list.map(r=>{ const t = tag[r.kind];
+      return `<tr style="${r.consec>=2?'background:#FFFBF0':''}">
+      <td class="c" style="vertical-align:top">${md(r.date)}</td>
+      <td style="vertical-align:top"><div style="line-height:1.9">${r.name}</div>${r.lots.map(x=>`<div style="font-family:monospace;font-size:13px;color:#555;line-height:1.9">${x.lotNo}</div><div style="font-size:11px;line-height:1.3;margin-bottom:4px">&nbsp;</div>`).join('')}</td>
+      <td class="c" style="vertical-align:top;font-weight:700"><div style="line-height:1.9">&nbsp;</div>${r.lots.map(x=>`<div style="line-height:1.9">${x.tally}</div><div style="font-size:11px;font-weight:400;color:#999;line-height:1.3;margin-bottom:4px">${camps.filter(c=>x.by[c]).map(c=>`${CAMPUS_LABEL[c]} ${x.by[c]}`).join('・')||'沒盤到'}</div>`).join('')}</td>
+      <td class="c" style="vertical-align:top"><div style="line-height:1.9">&nbsp;</div>${r.lots.map(x=>`<div style="line-height:1.9">${v(x.niis)}</div><div style="font-size:11px;line-height:1.3;margin-bottom:4px">&nbsp;</div>`).join('')}</td>
+      <td class="c" style="vertical-align:top"><div style="line-height:1.9">&nbsp;</div>${r.lots.map(x=>`<div style="line-height:1.9">${v(x.sys)}</div><div style="font-size:11px;line-height:1.3;margin-bottom:4px">&nbsp;</div>`).join('')}</td>
+      <td style="vertical-align:top;font-size:14px;line-height:1.7">
+        <span style="background:${t[1]};color:${t[2]};padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600">${t[0]}</span>
+        <span style="font-size:12px;color:${r.consec>=2?'#A32D2D':'#999'};margin-left:4px">${r.consec>=2?'連續 2 天以上':'第 1 天'}</span>
+        ${r.lines.map(l=>`<div>${l}</div>`).join('')}
+        ${r.prevLine?`<div style="font-size:12px;color:#999">${r.prevLine}</div>`:''}
+      </td></tr>`; }).join('')}</tbody></table></div>
+    <div style="font-size:12px;color:#999;margin-top:6px;line-height:1.7">紅色數字只算「連續 2 天以上」的；第 1 天的先列出來，可能只是一時打錯。<br>「盤點」下面的小字是各地點當天盤的數量。</div>`
     : '<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">有比到的品項都對得上</div>';
   if(skipped.length) h += `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#666">這次沒比到的品項（${skipped.length}）</summary>
     <div style="font-size:13px;color:#666;margin-top:6px;line-height:1.8">${skipped.map(x=>`${x.name}${x.lotNo?`<span style="font-family:monospace;margin-left:6px">${x.lotNo}</span>`:''}：<span style="color:#999">${x.why}</span>`).join('<br>')}</div></details>`;
