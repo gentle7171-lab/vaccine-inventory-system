@@ -3557,7 +3557,7 @@ async function refreshMasterTabBadge(count, labCount, manualCount, staffCount){
   if(masterBadgeHis) parts.push(`🆕 待設定批號（院內系統）<b>${masterBadgeHis}</b> 筆：新批號還沒到院內系統設定，調劑端會選不到`);
   if(masterBadgeLab) parts.push(`🧾 待收檢驗單 <b>${masterBadgeLab}</b> 筆：有耗用但檢驗單還沒標記收齊`);
   if(masterBadgeStaff) parts.push(`🏥 員工院區待登記 <b>${masterBadgeStaff}</b> 筆：員工品項的斗六／虎尾還沒登記`);
-  if(masterBadgeTally) parts.push(`🔍 盤點對不上 <b>${masterBadgeTally}</b> 筆：連續 2 天以上盤點、NIIS、月報表數字不一樣`);
+  if(masterBadgeTally) parts.push(`🔍 盤點對不上 <b>${masterBadgeTally}</b> 筆：盤點、NIIS、月報表數字不一樣`);
   if(masterBadgeMrMis) parts.push(`📊 月報表對不上 <b>${masterBadgeMrMis}</b> 筆：系統結存跟 NIIS 結存不一樣`);
   if(masterBadgeLotEmpty) parts.push(`📦 批號已用完待停用 <b>${masterBadgeLotEmpty}</b> 筆：三個院區燈號都關了，確認後停用`);
   if(masterBadgeManual) parts.push(`✏️ 手動修改待確認 <b>${masterBadgeManual}</b> 筆：耗用數量改過，還沒確認醫療端已補帳／刪處方`);
@@ -3749,7 +3749,7 @@ async function fetchTallyCheck(force){
     });
   }
   list.sort((a,b)=>(b.consec-a.consec) || a.name.localeCompare(b.name));
-  tallyChkCache = { list, skipped, camps, badge: list.filter(x=>x.consec>=2).length }; tallyChkAt = Date.now();
+  tallyChkCache = { list, skipped, camps, badge: list.length }; tallyChkAt = Date.now();
   return tallyChkCache;
 }
 async function renderTallyChkPanel(){
@@ -3782,7 +3782,7 @@ async function renderTallyChkPanel(){
         ${r.lines.map(l=>`<div>${l}</div>`).join('')}
         ${r.prevLine?`<div style="font-size:12px;color:#999">${r.prevLine}</div>`:''}
       </td></tr>`; }).join('')}</tbody></table></div>
-    <div style="font-size:12px;color:#999;margin-top:6px;line-height:1.7">紅色數字只算「連續 2 天以上」的；第 1 天的先列出來，可能只是一時打錯。<br>「盤點」下面的小字是各地點當天盤的數量。</div>`
+    <div style="font-size:12px;color:#999;margin-top:6px;line-height:1.7">「第 1 天／連續 2 天以上」是對不上的天數，連續好幾天的排在最上面。<br>「盤點」下面的小字是各地點當天盤的數量。</div>`
     : '<div style="padding:12px;text-align:center;color:#bbb;font-size:14px">有比到的品項都對得上</div>';
   if(skipped.length) h += `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#666">這次沒比到的品項（${skipped.length}）</summary>
     <div style="font-size:13px;color:#666;margin-top:6px;line-height:1.8">${skipped.map(x=>`${x.name}${x.lotNo?`<span style="font-family:monospace;margin-left:6px">${x.lotNo}</span>`:''}：<span style="color:#999">${x.why}</span>`).join('<br>')}</div></details>`;
